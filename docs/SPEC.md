@@ -10,6 +10,15 @@ A free, open-source desktop app that gives producers and DJs the paid cloud tool
 | Master | FL Cloud mastering, LANDR, eMastered |
 | Stems | Moises, LALAL.AI |
 | Controller + VirtualDJ export | Manual cue prep in DJ software |
+| Performance mode (v0.2+) | VirtualDJ (the goal: play full sets in Cratekit) |
+
+## Vision
+
+Cratekit grows in phases:
+
+1. **v0.1: prep tool.** Everything a DJ needs to prepare sets next to their DJ software: analysis, mastering, stems, cues, a set builder, controller support and VirtualDJ export (Modules 1 to 7).
+2. **v0.2+: Performance mode.** Two decks, mixer, sync, effects and recording, so a DJ can play a full set in Cratekit and replace VirtualDJ (Module 8).
+3. **Long term: production.** Replacing a DAW such as FL Studio is a vision, not a plan; it would be scoped as its own project after the DJ app is proven.
 
 ## Users
 
@@ -19,8 +28,8 @@ A free, open-source desktop app that gives producers and DJs the paid cloud tool
 
 ## Out of scope
 
-- Live mixing / two-deck performance (VirtualDJ, Mixxx do that)
-- A DAW, VST hosting, recording
+- For v0.1: live mixing and two-deck performance (planned for v0.2+, Module 8)
+- A DAW: sequencer, piano roll, VST/plugin hosting, multitrack recording (long-term vision only)
 - Streaming or YouTube downloads
 - Cloud sync, accounts, telemetry
 
@@ -36,6 +45,7 @@ The app keeps a local library of tracks the user adds. Original files are never 
 - Crates: user-made lists of tracks (a track can be in several crates). Each crate has a name and a colour.
 - Track list columns: #, title, artist, BPM, key (Camelot), energy, duration, status tags (analyzed / stems / mastered).
 - Search by title, artist, BPM range, key.
+- **Set builder (side list):** a second list next to the track browser to stage tracks and build a set's running order: drag tracks in, reorder, see BPM and Camelot per row with key or BPM jumps flagged between neighbours, save as a crate. (Test DJ feedback: "missing 2nd playlist".)
 - Filters: "matches the playing track's key", BPM range, "has stems".
 
 **Acceptance**
@@ -114,6 +124,7 @@ The app keeps a local library of tracks the user adds. Original files are never 
 - Buttons: Note On (velocity > 0) or CC (value crosses 64). Knobs/faders: CC 0 to 127.
 - LED feedback where the controller supports it (pad lights for hot cues set, stems muted).
 - Keyboard fallback: Space play, C cue, 1 to 8 hot cues, Q/W/E/R stem mutes, B A/B.
+- **DJ filter knob on the deck** (low-pass left, high-pass right, transparent at centre), also on keyboard and MIDI. (Test DJ feedback: "missing filter".)
 - Ship a default mapping only for controllers we can test (first: Pioneer DDJ-FLX4).
 
 **Acceptance**
@@ -145,6 +156,24 @@ The app keeps a local library of tracks the user adds. Original files are never 
 - Switching the audio output device while a track plays resumes playback on the new device without restarting the app.
 - Unplugging the active audio device falls back to the system default and shows a notice.
 - All settings survive an app restart.
+
+## Module 8: Performance mode (v0.2+)
+
+The step from prep tool to VirtualDJ replacement. Built after v0.1 ships; the v0.1 engine and UI are designed so these fit (deck ids, FX slots, reusable deck component).
+
+**Features**
+- Two decks (A and B) playing at once; the prep deck becomes deck A.
+- Mixer: per-channel trim, 3-band EQ with kill, channel faders, crossfader with curve setting.
+- Headphone cue (pre-listen) on a second output, e.g. the controller's headphones.
+- Beat sync and key lock (needs a GPL-free time-stretcher: research first).
+- Effects: per-deck FX slots (echo, reverb, flanger, beat-synced FX), dry/wet. (Test DJ feedback: "missing effect".)
+- Loops: auto loops (1/8 to 32 beats), loop in/out, loop roll, quantized to the beat grid.
+- Record the mix to WAV.
+- Full controller mapping (DDJ-FLX4 first): jogs, pitch faders, mixer, FX, loops, LED feedback.
+
+**Acceptance (gate for v0.2)**
+- The test DJ plays a full set with Cratekit instead of VirtualDJ.
+- No audible dropouts over a 2-hour set on a laptop CPU; controller to sound under 20 ms.
 
 ## Non-functional
 

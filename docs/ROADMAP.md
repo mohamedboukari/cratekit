@@ -46,6 +46,8 @@ v0.1 in about 8 weeks of part-time work. Each phase ends with a gate: the test D
 - [ ] UI: typed IPC layer (`ui/src/lib/ipc.ts`) (#16)
 - [ ] UI: window layout from `ui-preview.html` (sidebar, deck, tabs, track browser, status bar) (#17)
 - [ ] UI: Analyze tab (key, chroma bars, mixes-well-with chips) (#18)
+- [ ] Set builder: side list to stage tracks and build a set (#55)
+- [ ] DJ filter knob on the deck (#56)
 - [ ] Playback: load, play/pause, seek, waveform playhead (canvas, outside React renders) (#19)
 - [ ] Audio output device selection + hot-plug fallback to the system default (#20)
 - [ ] UI: Settings screen (audio output, watched folders, output folder) (#21)
@@ -90,6 +92,23 @@ Stems
 - [ ] Launch: Show HN, r/DJs, r/WeAreTheMusicMakers, VirtualDJ forum (#46)
 
 **Gate:** the DJ uses Cratekit every week to prepare his sets → tag **v0.1** and publish.
+
+## v0.2: Performance mode
+
+Toward replacing VirtualDJ (SPEC Module 8). Starts after v0.1 ships.
+
+- [ ] **Research:** GPL-free time-stretching for beat sync and key lock (#57)
+- [ ] Deck-aware engine and a second deck (#58)
+- [ ] Mixer: gain, 3-band EQ, channel faders, crossfader (#59)
+- [ ] Headphone cue (pre-listen) on a second output (#60)
+- [ ] Beat sync and key lock (#61)
+- [ ] Effects: echo, reverb, flanger and beat-synced FX (#62)
+- [ ] Loops: auto loop, loop in/out, loop roll (#63)
+- [ ] Record the mix to WAV (#64)
+- [ ] Full DDJ-FLX4 mapping for performance (#65)
+- [ ] Performance mode UI: two decks, mixer, FX (#66)
+
+**Gate:** the test DJ plays a full set with Cratekit instead of VirtualDJ.
 
 ## Later
 
