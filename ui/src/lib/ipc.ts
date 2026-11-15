@@ -29,6 +29,7 @@ import type {
   JobProgress,
   LibraryCounts,
   LibraryQuery,
+  MasterPreset,
   MasterResult,
   MasterSettings,
   MeterReading,
@@ -41,6 +42,7 @@ import type {
   Settings,
   StemName,
   StemsBackendStatus,
+  StemsInfo,
   TrackDetail,
   TrackId,
   TrackRow,
@@ -83,20 +85,25 @@ export interface CratekitApi {
   playbackSetMode(mode: PlaybackMode): Promise<void>;
   /** DJ filter: -1 full low-pass, 0 off, +1 full high-pass. */
   playbackSetFilter(value: number): Promise<void>;
+  /** A/B compare at equal loudness, so "louder" does not win (default on). */
+  playbackSetLevelMatch(enabled: boolean): Promise<void>;
 
   // Stems
   stemsSplit(id: TrackId): Promise<JobId>;
   stemsSetGain(stem: StemName, gain: number): Promise<void>;
   stemsSetMute(stem: StemName, muted: boolean): Promise<void>;
+  stemsSetSolo(stem: StemName, soloed: boolean): Promise<void>;
   stemsBackendStatus(): Promise<StemsBackendStatus>;
+  /** Split time and per-stem waveforms; null when the track has no stems yet. */
+  stemsInfo(id: TrackId): Promise<StemsInfo | null>;
+  /** Writes one WAV per stem into the output folder; returns the file paths. */
+  stemsExport(id: TrackId): Promise<string[]>;
 
   // Mastering
+  masterPresets(): Promise<MasterPreset[]>;
   masterPreview(id: TrackId, settings: MasterSettings): Promise<void>;
-  masterExport(
-    id: TrackId,
-    settings: MasterSettings,
-    path: string,
-  ): Promise<MasterResult>;
+  /** Renders the master into the output folder (settings) and measures it. */
+  masterExport(id: TrackId, settings: MasterSettings): Promise<MasterResult>;
 
   // Cues
   hotcueSet(id: TrackId, slot: CueSlot, sec: number): Promise<void>;
@@ -106,6 +113,7 @@ export interface CratekitApi {
   midiListDevices(): Promise<MidiDevice[]>;
   midiLearnStart(target: ControlTarget): Promise<void>;
   midiLearnCancel(): Promise<void>;
+  /** One row per control target; `binding` is null when the target is not mapped. */
   midiMappings(deviceId: string): Promise<MidiMapping[]>;
 
   // Export

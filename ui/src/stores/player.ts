@@ -6,6 +6,8 @@ import type { CueSlot, PlaybackMode, TrackDetail, TrackId } from "@/lib/types";
 
 /** Only the newest load may update the deck or the engine (clicks can overlap). */
 let loadSeq = 0;
+/** Only the newest mode request may roll back on failure. */
+let modeSeq = 0;
 
 /**
  * Deck state that changes at human speed. The playhead position and meters
@@ -14,6 +16,8 @@ let loadSeq = 0;
  */
 interface PlayerState {
   detail: TrackDetail | null;
+  /** Counts successful loads (loading the same track again is a new load too). */
+  loadCount: number;
   playing: boolean;
   mode: PlaybackMode;
   /** DJ filter: -1 low-pass, 0 off, +1 high-pass. */
@@ -32,6 +36,8 @@ interface PlayerState {
   clearHotCue: (slot: CueSlot) => Promise<void>;
   /** Rust reports a playback state change (e.g. the track reached its end). */
   onPlaybackState: (playing: boolean) => void;
+  /** Re-reads the loaded track (after a job changed its analysis or stems). */
+  refresh: () => Promise<void>;
 }
 
 export const usePlayer = create<PlayerState>()((set, get) => {
@@ -44,7 +50,15 @@ export const usePlayer = create<PlayerState>()((set, get) => {
   }
 
   return {
+    refresh: async () => {
+      try {
+        await refreshDetail();
+      } catch (error) {
+        notifyError(error, "Could not refresh the track");
+      }
+    },
     detail: null,
+    loadCount: 0,
     playing: false,
     mode: "original",
     filter: 0,
@@ -56,7 +70,7 @@ export const usePlayer = create<PlayerState>()((set, get) => {
         if (seq !== loadSeq) return;
         await api().playbackLoad(id);
         if (seq !== loadSeq) return;
-        set({ detail, playing: false });
+        set({ detail, playing: false, loadCount: get().loadCount + 1 });
       } catch (error) {
         if (seq !== loadSeq) return;
         notifyError(error, "Could not load the track");
@@ -83,11 +97,16 @@ export const usePlayer = create<PlayerState>()((set, get) => {
       }
     },
 
+    // Optimistic: the store always holds the last requested mode, so quick
+    // toggles compare against what was asked for, not an older answer.
     setMode: async (mode) => {
+      const previous = get().mode;
+      const seq = ++modeSeq;
+      set({ mode });
       try {
         await api().playbackSetMode(mode);
-        set({ mode });
       } catch (error) {
+        if (seq === modeSeq) set({ mode: previous });
         notifyError(error, "Could not switch what you hear");
       }
     },

@@ -44,6 +44,7 @@ export const useJobs = create<JobsState>()((set, get) => ({
           id: p.jobId,
           kind: p.kind,
           label: p.label,
+          trackIds: p.trackIds,
           done: p.done,
           total: p.total,
           state: s.paused ? "paused" : "running",

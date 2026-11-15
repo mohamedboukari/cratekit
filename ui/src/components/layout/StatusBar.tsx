@@ -3,16 +3,11 @@ import { useEffect, useState, type JSX } from "react";
 
 import { Button } from "@/components/ui/button";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { BACKEND_LABEL } from "@/lib/format";
 import { api } from "@/lib/ipc";
 import type { Job } from "@/lib/types";
 import { useDevices } from "@/stores/devices";
 import { activeJobs, useJobs } from "@/stores/jobs";
-
-const BACKEND_LABEL = {
-  coreml: "GPU: CoreML",
-  directml: "GPU: DirectML",
-  cpu: "CPU",
-} as const;
 
 function percent(job: Job): number {
   return job.total > 0 ? Math.round((job.done / job.total) * 100) : 0;

@@ -68,6 +68,8 @@ export interface Analysis {
   firstBeatSec: number;
   /** 12 values, C to B, 0 to 1. */
   chroma: number[];
+  /** 12 flags, C to B: the pitch classes of the detected key's scale (computed in Rust). */
+  chromaInKey: boolean[];
   /** Camelot codes that mix well with this track (computed in Rust). */
   mixesWellWith: string[];
   dropSec: number | null;
@@ -120,6 +122,8 @@ export interface Job {
   id: JobId;
   kind: JobKind;
   label: string;
+  /** Tracks this job works on (empty for jobs such as a model download). */
+  trackIds: TrackId[];
   done: number;
   total: number;
   state: JobState;
@@ -129,6 +133,8 @@ export interface JobProgress {
   jobId: JobId;
   kind: JobKind;
   label: string;
+  /** Tracks this job works on (empty for jobs such as a model download). */
+  trackIds: TrackId[];
   done: number;
   total: number;
 }
@@ -170,6 +176,16 @@ export interface MasterSettings {
   bitDepth: 16 | 24;
 }
 
+/** A mastering preset as Rust defines it (parameters in docs/ARCHITECTURE.md). */
+export interface MasterPreset {
+  name: PresetName;
+  label: string;
+  /** Default loudness target for this preset. */
+  targetLufs: number;
+  /** One line for the UI, e.g. "Punchy low end, bright top". */
+  description: string;
+}
+
 export interface MasterResult {
   path: string;
   lufs: number;
@@ -208,6 +224,8 @@ export interface MidiMapping {
 export interface MidiLearned {
   target: ControlTarget;
   binding: MidiBinding;
+  /** The target that used this control before; Rust moved the binding here. */
+  replaced: ControlTarget | null;
 }
 
 export interface ControlEvent {
@@ -226,6 +244,15 @@ export interface AudioDevice {
 export interface AudioDeviceChanged {
   id: string;
   reason: "selected" | "unplugged" | "default-changed";
+}
+
+/** Split stems of one track (null from `stems_info` when not split yet). */
+export interface StemsInfo {
+  /** How long the split took, in seconds. */
+  splitSec: number;
+  waveforms: Record<StemName, Waveform>;
+  /** Drums, bass and other summed (the 2-stem layout), computed in Rust. */
+  instrumental: Waveform;
 }
 
 export type StemsBackendPreference = "auto" | "cpu";

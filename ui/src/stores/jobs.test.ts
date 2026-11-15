@@ -17,7 +17,14 @@ describe("jobs store", () => {
 
   it("tracks progress, then drops finished jobs after a short delay", () => {
     const { onProgress, onDone } = useJobs.getState();
-    onProgress({ jobId: "j1", kind: "analysis", label: "Analyzing", done: 1, total: 4 });
+    onProgress({
+      jobId: "j1",
+      kind: "analysis",
+      label: "Analyzing",
+      trackIds: [],
+      done: 1,
+      total: 4,
+    });
     expect(activeJobs(useJobs.getState().jobs)).toHaveLength(1);
     onDone({ jobId: "j1", kind: "analysis" });
     expect(useJobs.getState().jobs["j1"]?.state).toBe("done");
@@ -27,9 +34,14 @@ describe("jobs store", () => {
   });
 
   it("pauses and resumes running jobs", async () => {
-    useJobs
-      .getState()
-      .onProgress({ jobId: "j2", kind: "stems", label: "Splitting", done: 2, total: 20 });
+    useJobs.getState().onProgress({
+      jobId: "j2",
+      kind: "stems",
+      label: "Splitting",
+      trackIds: [],
+      done: 2,
+      total: 20,
+    });
     await useJobs.getState().setPaused(true);
     expect(useJobs.getState().jobs["j2"]?.state).toBe("paused");
     await useJobs.getState().setPaused(false);
@@ -38,9 +50,23 @@ describe("jobs store", () => {
 
   it("keeps a cancelled job gone when late progress arrives", async () => {
     const { onProgress } = useJobs.getState();
-    onProgress({ jobId: "j3", kind: "analysis", label: "Analyzing", done: 1, total: 9 });
+    onProgress({
+      jobId: "j3",
+      kind: "analysis",
+      label: "Analyzing",
+      trackIds: [],
+      done: 1,
+      total: 9,
+    });
     await useJobs.getState().cancel("j3");
-    onProgress({ jobId: "j3", kind: "analysis", label: "Analyzing", done: 2, total: 9 });
+    onProgress({
+      jobId: "j3",
+      kind: "analysis",
+      label: "Analyzing",
+      trackIds: [],
+      done: 2,
+      total: 9,
+    });
     useJobs.getState().onDone({ jobId: "j3", kind: "analysis" });
     expect(useJobs.getState().jobs["j3"]).toBeUndefined();
   });
