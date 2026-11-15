@@ -79,7 +79,7 @@ jobs:
 
       # nextest does not run tests inside /// doc comments.
       - name: Doc tests
-        run: cargo test --doc --workspace --locked
+        run: cargo test --doc --workspace --all-features --locked
 
       # Platform-independent checks: run once.
       - name: Licenses and advisories (cargo-deny)
