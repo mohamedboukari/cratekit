@@ -140,6 +140,8 @@ Rules:
 | Command | Purpose |
 | --- | --- |
 | `app_version` | App version (first command; proves IPC works) |
+| `open_settings_window` | Opens or focuses the native Settings window (also the app menu item "Settings...", Cmd/Ctrl+,) |
+| file and folder pickers | Through `tauri-plugin-dialog` (`dialog:allow-open` only), wrapped as `dialogOpenFiles` / `dialogOpenFolder` in `CratekitApi` |
 | `library_add_paths(paths)` | Add files/folders, returns new track ids |
 | `library_list(query)` | Tracks with filters (crate, search, BPM range, near a BPM with the tolerance decided in Rust, key match, has stems) |
 | `library_counts` / `track_detail(id)` / `crates_list` | Sidebar counts; one track with analysis, cues and waveform; all crates |
@@ -154,7 +156,7 @@ Rules:
 | `stems_split(id)` / `stems_set_gain(stem, gain)` / `stems_set_mute(stem, bool)` / `stems_set_solo(stem, bool)` | Stems; `stems_split` rejects with `model_missing` until the model is downloaded |
 | `stems_info(id)` / `stems_export(id)` | Split time, per-stem waveforms and the summed instrumental waveform (null when not split); one WAV per stem into the output folder, returns the paths |
 | `master_presets` / `master_preview(id, settings)` / `master_export(id, settings)` | Mastering: presets with label, default target and a one-line description; B-side render for A/B; export into the output folder, returns path, LUFS and true peak |
-| `hotcue_set(id, slot, sec)` / `hotcue_clear(id, slot)` | Cues |
+| `hotcue_set(id, slot, sec)` / `hotcue_clear(id, slot)` / `hotcue_update(id, slot, name, color)` | Cues (set or move, clear, rename and recolour) |
 | `midi_list_devices / midi_learn_start(target) / midi_learn_cancel / midi_mappings(device_id)` | Controller; `midi_mappings` returns one row per control target (`binding` null when unmapped) |
 | `export_virtualdj(ids, dry_run)` | Export |
 | `models_status / models_download(name) / models_delete(name)` | ML models |
@@ -162,7 +164,7 @@ Rules:
 | `settings_get / settings_set(key, value)` | Settings (watched folders, output folder, processing backend, pane layouts, the set list order, ...) |
 | `stems_backend_status` | Active stems backend (CoreML / DirectML / CPU) and why |
 
-**Events (Rust → UI)**: `job_progress {jobId, kind, label, trackIds, done, total}` (`trackIds`: the tracks the job works on, empty for a model download), `job_done {jobId, kind}`, `job_failed {jobId, kind, error}`, `playback_position {sec}` (30 Hz), `meter {peakDb, rmsDb}` (30 Hz), `playback_state {playing}` (start, pause, end of track), `midi_device_changed`, `midi_learned {target, binding, replaced}` (`replaced`: the target that lost this control, or null), `control_event {target, value}` (Rust runs engine actions such as play, cue, hot cues, filter and tempo itself; the UI runs the UI-owned targets `mute-*`, `ab-toggle` and `pad-page` from this event), `audio_device_changed {id, reason}`.
+**Events (Rust → UI)**: `job_progress {jobId, kind, label, trackIds, done, total}` (`trackIds`: the tracks the job works on, empty for a model download), `job_done {jobId, kind}`, `job_failed {jobId, kind, error}`, `playback_position {sec}` (30 Hz), `meter {peakDb, rmsDb}` (30 Hz), `playback_state {playing}` (start, pause, end of track), `midi_device_changed`, `midi_learned {target, binding, replaced}` (`replaced`: the target that lost this control, or null), `control_event {target, value}` (Rust runs engine actions such as play, cue, hot cues, filter and tempo itself; the UI runs the UI-owned targets `mute-*`, `ab-toggle` and `pad-page` from this event), `audio_device_changed {id, reason}`, `settings_changed` (the full settings, after any change, so both windows stay in sync). Files dropped on a window arrive through Tauri's drag and drop event (`onFilesDropped` in `CratekitApi`).
 
 **Naming convention:** command and event names are snake_case; payload fields are camelCase, so Rust payload structs use `#[serde(rename_all = "camelCase")]`. The TypeScript side of this contract is `ui/src/lib/types.ts` and `CratekitApi` in `ui/src/lib/ipc.ts`; keep the three in sync.
 

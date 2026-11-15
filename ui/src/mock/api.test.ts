@@ -8,6 +8,9 @@ import { TRACK_COUNT } from "@/mock/fixtures";
 /** Every member of the contract. If CratekitApi grows, this list must too. */
 const MEMBERS: ReadonlyArray<keyof CratekitApi> = [
   "appVersion",
+  "appOpenSettings",
+  "dialogOpenFiles",
+  "dialogOpenFolder",
   "libraryAddPaths",
   "libraryList",
   "libraryCounts",
@@ -40,6 +43,7 @@ const MEMBERS: ReadonlyArray<keyof CratekitApi> = [
   "masterExport",
   "hotcueSet",
   "hotcueClear",
+  "hotcueUpdate",
   "midiListDevices",
   "midiLearnStart",
   "midiLearnCancel",
@@ -63,6 +67,8 @@ const MEMBERS: ReadonlyArray<keyof CratekitApi> = [
   "onMidiLearned",
   "onControlEvent",
   "onAudioDeviceChanged",
+  "onFilesDropped",
+  "onSettingsChanged",
 ];
 
 describe("mock CratekitApi", () => {

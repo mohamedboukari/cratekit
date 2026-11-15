@@ -44,6 +44,8 @@ interface LibraryState {
   setQuery: (patch: Partial<LibraryQuery>) => Promise<void>;
   selectCrate: (crateId: CrateId | null) => Promise<void>;
   select: (ids: TrackId[]) => void;
+  /** Imports files or folders (picker or drop); returns how many tracks were added. */
+  addPaths: (paths: string[]) => Promise<number>;
 }
 
 export const useLibrary = create<LibraryState>()((set, get) => ({
@@ -102,4 +104,16 @@ export const useLibrary = create<LibraryState>()((set, get) => ({
   },
 
   select: (ids) => set({ selectedIds: ids }),
+
+  addPaths: async (paths) => {
+    if (paths.length === 0) return 0;
+    try {
+      const ids = await api().libraryAddPaths(paths);
+      await get().refreshRows();
+      return ids.length;
+    } catch (error) {
+      notifyError(error, "Could not add the tracks");
+      return 0;
+    }
+  },
 }));

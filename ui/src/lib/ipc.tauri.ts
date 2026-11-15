@@ -6,7 +6,10 @@
  */
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
+import { getCurrentWebview } from "@tauri-apps/api/webview";
+import { open } from "@tauri-apps/plugin-dialog";
 
+import { AUDIO_EXTENSIONS } from "@/lib/formats";
 import type { CratekitApi, Listener, Unlisten } from "@/lib/ipc";
 
 function on<T>(event: string, listener: Listener<T>): Promise<Unlisten> {
@@ -16,6 +19,14 @@ function on<T>(event: string, listener: Listener<T>): Promise<Unlisten> {
 export function createTauriApi(): CratekitApi {
   return {
     appVersion: () => invoke("app_version"),
+    appOpenSettings: () => invoke("open_settings_window"),
+    dialogOpenFiles: async () =>
+      (await open({
+        multiple: true,
+        directory: false,
+        filters: [{ name: "Audio", extensions: AUDIO_EXTENSIONS }],
+      })) ?? [],
+    dialogOpenFolder: () => open({ multiple: false, directory: true }),
 
     libraryAddPaths: (paths) => invoke("library_add_paths", { paths }),
     libraryList: (query) => invoke("library_list", { query }),
@@ -54,6 +65,8 @@ export function createTauriApi(): CratekitApi {
 
     hotcueSet: (id, slot, sec) => invoke("hotcue_set", { id, slot, sec }),
     hotcueClear: (id, slot) => invoke("hotcue_clear", { id, slot }),
+    hotcueUpdate: (id, slot, name, color) =>
+      invoke("hotcue_update", { id, slot, name, color }),
 
     midiListDevices: () => invoke("midi_list_devices"),
     midiLearnStart: (target) => invoke("midi_learn_start", { target }),
@@ -83,5 +96,25 @@ export function createTauriApi(): CratekitApi {
     onMidiLearned: (l) => on("midi_learned", l),
     onControlEvent: (l) => on("control_event", l),
     onAudioDeviceChanged: (l) => on("audio_device_changed", l),
+    onFilesDropped: (l) => {
+      // Only drags that carry files from the OS; in-app drags of tracks report no paths.
+      let carriesFiles = false;
+      return getCurrentWebview().onDragDropEvent((e) => {
+        const p = e.payload;
+        if (p.type === "enter") {
+          carriesFiles = p.paths.length > 0;
+          if (carriesFiles) l({ kind: "enter", paths: p.paths });
+        } else if (!carriesFiles) {
+          return;
+        } else if (p.type === "drop") {
+          carriesFiles = false;
+          l({ kind: "drop", paths: p.paths });
+        } else if (p.type === "leave") {
+          carriesFiles = false;
+          l({ kind: "leave", paths: [] });
+        } else l({ kind: "over", paths: [] });
+      });
+    },
+    onSettingsChanged: (l) => on("settings_changed", l),
   };
 }

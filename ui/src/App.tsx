@@ -1,10 +1,13 @@
 import { useEffect, type JSX } from "react";
 
 import { BrowserArea } from "@/components/browser/BrowserArea";
+import { DropOverlay } from "@/components/dialogs/DropOverlay";
+import { ExportDialog } from "@/components/dialogs/ExportDialog";
 import { Deck } from "@/components/deck/Deck";
 import { AppShell } from "@/components/layout/AppShell";
 import { DemoBanner } from "@/components/layout/DemoBanner";
 import { Sidebar } from "@/components/layout/Sidebar";
+import { SettingsDialog } from "@/components/settings/SettingsDialog";
 import { StatusBar } from "@/components/layout/StatusBar";
 import { ToolPanel } from "@/components/tools/ToolPanel";
 import { Toaster } from "@/components/ui/sonner";
@@ -25,6 +28,8 @@ import { useUi } from "@/stores/ui";
 
 /** Build-time flag: false in production Tauri builds, so the banner is not even bundled. */
 const SHOW_DEMO_BANNER = import.meta.env.DEV || import.meta.env.VITE_MOCK === "1";
+/** Same flag: Settings opens as an in-page window only in the browser demo. */
+const IN_PAGE_SETTINGS = SHOW_DEMO_BANNER;
 
 /** Main window. Settings load first so saved pane sizes apply on the first paint. */
 export function App(): JSX.Element {
@@ -61,6 +66,7 @@ export function App(): JSX.Element {
     "mute-bass": () => void toggleMute(["bass"]),
     "mute-other": () => void toggleMute(["other"]),
     // A/B lives in the Master tab (SPEC, Module 5); elsewhere B would flip a side you cannot hear.
+    "open-settings": () => useUi.getState().openSettings(),
     "ab-toggle": () => {
       if (useUi.getState().activeTool === "master") toggleSide();
     },
@@ -98,6 +104,9 @@ export function App(): JSX.Element {
           Loading Cratekit...
         </div>
       )}
+      <DropOverlay />
+      <ExportDialog />
+      {IN_PAGE_SETTINGS && isMockMode() && <SettingsDialog />}
       <Toaster position="bottom-right" />
     </>
   );

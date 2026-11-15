@@ -5,7 +5,7 @@ import {
   type Range,
 } from "@tanstack/react-virtual";
 import { cn } from "cn";
-import { ArrowDown, ArrowUp, Search } from "lucide-react";
+import { ArrowDown, ArrowUp, FolderInput, Search } from "lucide-react";
 import {
   useCallback,
   useEffect,
@@ -23,7 +23,11 @@ import { TrackContextMenu } from "@/components/browser/TrackContextMenu";
 import { Button } from "@/components/ui/button";
 import { TRACK_DRAG_MIME } from "@/lib/dnd";
 import { formatDuration, formatTime } from "@/lib/format";
+import { AUDIO_FORMATS_TEXT } from "@/lib/formats";
+import { api } from "@/lib/ipc";
+import { announceImport, notifyError } from "@/lib/notify";
 import type { TrackId, TrackRow } from "@/lib/types";
+import { activeJobs, useJobs } from "@/stores/jobs";
 import { useLibrary } from "@/stores/library";
 import { usePlayer } from "@/stores/player";
 
@@ -58,6 +62,17 @@ export function TrackBrowser(): JSX.Element {
   const status = useLibrary((s) => s.status);
   const query = useLibrary((s) => s.query);
   const crates = useLibrary((s) => s.crates);
+  const counts = useLibrary((s) => s.counts);
+  const jobs = useJobs((s) => s.jobs);
+  // Live job progress per row, from the tracks each running job reports.
+  const busy = useMemo(() => {
+    const map = new Map<TrackId, string>();
+    for (const job of activeJobs(jobs)) {
+      const pct = job.total > 0 ? Math.round((job.done / job.total) * 100) : 0;
+      for (const id of job.trackIds) map.set(id, `${job.kind} ${pct}%`);
+    }
+    return map;
+  }, [jobs]);
   const selectedIds = useLibrary((s) => s.selectedIds);
   const select = useLibrary((s) => s.select);
   const setQuery = useLibrary((s) => s.setQuery);
@@ -261,7 +276,9 @@ export function TrackBrowser(): JSX.Element {
         </div>
       </header>
 
-      {rows.length === 0 && status !== "loading" ? (
+      {counts?.all === 0 && status === "ready" ? (
+        <EmptyLibrary />
+      ) : rows.length === 0 && status !== "loading" ? (
         <div className="grid flex-1 place-items-center text-muted-foreground">
           No tracks match these filters
         </div>
@@ -356,6 +373,7 @@ export function TrackBrowser(): JSX.Element {
                       selected={selected.has(t.id)}
                       active={item.index === activeIndex}
                       loaded={detail?.track.id === t.id}
+                      busy={busy.get(t.id) ?? null}
                       keyMatch={
                         matching !== null && t.camelot !== null && matching.has(t.camelot)
                       }
@@ -381,6 +399,8 @@ interface TrackRowViewProps {
   selected: boolean;
   active: boolean;
   loaded: boolean;
+  /** A running job on this track, e.g. "analysis 40%". */
+  busy: string | null;
   keyMatch: boolean;
   onClick: (event: MouseEvent<HTMLTableRowElement>) => void;
   onDoubleClick: () => void;
@@ -394,6 +414,7 @@ function TrackRowView({
   selected,
   active,
   loaded,
+  busy,
   keyMatch,
   onClick,
   onDoubleClick,
@@ -448,7 +469,9 @@ function TrackRowView({
         {formatTime(t.durationSec)}
       </td>
       <td className="hidden gap-1 overflow-hidden px-2 @xl:flex">
-        {t.activity ? (
+        {busy ? (
+          <Tag accent>{busy}</Tag>
+        ) : t.activity ? (
           <Tag accent>{`${t.activity.kind}...`}</Tag>
         ) : t.analyzed ? (
           <Tag accent>analyzed</Tag>
@@ -545,5 +568,54 @@ function SearchBox({
         className="h-7 w-48 rounded-md border border-border bg-secondary pl-7 text-[13px] placeholder:text-muted-foreground"
       />
     </label>
+  );
+}
+
+/** First run: nothing in the library yet. Drop anywhere on the window, or pick files. */
+function EmptyLibrary(): JSX.Element {
+  const addPaths = useLibrary((s) => s.addPaths);
+  const [adding, setAdding] = useState(false);
+  const add = async (pick: () => Promise<string[]>): Promise<void> => {
+    try {
+      const paths = await pick();
+      if (paths.length === 0) return;
+      setAdding(true);
+      announceImport(await addPaths(paths));
+    } catch (error) {
+      notifyError(error, "Could not open the file picker");
+    } finally {
+      setAdding(false);
+    }
+  };
+  return (
+    <div className="flex flex-1 p-4">
+      <div className="flex flex-1 flex-col items-center justify-center gap-3 rounded-xl border-2 border-dashed border-border text-center">
+        <FolderInput aria-hidden="true" className="size-9 text-muted-foreground" />
+        <p className="text-base font-semibold">Drop tracks or a folder</p>
+        <p className="max-w-80 text-muted-foreground">
+          {`${AUDIO_FORMATS_TEXT}. Your files stay where they are; Cratekit only reads them.`}
+        </p>
+        <div className="flex gap-2">
+          <Button
+            disabled={adding}
+            onClick={() => void add(() => api().dialogOpenFiles())}
+          >
+            {adding ? "Adding..." : "Add tracks..."}
+          </Button>
+          <Button
+            variant="outline"
+            disabled={adding}
+            onClick={() =>
+              void add(async () => {
+                const folder = await api().dialogOpenFolder();
+                return folder ? [folder] : [];
+              })
+            }
+          >
+            Add folder...
+          </Button>
+        </div>
+      </div>
+    </div>
   );
 }

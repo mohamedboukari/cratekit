@@ -1,6 +1,6 @@
 import { create } from "zustand";
 
-import { api } from "@/lib/ipc";
+import { api, toAppError } from "@/lib/ipc";
 import { notifyError } from "@/lib/notify";
 import type { StemName, StemsInfo, TrackId } from "@/lib/types";
 
@@ -95,7 +95,9 @@ export const useStems = create<StemsState>()((set, get) => ({
     try {
       await api().stemsSplit(id);
     } catch (error) {
-      notifyError(error, "Could not split stems");
+      // The model was deleted (e.g. in Settings): show the download step again.
+      if (toAppError(error).code === "model_missing") set({ modelReady: false });
+      else notifyError(error, "Could not split stems");
     }
   },
 

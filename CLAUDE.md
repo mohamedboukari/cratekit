@@ -86,8 +86,7 @@ cratekit/
 │   ├── SPEC.md            product spec + acceptance criteria
 │   ├── ARCHITECTURE.md    components, threads, IPC, database
 │   ├── ROADMAP.md         phases and task checklists
-│   ├── UI.md              design system + screens
-│   └── ui-preview.html    clickable UI mockup (the visual reference)
+│   └── UI.md              design tokens, layout, screens and states, UI rules
 ├── .claude/               LOCAL ONLY (git-ignored): settings, hooks, skills (see "Claude skills")
 ├── .github/               CI, Security, CodeQL workflows, Dependabot, issue and PR templates
 ├── crates/
@@ -171,7 +170,7 @@ User-level, not in the repo: impeccable (design critique, "Operate" mode), Anthr
 ## How to work on this repo
 
 - Pick the next unchecked task in `docs/ROADMAP.md`; keep PRs to one task. Use `/ship`.
-- For UI work, match `docs/ui-preview.html` (colors, spacing, layout). See `docs/UI.md`.
+- For UI work, follow `docs/UI.md` and the running app (`bun run --cwd ui dev`, or the Pages demo).
 - When a decision is not covered by the docs, choose the simplest option that respects the hard rules, and note it in the PR description.
 - When you finish a task, tick it in `docs/ROADMAP.md` and add a `CHANGELOG.md` entry.
 - Commits: conventional commits (`feat:`, `fix:`, `docs:`, `chore:`, ...). No AI attribution of any kind (see "Working with the maintainer"). Never commit or push unless asked.

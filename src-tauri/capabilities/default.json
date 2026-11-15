@@ -3,5 +3,5 @@
   "identifier": "default",
   "description": "Permissions for the main window. Add a permission only when a feature needs it.",
   "windows": ["main"],
-  "permissions": ["core:default"]
+  "permissions": ["core:default", "dialog:allow-open"]
 }

@@ -1,83 +1,93 @@
 # Cratekit: UI
 
-The visual reference is **`docs/ui-preview.html`** (open it in a browser; it has an animated tour). Match it closely. Everything in it is static mock data: replace with real state from Rust.
+The UI is a real React app in `ui/`. In the desktop app it talks to Rust; in a browser it runs on a typed mock of the same API, so every screen can be opened, clicked and tested without Rust:
 
-Stack: **React 19 + TypeScript 7 + Vite**, package manager **bun**, tests with **Vitest**. Components: **Tailwind CSS v4 + shadcn/ui** (style `base-mira`: compact, Base UI primitives, Lucide icons). The UI renders state and sends commands; all domain logic lives in Rust (see `docs/ARCHITECTURE.md`, section "UI").
+- **Live demo:** <https://mohamedboukari.github.io/cratekit/> (mock data, rebuilt on every push to `main`)
+- **Locally:** `bun run --cwd ui dev`, then open <http://localhost:5173> (mock mode)
+- **Desktop:** `bun run tauri dev` (real Rust; commands that are not implemented yet show an error toast)
+
+Stack: **React 19 + TypeScript 7 + Vite 8**, package manager **bun**, tests with **Vitest**. Components: **Tailwind CSS v4 + shadcn/ui** (style `base-mira`: compact, Base UI primitives, Lucide icons). State: **Zustand**. Track table: **TanStack Table v9 + TanStack Virtual**. The UI renders state and sends commands; all domain logic lives in Rust (see `docs/ARCHITECTURE.md`, section "UI").
 
 ## Design tokens
 
-Defined once in `ui/src/index.css` as Tailwind v4 `ck-*` colours (e.g. `bg-ck-panel`, `text-ck-muted`), and mapped onto shadcn's semantic colours (`primary` = lime, `card` = panel, `border` = line, ...):
+Defined once in `ui/src/index.css` as Tailwind v4 `ck-*` colours (`bg-ck-panel`, `text-ck-muted`, ...), mapped onto shadcn's semantic colours (`primary` = lime, `card` = panel, `border` = line, ...). Components use the semantic or `ck-*` classes, never raw colours.
 
-```css
---bg:      #08090b;   /* outside the window (web preview only) */
---win:     #0f1114;   /* window background */
---side:    #0b0c0f;   /* sidebar */
---panel:   #15181d;   /* cards */
---panel2:  #1b1f25;   /* inputs, chips, inactive buttons */
---line:    #23272e;   /* borders */
---text:    #e9ebee;
---muted:   #858c96;
---accent:  #c6f432;   /* lime: primary actions, BPM/Camelot, active tab */
---orange:  #ff7a45;   /* hot cue 1, muted stem */
---blue:    #4cc9f0;   /* hot cue 2, bass stem, energy bars */
---pink:    #f72585;   /* hot cue 3, vocals stem */
---purple:  #9b5de5;   /* hot cue 4, other stem */
---yellow:  #ffd60a;   /* hot cue 6, crate colour */
---red:     #ff4d6d;   /* hot cue 7, crate colour */
---teal:    #2ec4b6;   /* hot cue 8, crate colour */
-```
+| Token | Value | Used for |
+| --- | --- | --- |
+| `ck-win` | `#0f1114` | window background |
+| `ck-side` | `#0b0c0f` | sidebar, status bar |
+| `ck-panel` / `ck-panel2` | `#15181d` / `#1b1f25` | cards / inputs, chips, inactive buttons |
+| `ck-line` | `#23272e` | borders |
+| `ck-text` / `ck-muted` | `#e9ebee` / `#858c96` | text / secondary text |
+| `ck-lime` | `#c6f432` | primary actions, BPM and Camelot, active tab, focus ring |
+| `ck-ink` | `#0c0e11` | text on lime and on cue colours |
+| `ck-orange`, `ck-blue`, `ck-pink`, `ck-purple`, `ck-lime`, `ck-yellow`, `ck-red`, `ck-teal` | | the 8 hot cue colours (`components/deck/cueColors.ts`); stems use pink (vocals), orange (drums), blue (bass), teal (other) |
 
-- Fonts: **Space Grotesk** (UI text), **JetBrains Mono** (numbers: BPM, time, LUFS, MIDI values), bundled locally through the `@fontsource-variable/*` packages (offline app; no Google Fonts at runtime). License: SIL OFL-1.1, approved for fonts.
-- Base size 13 px. Radius: 6 to 8 px for controls, 10 to 12 px for cards. Borders 1 px `--line`.
+- Fonts: **Space Grotesk** (UI text) and **JetBrains Mono** (numbers: BPM, time, LUFS, MIDI), bundled through `@fontsource-variable/*` (offline app). License: SIL OFL-1.1, approved for fonts. Numbers use `font-mono tabular-nums`.
+- Base size 13 px. Radius 6 to 8 px for controls, 10 to 12 px for cards. Borders 1 px.
 - Dark theme only for v0.1.
-- Canvas drawing code reads the same tokens (via `getComputedStyle`), so colours stay in one place.
+- Canvas code (`ui/src/canvas/`) reads the same tokens with `getComputedStyle` once per resize, so colours live in one place.
 
 ## Layout
 
+Laptop-first: designed for 1366x768, works down to the 1024x640 minimum window. Every pane is resizable (`react-resizable-panels`), sizes persist in settings, and the minimum widths add up to fit 1024 px.
+
 ```
-┌──────────────────────────────── titlebar (menu · title · search) ─────────────────────────────┐
-│ sidebar 210px │ DECK: art · title · stats (BPM, Key, Camelot, Energy, LUFS)                    │
-│  Library      │       waveform with hot cue markers + playhead · overview bar                  │
-│  Crates       │       transport: CUE · Play · pads 1 to 4 · time · "Hearing: ..."              │
-│  Tools        ├────────────────────────────────────────────────────────────────────────────────┤
-│  Devices      │ TOOL TABS: Analyze · Master · Stems · Controller (two cards side by side)      │
-│               ├────────────────────────────────────────────────────────────────────────────────┤
-│               │ BROWSER: crate name · filters (Matches 8A, BPM range, Has stems) · track table │
-└──────────────── status bar: controller · background jobs progress · GPU · offline · version ───┘
+┌──────────────────────────────── native titlebar and menu (Settings... Cmd/Ctrl+,) ───────────────────┐
+│ Sidebar        │ Deck: header and stats · waveform with cue flags · transport and filter knob         │
+│ library counts │──────────────────────────────────────────────────────────────────────────────────────│
+│ crates         │ Track browser                        │ Set list         │ Tools: Analyze · Master ·  │
+│ devices        │ search · filter chips · virtual table │ (collapsible)    │ Stems · Controller          │
+│ Settings       │                                      │                  │ (collapsible)               │
+└──────────────── Status bar: controller · job queue · backend · offline · version ─────────────────────┘
 ```
 
-## Components
+| Region | Component (in `ui/src/components/`) | Default / min width |
+| --- | --- | --- |
+| Shell | `layout/AppShell.tsx` | window min 1024x640 |
+| Sidebar | `layout/Sidebar.tsx` | 210 / 170 px, collapsible |
+| Deck | `deck/Deck.tsx`, `Waveform.tsx`, `Transport.tsx`, `CueEditDialog.tsx` | 224 / 220 px tall |
+| Track browser | `browser/TrackBrowser.tsx`, `columns.ts`, `TrackContextMenu.tsx` | min 360 px |
+| Set list | `browser/SetList.tsx` (inside `browser/BrowserArea.tsx`) | 260 / 190 px, collapsible |
+| Tools | `tools/ToolPanel.tsx` and one panel per tab | 340 / 280 px, collapsible |
+| Status bar | `layout/StatusBar.tsx` | 28 px tall |
+| Settings | `settings/SettingsView.tsx` in a native window (`SettingsApp.tsx`), or in the page in the browser demo (`SettingsDialog.tsx`) | 760x560 |
+| Dialogs | `dialogs/ExportDialog.tsx`, `ModelDownloadDialog.tsx`, `DropOverlay.tsx` | |
 
-One React function component per file, PascalCase `.tsx`, in `ui/src/components/`. Imperative canvas drawing lives in `ui/src/canvas/` and is wrapped by a thin component.
+## Screens and states
 
-| Component | Notes |
-| --- | --- |
-| `Sidebar` | Library counts, crates with colour swatch, tools, connected device card (green dot when connected) |
-| `Deck` | Stats boxes (BPM and Camelot in accent colour), `Waveform`, 4 hot cue markers with numbered flags, playhead, overview bar |
-| `Waveform` | `<canvas>`: played part in accent gradient, rest grey. Playhead and position come from a ref updated by the `playback_position` event and drawn in a `requestAnimationFrame` loop, never through React state |
-| `Transport` | CUE, Play/Pause (accent), hot cue pads in cue colours, time `m:ss / m:ss`, "Hearing: Original / Mastered · Club / Stems mix" |
-| `AnalyzePanel` | Big Camelot code, key name, 12 chroma bars (scale-degree bars in accent), "Mixes well with" chips, drop / mix-out times |
-| `MasterPanel` | Preset buttons, intensity slider, loudness target, A/B toggle, two loudness meters (`Meter`, canvas), Export WAV |
-| `StemsPanel` | 4 rows: colour dot, name, waveform, M/S buttons, volume slider; header shows split time and "cached" |
-| `ControllerPanel` | Drawing of the connected controller (jog, 8 pads: 4 hot cues + 4 stem pads, filter and tempo), MIDI mapping table with Learn buttons |
-| `TrackBrowser` | Columns: #, Title, Artist, BPM, Key (Camelot, accent when it matches the playing track), Energy (10 small bars), Time, Ready tags (analyzed / stems / mastered). Playing row has a left accent bar. Must stay smooth with 10,000+ tracks (row virtualization, library chosen in Phase 1 after a license check) |
-| `StatusBar` | Device, job progress bar with count, GPU on/off, "Offline · nothing uploaded", version |
-
-## React rules
-
-- **IPC only through `ui/src/lib/ipc.ts`.** Components, hooks and stores call `api()`; only `ui/src/lib/ipc.tauri.ts` calls `invoke()` or `listen()`.
-- **30 Hz data stays out of React state.** `playback_position` and `meter` update refs; canvas components redraw on `requestAnimationFrame`. This keeps the deck smooth while the rest of the UI re-renders only on real changes.
-- **Subscriptions live in hooks** (`ui/src/hooks/`) with cleanup on unmount.
-- No business logic in components: no BPM maths, no key matching, no Camelot tables. Ask Rust (e.g. `library_list` with a key-match filter).
-- TypeScript strict, no `any`, no unsafe `as` casts.
-- State: Zustand stores per domain (`ui/src/stores/`). Table virtualization (TanStack Table + Virtual) arrives with the track browser. The full rewrite of this file comes with issue #1.
-- In a browser, `bun run --cwd ui dev` runs the whole UI on fake data (mock mode); so does the GitHub Pages demo.
+| Screen | What it shows | States |
+| --- | --- | --- |
+| Deck | Title, artist, BPM (with confidence), key, Camelot, energy, LUFS; canvas waveform (played/unplayed, phrase grid, overview strip, cue ticks); 8 hot cue flags; CUE, play, pads 1 to 4 / 5 to 8, time, "Hearing", bipolar filter knob | no track loaded; not analyzed (no waveform) |
+| Track browser | Crate name, count and total time; search; chips "Matches 8A", "Near 124 BPM", "Has stems" (Rust filters); columns #, title, artist, BPM, key, energy, time, ready tags (energy and tags hide below 36rem) | empty library (drop zone, Add tracks, Add folder); no matches; a running job shows on its rows |
+| Set list | Running order with key-clash and BPM-jump warnings from Rust; save as crate; clear | empty (drop target) |
+| Analyze | Camelot and key, chroma bars (the key's notes from Rust), mixes-well-with chips that filter the browser, BPM, first downbeat, energy, drop and mix-out (click to seek), loudness, re-analyze | no track; not analyzed; analyzing (progress) |
+| Master | Presets (from Rust), intensity, loudness target, reference track, level-matched A/B, peak and RMS meters, export 24/16-bit | no track; presets loading or failed (Retry); rendering |
+| Stems | Split time and backend; 4 or 2 stems; per stem: colour, name, waveform, mute, solo, volume; export | no track; model missing (download dialog); not split; splitting (progress, cancel) |
+| Controller | Device drawing that lights up from control events; mapping table with Learn | no controller (keyboard shortcut list); listening ("Move a control..."); learned; moved from another control |
+| Settings | Audio output (device, buffer size, sample rate), Library (watched folders, auto-add, output folder), Processing (GPU or CPU), Models (download, delete), Controller (devices), Keyboard (shortcuts) | loading |
+| Status bar | Controller, job queue popover (pause, resume, cancel), backend, "Offline · nothing uploaded", version | no jobs |
+| Dialogs | VirtualDJ export dry run (changes and backup path, then confirm); model download (size, progress, checksum, cancel); hot cue edit (name, colour, delete); file drop overlay | |
 
 ## Interaction rules
 
-- Waveform: click to seek; hot cue flags draggable; right-click a flag to rename / recolour / delete.
-- Pads: click = jump to cue (set it if empty). Shift-click = clear.
-- Switching tabs changes what you hear: Analyze/Controller = original, Master = A/B selection, Stems = stem mix.
-- Long jobs never block the UI: show progress in the status bar and on the track row.
-- Every control reachable by keyboard; focus rings in accent colour.
-- Empty states: no tracks → big drop zone "Drop tracks or a folder"; no controller → "Plug in a controller or use keyboard shortcuts".
+- **What you hear follows the tab** (`hooks/useHearing.ts`): Analyze and Controller play the original, Master plays the A/B side, Stems plays the stem mix.
+- Waveform: click to seek; drag a cue flag to move it; Delete clears it; right-click, Shift+Enter or F2 on a flag to rename, recolour or delete.
+- Pads: click jumps to the cue, or sets it when empty; Shift-click clears.
+- Track browser: arrows move, Shift extends the selection, Enter or double-click loads, Cmd/Ctrl+A selects all; sort headers are buttons; right-click (or Shift+F10) for the context menu (load, set list, analyze, split stems, mastering reference, VirtualDJ export, crates).
+- Set list: drag tracks in, drag or Alt+Arrow to reorder, Delete to remove.
+- Keyboard (one map in `lib/shortcuts.ts`): Space play/pause, C cue, 1 to 8 hot cues, Q/W/E/R stem mutes, B A/B (Master tab), Cmd/Ctrl+, Settings. Shortcuts never fire while typing. After a mouse click, transport buttons give focus back so Space keeps meaning play/pause.
+- Long jobs never block the UI: progress shows in the status bar, on the track rows and in the tab that started them.
+- Every control is reachable by keyboard, with a visible focus ring. Dialogs trap focus and close on Escape.
+- Drop files or folders anywhere on the window to add them (macOS and Linux). On Windows, Tauri's native file drop would turn off the HTML5 drag and drop the set list uses, so `src-tauri/tauri.windows.conf.json` disables it there; Windows users add tracks with Add tracks, Add folder or watched folders.
+- While a dialog is open, deck shortcuts do nothing (Cmd/Ctrl+, still opens Settings).
+
+## React rules
+
+- **IPC only through `ui/src/lib/ipc.ts`.** Components, hooks and stores call `api()`; only `ui/src/lib/ipc.tauri.ts` calls `invoke()`, `listen()` or Tauri plugins. `ui/src/mock/api.ts` implements the same contract with fixtures; it is loaded only when `import.meta.env.DEV` or `VITE_MOCK=1`, so production builds never contain it.
+- **No business logic in the UI.** No BPM maths, key matching, Camelot tables, thresholds, loudness maths or file paths: Rust sends the answer (for example `keyCompatible`, `bpmJump`, `chromaInKey`, preset targets, export paths). The mock stands in for Rust and is the only place such rules are faked.
+- **30 Hz data stays out of React state.** `playback_position` and `meter` write into refs (`hooks/usePlaybackRefs.ts`); canvases redraw in a `requestAnimationFrame` loop. Controller activity sets DOM attributes directly.
+- **State:** one Zustand store per domain in `ui/src/stores/` (library, player, jobs, settings, ui, devices, setlist, master, stems, controller). Async actions use sequence guards so a slow answer never overwrites a newer one.
+- **Subscriptions live in hooks** (`ui/src/hooks/`) with cleanup on unmount. `useIpcEvents` wires Rust events into the stores once, in the app root.
+- One function component per file, PascalCase `.tsx`. TypeScript strict, no `any`, no unsafe `as`, explicit return types.
+- Tests: Vitest with Testing Library in `ui/src/**/*.test.ts(x)`, against the mock API.

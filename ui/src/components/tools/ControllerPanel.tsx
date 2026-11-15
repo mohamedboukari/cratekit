@@ -1,10 +1,10 @@
 import { cn } from "cn";
 import { useEffect, useRef, type JSX, type RefObject } from "react";
 
+import { ShortcutList } from "@/components/controls/ShortcutList";
 import { ToolCard, ToolEmpty } from "@/components/tools/ToolCard";
 import { Button } from "@/components/ui/button";
 import { api } from "@/lib/ipc";
-import { formatShortcut, isMacPlatform, SHORTCUTS } from "@/lib/shortcuts";
 import type { ControlTarget, MidiBinding, MidiDevice } from "@/lib/types";
 import { useController } from "@/stores/controller";
 import { useDevices } from "@/stores/devices";
@@ -302,26 +302,5 @@ function ControllerDrawing({
         </div>
       </div>
     </figure>
-  );
-}
-
-/** The keyboard fallback, from the single shortcut map. */
-function ShortcutList(): JSX.Element {
-  const mac = isMacPlatform();
-  return (
-    <ToolCard title="Keyboard shortcuts">
-      <dl className="grid grid-cols-[1fr_auto] gap-x-3 gap-y-1">
-        {SHORTCUTS.map((s) => (
-          <div key={s.id} className="contents">
-            <dt className="text-muted-foreground">{s.label}</dt>
-            <dd>
-              <kbd className="rounded-sm border border-border bg-secondary px-1.5 font-mono text-[11px]">
-                {formatShortcut(s, mac)}
-              </kbd>
-            </dd>
-          </div>
-        ))}
-      </dl>
-    </ToolCard>
   );
 }

@@ -4,7 +4,7 @@
 
 A free, open-source desktop app for DJs and producers: track analysis (BPM, key, Camelot, energy, loudness), one-click mastering, stem separation, DJ controller support and VirtualDJ export. Everything runs offline on your laptop.
 
-> **Status: early development.** The foundation is in place but there are no user-facing features yet. Contributions are welcome: see [CONTRIBUTING.md](CONTRIBUTING.md) and the [open issues](https://github.com/mohamedboukari/cratekit/issues). The full project README comes with v0.1; progress is tracked in [docs/ROADMAP.md](docs/ROADMAP.md).
+> **Status: early development.** The full UI runs on demo data, but the Rust features behind it are still being built: **try the [live UI demo](https://mohamedboukari.github.io/cratekit/)** (fake data, nothing to install). Contributions are welcome: see [CONTRIBUTING.md](CONTRIBUTING.md) and the [open issues](https://github.com/mohamedboukari/cratekit/issues). The full project README comes with v0.1; progress is tracked in [docs/ROADMAP.md](docs/ROADMAP.md).
 
 ## Stack
 
@@ -31,6 +31,7 @@ bun run tauri dev    # build and open the app (the first Rust build takes a few 
 | Command | What it does |
 | --- | --- |
 | `bun run tauri dev` | Run the app with hot reload |
+| `bun run --cwd ui dev` | Run only the UI in a browser, on demo data (same as the live demo) |
 | `bun run check` | Every gate CI runs: Rust (fmt, taplo, clippy, nextest, doc tests, cargo-deny, cargo-shear, typos) then UI (tsc, oxlint, prettier, knip, vitest) |
 | `bun run test` / `bun run test:rust` | UI tests (Vitest) / Rust tests (nextest) |
 | `bun run lint` / `bun run format` | oxlint (type-aware) / Prettier |
@@ -45,7 +46,7 @@ crates/cratekit-core/    pure Rust: decode, analysis, mastering, stems, library,
 crates/cratekit-audio/   real-time playback engine
 src-tauri/               thin Tauri app: commands, events, MIDI, wiring
 ui/                      React UI
-docs/                    spec, architecture, roadmap, UI design system
+docs/                    spec, architecture, roadmap, UI (tokens, layout, screens, rules)
 ```
 
 ## Contributing

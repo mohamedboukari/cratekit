@@ -10,6 +10,7 @@ import { useLibrary } from "@/stores/library";
 import { useMaster } from "@/stores/master";
 import { usePlayer } from "@/stores/player";
 import { useSetList } from "@/stores/setlist";
+import { useSettings } from "@/stores/settings";
 import { useStems } from "@/stores/stems";
 import { useUi } from "@/stores/ui";
 
@@ -37,6 +38,7 @@ export function useIpcEvents(): void {
           void useSetList.getState().refresh();
           void usePlayer.getState().refresh();
         }
+        if (d.kind === "model-download") toast.success("Stems model ready");
         // New stems or a freshly downloaded model change what the Stems tab can show.
         const stemsTrack = useStems.getState().trackId;
         if ((d.kind === "stems" || d.kind === "model-download") && stemsTrack !== null)
@@ -46,6 +48,8 @@ export function useIpcEvents(): void {
       api().onPlaybackState((s) => usePlayer.getState().onPlaybackState(s.playing)),
       api().onMidiDeviceChanged((devices) => useDevices.getState().setMidi(devices)),
       api().onMidiLearned((learned) => useController.getState().onLearned(learned)),
+      // The Settings window is a separate page; Rust tells this one what changed.
+      api().onSettingsChanged((settings) => useSettings.getState().applyRemote(settings)),
       // Rust runs engine actions itself; these targets change UI-owned state, so the UI runs them.
       api().onControlEvent((event) => {
         if (event.value <= 0) return;
