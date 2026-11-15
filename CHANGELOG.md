@@ -17,6 +17,7 @@ All notable changes to Cratekit are documented here. The format follows [Keep a 
 - README (developer setup) and MIT LICENSE.
 - Open source release: SECURITY.md (private vulnerability reporting), CONTRIBUTING.md, CODE_OF_CONDUCT.md (Contributor Covenant 2.1), issue templates, Dependabot (cargo, bun, GitHub Actions), CodeQL (Rust, TypeScript), gitleaks, zizmor and dependency review workflows; CI runs all six targets on every pull request.
 - Doc tests in the gates; pre-push skips delete-only pushes.
+- GitHub issues and milestones for every ROADMAP task; each ROADMAP line links to its issue.
 
 ### Changed
 
