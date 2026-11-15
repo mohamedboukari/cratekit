@@ -1,7 +1,8 @@
 //! Musical key detection (SPEC, Module 2).
 //!
 //! [`KeyDetector`] is the interface the rest of Cratekit uses, so the
-//! implementation can be swapped (a `stratum-dsp` one follows). [`ProfileKey`]
+//! implementation can be swapped (`stratum-dsp` is the second one, behind
+//! the `stratum` feature: see `analysis::stratum`). [`ProfileKey`]
 //! is our own: it measures how much of each of the 12 notes the audio
 //! contains (a chroma vector), then picks the key whose typical note
 //! profile matches it best (Krumhansl-Kessler profiles).
@@ -60,15 +61,7 @@ impl KeyDetector for ProfileKey {
             return None;
         }
         let power = chroma_power(samples, sample_rate)?;
-        let strongest = power.iter().copied().fold(0.0_f64, f64::max);
-        if strongest <= f64::EPSILON {
-            return None;
-        }
-        let mut chroma = [0.0_f32; 12];
-        // Power is amplitude squared: the square root gives relative loudness.
-        for (slot, value) in chroma.iter_mut().zip(power) {
-            *slot = (value / strongest).sqrt() as f32;
-        }
+        let chroma = relative_loudness(&power)?;
         let (key, confidence) = best_key(&power);
         Some(KeyEstimate {
             key,
@@ -76,6 +69,32 @@ impl KeyDetector for ProfileKey {
             chroma,
         })
     }
+}
+
+/// The chroma the UI draws, C to B: each pitch class's loudness relative to
+/// the loudest (0 to 1), or `None` when there are no notes (silence, too
+/// short, invalid). Shared with the `stratum-dsp` key detector, which does
+/// not report a chroma itself.
+#[cfg(feature = "stratum")]
+pub(crate) fn chroma(samples: &[f32], sample_rate: u32) -> Option<[f32; 12]> {
+    if sample_rate == 0 || samples.iter().any(|s| !s.is_finite()) {
+        return None;
+    }
+    relative_loudness(&chroma_power(samples, sample_rate)?)
+}
+
+/// Power per pitch class turned into loudness relative to the loudest.
+fn relative_loudness(power: &[f64; 12]) -> Option<[f32; 12]> {
+    let strongest = power.iter().copied().fold(0.0_f64, f64::max);
+    if strongest <= f64::EPSILON {
+        return None;
+    }
+    let mut chroma = [0.0_f32; 12];
+    // Power is amplitude squared: the square root gives relative loudness.
+    for (slot, value) in chroma.iter_mut().zip(power) {
+        *slot = (value / strongest).sqrt() as f32;
+    }
+    Some(chroma)
 }
 
 /// Frequency of a MIDI note number (69 is A4 at 440 Hz).
