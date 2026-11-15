@@ -129,9 +129,9 @@ Git hooks: **pre-commit** runs lint-staged on staged files (prettier, oxlint --f
 
 - TypeScript strict, no `any`, no unsafe `as` casts.
 - Function components only, `.tsx`, PascalCase file names, in `ui/src/components/`. Hooks in `ui/src/hooks/`.
-- **All IPC goes through one typed module, `ui/src/lib/ipc.ts`.** Components never call `invoke()` directly.
+- **All IPC goes through `ui/src/lib/ipc.ts`.** Components, hooks and stores call `api()` (the typed `CratekitApi`); only `ui/src/lib/ipc.tauri.ts` calls `invoke()` / `listen()`. In a browser, `api()` is the fake-data mock in `ui/src/mock/` (never in production builds).
 - **High-frequency visuals stay outside React renders.** Waveform, playhead and meters are drawn on `<canvas>` through refs and `requestAnimationFrame`. Events like `playback_position` and `meter` (30 Hz) update a ref, not React state.
-- UI components come from shadcn (`bunx --bun shadcn@latest add <component>` from `ui/`); they use the shared tokens in `ui/src/index.css` (`ck-*` palette mapped onto shadcn's semantic colours). The state library is still undecided: ask before adding one.
+- UI components come from shadcn (`bunx --bun shadcn add <component>` from `ui/`); they use the shared tokens in `ui/src/index.css` (`ck-*` palette mapped onto shadcn's semantic colours). State: Zustand stores per domain in `ui/src/stores/`.
 - Testing and linting: Rust uses nextest + Clippy; the UI uses Vitest + oxlint (ESLint cannot run on TypeScript 7). Jest and ESLint are not used.
 
 ## Documentation

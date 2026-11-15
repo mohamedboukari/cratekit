@@ -22,6 +22,9 @@ Defined once in `ui/src/index.css` as Tailwind v4 `ck-*` colours (e.g. `bg-ck-pa
 --blue:    #4cc9f0;   /* hot cue 2, bass stem, energy bars */
 --pink:    #f72585;   /* hot cue 3, vocals stem */
 --purple:  #9b5de5;   /* hot cue 4, other stem */
+--yellow:  #ffd60a;   /* hot cue 6, crate colour */
+--red:     #ff4d6d;   /* hot cue 7, crate colour */
+--teal:    #2ec4b6;   /* hot cue 8, crate colour */
 ```
 
 - Fonts: **Space Grotesk** (UI text), **JetBrains Mono** (numbers: BPM, time, LUFS, MIDI values), bundled locally through the `@fontsource-variable/*` packages (offline app; no Google Fonts at runtime). License: SIL OFL-1.1, approved for fonts.
@@ -62,12 +65,13 @@ One React function component per file, PascalCase `.tsx`, in `ui/src/components/
 
 ## React rules
 
-- **IPC only through `ui/src/lib/ipc.ts`.** Components never call `invoke()` or `listen()` directly.
+- **IPC only through `ui/src/lib/ipc.ts`.** Components, hooks and stores call `api()`; only `ui/src/lib/ipc.tauri.ts` calls `invoke()` or `listen()`.
 - **30 Hz data stays out of React state.** `playback_position` and `meter` update refs; canvas components redraw on `requestAnimationFrame`. This keeps the deck smooth while the rest of the UI re-renders only on real changes.
 - **Subscriptions live in hooks** (`ui/src/hooks/`) with cleanup on unmount.
 - No business logic in components: no BPM maths, no key matching, no Camelot tables. Ask Rust (e.g. `library_list` with a key-match filter).
 - TypeScript strict, no `any`, no unsafe `as` casts.
-- The state library (if any beyond React state and context) and the table virtualization library are still open Phase 1 decisions (new dependencies: check licenses and ask first).
+- State: Zustand stores per domain (`ui/src/stores/`). Table virtualization (TanStack Table + Virtual) arrives with the track browser. The full rewrite of this file comes with issue #1.
+- In a browser, `bun run --cwd ui dev` runs the whole UI on fake data (mock mode); so does the GitHub Pages demo.
 
 ## Interaction rules
 

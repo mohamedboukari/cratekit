@@ -1,21 +1,27 @@
 import { render, screen } from "@testing-library/react";
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it } from "vitest";
 
 import { App } from "@/App";
-
-// Components only reach Rust through @/lib/ipc, so tests mock that one module.
-vi.mock("@/lib/ipc", () => ({
-  appVersion: vi.fn(() => Promise.resolve("0.1.0")),
-}));
+import { setApiForTests } from "@/lib/ipc";
+import { createMockApi } from "@/mock/api";
 
 describe("App", () => {
-  it("shows the empty state", () => {
-    render(<App />);
-    expect(screen.getByText("Drop tracks or a folder")).toBeInTheDocument();
+  beforeEach(() => {
+    setApiForTests(createMockApi());
   });
 
-  it("shows the version reported by Rust", async () => {
+  it("renders the shell with library data from the API", async () => {
     render(<App />);
-    expect(await screen.findByText("v0.1.0")).toBeInTheDocument();
+    expect(
+      await screen.findByRole("navigation", { name: "Library" }),
+    ).toBeInTheDocument();
+    expect(await screen.findByText("Friday club set")).toBeInTheDocument();
+    expect(screen.getByRole("tablist", { name: "Tools" })).toBeInTheDocument();
+  });
+
+  it("shows the demo banner in mock mode and the version from the API", async () => {
+    render(<App />);
+    expect(await screen.findByRole("note")).toHaveTextContent("Demo with fake data");
+    expect(await screen.findByText("v0.1.0-demo")).toBeInTheDocument();
   });
 });

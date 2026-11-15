@@ -105,11 +105,16 @@ ui/
     main.tsx           React root
     App.tsx            window layout (titlebar, sidebar, deck, tool tabs, browser, status bar)
     lib/
-      ipc.ts           the ONLY place that calls invoke() and listen(); typed wrappers per command/event
+      ipc.ts           CratekitApi contract (one function per command, one onX() per event) + initApi()/api()
+      ipc.tauri.ts     real implementation: the ONLY place that calls invoke() and listen()
       types.ts         TS types mirroring the Rust command/event payloads
-      format.ts        time, BPM, LUFS formatting
+      shortcuts.ts     the single keyboard shortcut map
+      notify.ts        command errors as toasts
+    mock/              fake-data CratekitApi + fixtures (browser dev server, Pages demo, tests);
+                       only loaded when DEV or VITE_MOCK=1, so production Tauri builds never contain it
+    stores/            Zustand stores per domain: library, player, jobs, settings, ui
     components/        one component per file, PascalCase .tsx (see docs/UI.md)
-    hooks/             useTrack, useJobs, usePlaybackPosition (ref-based), ...
+    hooks/             useIpcEvents (Rust events into stores), usePlaybackRefs (30 Hz refs), useShortcuts
     canvas/            waveform, overview bar, meters: imperative drawing code
     components/ui/     shadcn components (style base-mira, Base UI primitives), added with `bunx --bun shadcn@latest add`
     index.css          Tailwind v4 + design tokens (`ck-*`) mapped onto shadcn's semantic colours; fonts via fontsource
@@ -118,10 +123,10 @@ ui/
 
 Rules:
 
-- **Typed IPC.** `lib/ipc.ts` exports one function per Tauri command and one subscribe function per event. Components and hooks import from there; nobody calls `invoke()` directly. The payload types in `lib/types.ts` mirror the Rust structs (later we can generate them from Rust with a crate such as `ts-rs` or `specta`, after a license check).
+- **Typed IPC.** `lib/ipc.ts` defines `CratekitApi`: one function per Tauri command and one subscribe function per event. Stores and hooks call `api()`; only `lib/ipc.tauri.ts` calls `invoke()` / `listen()`. In a browser (`bun run --cwd ui dev`) and in the GitHub Pages demo, `api()` is the mock in `ui/src/mock/`, so the whole UI runs on fake data.
+- **State.** Zustand stores per domain (`ui/src/stores/`). Rust events update stores through `hooks/useIpcEvents.ts`; components subscribe with selectors so they re-render only for what they show. The payload types in `lib/types.ts` mirror the Rust structs (later we can generate them from Rust with a crate such as `ts-rs` or `specta`, after a license check).
 - **High-frequency data bypasses React state.** `playback_position` and `meter` arrive at 30 Hz. Their listeners write into refs, and canvas components redraw in a `requestAnimationFrame` loop. React state is for things that change at human speed (selected track, active tab, job list).
 - **Event subscriptions live in hooks** with cleanup on unmount, so listeners never leak.
-- The state library (if any beyond React's own state and context) is chosen in the Phase 1 scaffold task.
 
 ## IPC
 
@@ -129,10 +134,13 @@ Rules:
 
 | Command | Purpose |
 | --- | --- |
+| `app_version` | App version (first command; proves IPC works) |
 | `library_add_paths(paths)` | Add files/folders, returns new track ids |
 | `library_list(query)` | Tracks with filters (crate, BPM range, key match, has stems) |
+| `library_counts` / `track_detail(id)` / `crates_list` | Sidebar counts; one track with analysis, cues and waveform; all crates |
 | `crate_create / crate_add_tracks / crate_remove_tracks` | Crates |
 | `analyze_tracks(ids)` | Queue analysis |
+| `job_cancel(job_id)` / `jobs_set_paused(paused)` | Cancel one job; pause or resume the queue |
 | `playback_load(id) / playback_play / playback_pause / playback_seek(sec) / playback_set_rate(r)` | Deck |
 | `playback_set_mode(mode)` | Original / Mastered / Stems |
 | `stems_split(id)` / `stems_set_gain(stem, gain)` / `stems_set_mute(stem, bool)` | Stems |
@@ -145,7 +153,9 @@ Rules:
 | `settings_get / settings_set(key, value)` | Settings (watched folders, output folder, processing backend, ...) |
 | `stems_backend_status` | Active stems backend (CoreML / DirectML / CPU) and why |
 
-**Events (Rust → UI)**: `job_progress {job_id, kind, done, total}`, `job_done`, `job_failed`, `playback_position {sec}` (30 Hz), `meter {peak, rms}` (30 Hz), `midi_device_changed`, `midi_learned {target, binding}`, `control_event {target, value}`, `audio_device_changed {id, reason}`.
+**Events (Rust → UI)**: `job_progress {jobId, kind, label, done, total}`, `job_done {jobId, kind}`, `job_failed {jobId, kind, error}`, `playback_position {sec}` (30 Hz), `meter {peakDb, rmsDb}` (30 Hz), `playback_state {playing}` (start, pause, end of track), `midi_device_changed`, `midi_learned {target, binding}`, `control_event {target, value}`, `audio_device_changed {id, reason}`.
+
+**Naming convention:** command and event names are snake_case; payload fields are camelCase, so Rust payload structs use `#[serde(rename_all = "camelCase")]`. The TypeScript side of this contract is `ui/src/lib/types.ts` and `CratekitApi` in `ui/src/lib/ipc.ts`; keep the three in sync.
 
 ## Database (SQLite via rusqlite)
 

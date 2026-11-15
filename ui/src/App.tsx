@@ -1,37 +1,58 @@
-import { FolderPlus } from "lucide-react";
-import { useEffect, useState } from "react";
-import type { JSX } from "react";
+import { useEffect, type JSX } from "react";
 
-import { Button } from "@/components/ui/button";
-import { appVersion } from "@/lib/ipc";
+import { TrackBrowser } from "@/components/browser/TrackBrowser";
+import { Deck } from "@/components/deck/Deck";
+import { AppShell } from "@/components/layout/AppShell";
+import { DemoBanner } from "@/components/layout/DemoBanner";
+import { Sidebar } from "@/components/layout/Sidebar";
+import { StatusBar } from "@/components/layout/StatusBar";
+import { ToolPanel } from "@/components/tools/ToolPanel";
+import { Toaster } from "@/components/ui/sonner";
+import { useIpcEvents } from "@/hooks/useIpcEvents";
+import { useShortcuts } from "@/hooks/useShortcuts";
+import { isMockMode } from "@/lib/ipc";
+import { useLibrary } from "@/stores/library";
+import { usePlayer } from "@/stores/player";
+import { useSettings } from "@/stores/settings";
 
-/** App shell placeholder until the layout task: empty state + status bar. */
+/** Build-time flag: false in production Tauri builds, so the banner is not even bundled. */
+const SHOW_DEMO_BANNER = import.meta.env.DEV || import.meta.env.VITE_MOCK === "1";
+
+/** Main window. Settings load first so saved pane sizes apply on the first paint. */
 export function App(): JSX.Element {
-  const [version, setVersion] = useState<string | null>(null);
+  const ready = useSettings((s) => s.status === "ready");
+  const loadSettings = useSettings((s) => s.load);
+  const loadLibrary = useLibrary((s) => s.load);
+  const togglePlay = usePlayer((s) => s.togglePlay);
+
+  useIpcEvents();
+  useShortcuts({ "play-pause": () => void togglePlay() });
 
   useEffect(() => {
-    appVersion()
-      .then(setVersion)
-      .catch(() => setVersion(null));
-  }, []);
+    void loadSettings();
+    void loadLibrary();
+  }, [loadSettings, loadLibrary]);
 
   return (
-    <div className="flex h-full flex-col">
-      <main className="flex flex-1 flex-col items-center justify-center gap-4">
-        <h1 className="font-heading text-2xl font-bold">Cratekit</h1>
-        <div className="flex flex-col items-center gap-3 rounded-xl border border-dashed border-ck-line px-10 py-8 text-muted-foreground">
-          <span>Drop tracks or a folder</span>
-          {/* Wired up in the library task (library_add_paths). */}
-          <Button size="lg" disabled>
-            <FolderPlus data-icon="inline-start" aria-hidden="true" />
-            Add tracks
-          </Button>
+    <>
+      {ready ? (
+        <AppShell
+          banner={SHOW_DEMO_BANNER && isMockMode() ? <DemoBanner /> : undefined}
+          sidebar={<Sidebar />}
+          deck={<Deck />}
+          browser={<TrackBrowser />}
+          tools={<ToolPanel />}
+          statusBar={<StatusBar />}
+        />
+      ) : (
+        <div
+          className="grid h-full place-items-center text-muted-foreground"
+          aria-busy="true"
+        >
+          Loading Cratekit...
         </div>
-      </main>
-      <footer className="flex h-7 items-center gap-4 border-t border-ck-line bg-sidebar px-3.5 text-[11px] text-muted-foreground">
-        <span>Offline · nothing uploaded</span>
-        <span className="ml-auto font-mono">{version ? `v${version}` : "v?"}</span>
-      </footer>
-    </div>
+      )}
+      <Toaster position="bottom-right" />
+    </>
   );
 }

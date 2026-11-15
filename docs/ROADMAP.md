@@ -31,7 +31,7 @@ v0.1 in about 8 weeks of part-time work. Each phase ends with a gate: the test D
 
 - [x] Cargo workspace: `cratekit-core`, `cratekit-audio`, `src-tauri` (edition 2024, pinned toolchain, workspace lints)
 - [x] UI scaffold in `ui/`: React 19 + TypeScript 7 + Vite 8 with bun; Vitest; Tailwind v4 + shadcn (Base UI); oxlint, Prettier, knip; husky + lint-staged + commitlint
-- [ ] Choose (license check, ask first): state library (if any), table virtualization (#6)
+- [ ] Choose (license check, ask first): state library (if any), table virtualization (#6). State library chosen: Zustand (PR for #1); virtualization comes with the track browser
 - [x] `deny.toml` (license allow-list, see the `license-check` skill)
 - [x] CI: fmt, clippy, tests, `cargo deny check`, UI type-check + Vitest, run natively on macOS arm64 + x86_64, Windows x86_64 + ARM64, Linux x86_64 + arm64 (GitHub Actions; every PR on all six targets)
 - [ ] Confirm minimum OS versions (Tauri 2, ONNX Runtime) and that every native dependency has builds for all six targets (#7)
