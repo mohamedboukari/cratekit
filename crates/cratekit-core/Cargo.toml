@@ -11,5 +11,9 @@ publish.workspace = true
 [dependencies]
 thiserror = { workspace = true }
 
+[features]
+# Synthetic test audio (`synth` module) for other crates' tests; never in release builds.
+test-helpers = []
+
 [lints]
 workspace = true

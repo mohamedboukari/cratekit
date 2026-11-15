@@ -44,6 +44,7 @@
 src/
   lib.rs
   error.rs             CoreError (thiserror)
+  synth.rs             synthetic test audio (kick, chords, bass, sine, SPEC loop); tests or `test-helpers` feature only
   audio/               decode (symphonia), resample (rubato), AudioBuffer, write WAV (hound)
   analysis/
     mod.rs             analyze_track() -> TrackAnalysis

@@ -18,7 +18,7 @@
     "test": "bun run --cwd ui test",
     "test:rust": "cargo nextest run --workspace",
     "coverage": "cargo llvm-cov nextest --workspace",
-    "check:rust": "mkdir -p ui/dist && cargo fmt --all -- --check && taplo fmt --check && cargo clippy --workspace --all-targets -- -D warnings && cargo nextest run --workspace && cargo test --doc --workspace && cargo deny --log-level error check && cargo shear && typos",
+    "check:rust": "mkdir -p ui/dist && cargo fmt --all -- --check && taplo fmt --check && cargo clippy --workspace --all-targets -- -D warnings && cargo nextest run --workspace && cargo test --doc --workspace --all-features && cargo deny --log-level error check && cargo shear && typos",
     "check:ui": "bun run typecheck && bun run lint && bun run format:check && bun run knip && bun run test",
     "check": "bun run check:rust && bun run check:ui",
     "prepare": "husky"
