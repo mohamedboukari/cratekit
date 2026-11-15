@@ -52,6 +52,14 @@
     // React in scope.
     "react/react-in-jsx-scope": "off",
 
+    // React Compiler is not used in this project, so its memoization warnings
+    // about libraries like TanStack Table/Virtual do not apply.
+    "react/incompatible-library": "off",
+
+    // Effects return a cleanup on some paths and nothing on early-exit paths;
+    // that is the idiomatic React pattern, not a defect.
+    "typescript/consistent-return": "off",
+
     // Side-effect imports are allowed only for styles and the test matchers setup.
     "import/no-unassigned-import": [
       "warn",

@@ -44,6 +44,7 @@ import type {
   TrackDetail,
   TrackId,
   TrackRow,
+  Transition,
 } from "@/lib/types";
 
 /** Stops an event subscription. */
@@ -65,6 +66,8 @@ export interface CratekitApi {
   crateCreate(name: string, color: CueColor): Promise<Crate>;
   crateAddTracks(crateId: CrateId, ids: TrackId[]): Promise<void>;
   crateRemoveTracks(crateId: CrateId, ids: TrackId[]): Promise<void>;
+  /** Key and BPM fit between each pair of neighbours in a set list. */
+  setlistTransitions(ids: TrackId[]): Promise<Transition[]>;
 
   // Jobs
   analyzeTracks(ids: TrackId[]): Promise<JobId>;
@@ -78,6 +81,8 @@ export interface CratekitApi {
   playbackSeek(sec: number): Promise<void>;
   playbackSetRate(rate: number): Promise<void>;
   playbackSetMode(mode: PlaybackMode): Promise<void>;
+  /** DJ filter: -1 full low-pass, 0 off, +1 full high-pass. */
+  playbackSetFilter(value: number): Promise<void>;
 
   // Stems
   stemsSplit(id: TrackId): Promise<JobId>;

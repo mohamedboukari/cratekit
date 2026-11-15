@@ -1,25 +1,17 @@
 import { cn } from "cn";
 import type { JSX } from "react";
 
+import { CUE_BG } from "@/components/deck/cueColors";
+import { useDevices } from "@/stores/devices";
 import { useLibrary } from "@/stores/library";
 
-const SWATCH: Record<string, string> = {
-  orange: "bg-ck-orange",
-  blue: "bg-ck-blue",
-  pink: "bg-ck-pink",
-  purple: "bg-ck-purple",
-  lime: "bg-ck-lime",
-  yellow: "bg-ck-yellow",
-  red: "bg-ck-red",
-  teal: "bg-ck-teal",
-};
-
-/** Library counts and crates. Filled out further in PR B (devices, tools). */
+/** Library counts, crates and the connected controller. */
 export function Sidebar(): JSX.Element {
   const crates = useLibrary((s) => s.crates);
   const counts = useLibrary((s) => s.counts);
   const crateId = useLibrary((s) => s.query.crateId);
   const selectCrate = useLibrary((s) => s.selectCrate);
+  const controller = useDevices((s) => s.midi.find((d) => d.connected) ?? null);
 
   return (
     <nav
@@ -58,11 +50,32 @@ export function Sidebar(): JSX.Element {
             key={c.id}
             label={c.name}
             count={c.trackCount}
-            swatch={SWATCH[c.color]}
+            swatch={CUE_BG[c.color]}
             active={crateId === c.id}
             onSelect={() => void selectCrate(c.id)}
           />
         ))}
+      </section>
+
+      <section className="mt-auto">
+        <h2 className="px-2 pb-1.5 text-[11px] font-semibold tracking-wider text-muted-foreground uppercase">
+          Devices
+        </h2>
+        <div className="mx-1 rounded-lg border border-border bg-card p-2.5">
+          {controller ? (
+            <>
+              <b className="block text-xs">{controller.name}</b>
+              <span className="inline-flex items-center gap-1.5 text-[11px] text-primary">
+                <span aria-hidden="true" className="size-1.5 rounded-full bg-primary" />
+                connected
+              </span>
+            </>
+          ) : (
+            <span className="text-[11px] text-muted-foreground">
+              Plug in a controller or use keyboard shortcuts
+            </span>
+          )}
+        </div>
       </section>
     </nav>
   );

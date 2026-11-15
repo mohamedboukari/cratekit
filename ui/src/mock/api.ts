@@ -126,6 +126,8 @@ export function createMockApi(): CratekitApi {
     }, FRAME_MS);
   }
 
+  const jobTimers = new Map<string, ReturnType<typeof setInterval>>();
+
   /** Runs a fake job: emits progress, applies `onStep`, then done. */
   function runJob(
     kind: JobKind,
@@ -136,15 +138,17 @@ export function createMockApi(): CratekitApi {
   ): string {
     const jobId = `mock-${nextJob++}`;
     let done = 0;
-    const timer = setInterval(() => {
+    const timer: ReturnType<typeof setInterval> = setInterval(() => {
       onStep?.(done);
       done += 1;
       ch.progress.emit({ jobId, kind, label, done, total });
       if (done >= total) {
         clearInterval(timer);
+        jobTimers.delete(jobId);
         ch.done.emit({ jobId, kind });
       }
     }, stepMs);
+    jobTimers.set(jobId, timer);
     ch.progress.emit({ jobId, kind, label, done: 0, total });
     return jobId;
   }
@@ -165,6 +169,12 @@ export function createMockApi(): CratekitApi {
         )
         .filter((t) => q.bpmMin === null || (t.track.bpm ?? 0) >= q.bpmMin)
         .filter((t) => q.bpmMax === null || (t.track.bpm ?? Infinity) <= q.bpmMax)
+        // Stands in for Rust's mixing range: within 3 BPM of the deck.
+        .filter(
+          (t) =>
+            q.nearBpm === null ||
+            (t.track.bpm !== null && Math.abs(t.track.bpm - q.nearBpm) <= 3),
+        )
         .filter((t) => !q.hasStems || t.track.hasStems)
         .filter((t) => {
           if (q.matchCamelot === null) return true;
@@ -212,6 +222,28 @@ export function createMockApi(): CratekitApi {
       return resolve(undefined);
     },
 
+    setlistTransitions: (ids) => {
+      // Stands in for Rust: Camelot neighbours from the fixtures, BPM change in percent.
+      const pairs = ids.slice(1).map((toId, i) => {
+        const fromId = ids[i] ?? toId;
+        const a = byId.get(fromId);
+        const b = byId.get(toId);
+        const keyA = a?.track.camelot ?? null;
+        const keyB = b?.track.camelot ?? null;
+        const keyCompatible =
+          keyA === null || keyB === null
+            ? null
+            : keyA === keyB || (a?.analysis?.mixesWellWith.includes(keyB) ?? false);
+        const bpmA = a?.track.bpm ?? null;
+        const bpmB = b?.track.bpm ?? null;
+        const bpmChangePct =
+          bpmA && bpmB ? Number((((bpmB - bpmA) / bpmA) * 100).toFixed(1)) : null;
+        // Stands in for Rust's rule: more than 6% is a jump.
+        const bpmJump = bpmChangePct !== null && Math.abs(bpmChangePct) > 6;
+        return { fromId, toId, keyCompatible, bpmChangePct, bpmJump };
+      });
+      return resolve(pairs);
+    },
     analyzeTracks: (ids) =>
       resolve(
         runJob("analysis", `Analyzing ${ids.length} tracks`, ids.length, 400, (i) => {
@@ -219,7 +251,11 @@ export function createMockApi(): CratekitApi {
           if (t) t.track.analyzed = true;
         }),
       ),
-    jobCancel: () => resolve(undefined),
+    jobCancel: (id) => {
+      clearInterval(jobTimers.get(id));
+      jobTimers.delete(id);
+      return resolve(undefined);
+    },
     jobsSetPaused: () => resolve(undefined),
 
     playbackLoad: (id) => {
@@ -253,6 +289,7 @@ export function createMockApi(): CratekitApi {
       return resolve(undefined);
     },
     playbackSetMode: () => resolve(undefined),
+    playbackSetFilter: () => resolve(undefined),
 
     stemsSplit: (id) =>
       resolve(

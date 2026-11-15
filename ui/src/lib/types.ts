@@ -105,6 +105,8 @@ export interface LibraryQuery {
   search: string;
   bpmMin: number | null;
   bpmMax: number | null;
+  /** Only tracks within mixing range of this BPM (tolerance decided in Rust). */
+  nearBpm: number | null;
   /** Only tracks that mix well with this Camelot code (matching done in Rust). */
   matchCamelot: string | null;
   hasStems: boolean;
@@ -240,6 +242,18 @@ export interface ModelStatus {
   downloaded: boolean;
 }
 
+/** How two neighbouring tracks in the set list fit together (computed in Rust). */
+export interface Transition {
+  fromId: TrackId;
+  toId: TrackId;
+  /** Same key or a neighbour on the Camelot wheel; null when either key is unknown. */
+  keyCompatible: boolean | null;
+  /** BPM change in percent from `fromId` to `toId`; null when either is not analyzed. */
+  bpmChangePct: number | null;
+  /** The BPM change is too big to mix smoothly (threshold decided in Rust). */
+  bpmJump: boolean;
+}
+
 /** Saved pane sizes, per panel group id: panel id to percentage. */
 export type PaneLayouts = Record<string, Record<string, number>>;
 
@@ -251,6 +265,8 @@ export interface Settings {
   outputFolder: string;
   stemsBackend: StemsBackendPreference;
   paneLayouts: PaneLayouts;
+  /** The set builder side list, in order. */
+  setList: TrackId[];
 }
 
 export interface ExportChange {

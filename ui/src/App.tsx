@@ -1,6 +1,6 @@
 import { useEffect, type JSX } from "react";
 
-import { TrackBrowser } from "@/components/browser/TrackBrowser";
+import { BrowserArea } from "@/components/browser/BrowserArea";
 import { Deck } from "@/components/deck/Deck";
 import { AppShell } from "@/components/layout/AppShell";
 import { DemoBanner } from "@/components/layout/DemoBanner";
@@ -9,10 +9,14 @@ import { StatusBar } from "@/components/layout/StatusBar";
 import { ToolPanel } from "@/components/tools/ToolPanel";
 import { Toaster } from "@/components/ui/sonner";
 import { useIpcEvents } from "@/hooks/useIpcEvents";
+import { usePlaybackPositionRef } from "@/hooks/usePlaybackRefs";
 import { useShortcuts } from "@/hooks/useShortcuts";
 import { isMockMode } from "@/lib/ipc";
+import type { CueSlot } from "@/lib/types";
+import { useDevices } from "@/stores/devices";
 import { useLibrary } from "@/stores/library";
 import { usePlayer } from "@/stores/player";
+import { useSetList } from "@/stores/setlist";
 import { useSettings } from "@/stores/settings";
 
 /** Build-time flag: false in production Tauri builds, so the banner is not even bundled. */
@@ -24,14 +28,32 @@ export function App(): JSX.Element {
   const loadSettings = useSettings((s) => s.load);
   const loadLibrary = useLibrary((s) => s.load);
   const togglePlay = usePlayer((s) => s.togglePlay);
+  const cue = usePlayer((s) => s.cue);
+  const triggerHotCue = usePlayer((s) => s.triggerHotCue);
+  const loadDevices = useDevices((s) => s.load);
+  const loadSetList = useSetList((s) => s.load);
+  const position = usePlaybackPositionRef();
 
   useIpcEvents();
-  useShortcuts({ "play-pause": () => void togglePlay() });
+  const hotCue = (slot: CueSlot) => () => void triggerHotCue(slot, position.current);
+  useShortcuts({
+    "play-pause": () => void togglePlay(),
+    cue: () => void cue(),
+    "hotcue-1": hotCue(1),
+    "hotcue-2": hotCue(2),
+    "hotcue-3": hotCue(3),
+    "hotcue-4": hotCue(4),
+    "hotcue-5": hotCue(5),
+    "hotcue-6": hotCue(6),
+    "hotcue-7": hotCue(7),
+    "hotcue-8": hotCue(8),
+  });
 
   useEffect(() => {
-    void loadSettings();
+    void loadSettings().then(() => loadSetList());
     void loadLibrary();
-  }, [loadSettings, loadLibrary]);
+    void loadDevices();
+  }, [loadSettings, loadLibrary, loadDevices, loadSetList]);
 
   return (
     <>
@@ -40,7 +62,7 @@ export function App(): JSX.Element {
           banner={SHOW_DEMO_BANNER && isMockMode() ? <DemoBanner /> : undefined}
           sidebar={<Sidebar />}
           deck={<Deck />}
-          browser={<TrackBrowser />}
+          browser={<BrowserArea />}
           tools={<ToolPanel />}
           statusBar={<StatusBar />}
         />

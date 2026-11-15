@@ -16,6 +16,7 @@ export const DEFAULT_QUERY: LibraryQuery = {
   search: "",
   bpmMin: null,
   bpmMax: null,
+  nearBpm: null,
   matchCamelot: null,
   hasStems: false,
 };
@@ -80,7 +81,10 @@ export const useLibrary = create<LibraryState>()((set, get) => ({
         api().cratesList(),
       ]);
       if (seq !== requestSeq) return;
-      set({ rows, counts, crates, status: "ready" });
+      // Hidden tracks leave the selection, so actions only apply to what is visible.
+      const visible = new Set(rows.map((r) => r.id));
+      const selectedIds = get().selectedIds.filter((id) => visible.has(id));
+      set({ rows, counts, crates, status: "ready", selectedIds });
     } catch (error) {
       if (seq !== requestSeq) return;
       notifyError(error, "Could not refresh the library");

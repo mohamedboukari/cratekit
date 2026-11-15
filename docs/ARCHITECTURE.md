@@ -112,11 +112,14 @@ ui/
       types.ts         TS types mirroring the Rust command/event payloads
       shortcuts.ts     the single keyboard shortcut map
       notify.ts        command errors as toasts
+      format.ts        display formatting only (times, durations, filter text)
+      dnd.ts           drag and drop payload type and validation
+      focus.ts         focus helpers (buttons give focus back after a mouse click)
     mock/              fake-data CratekitApi + fixtures (browser dev server, Pages demo, tests);
                        only loaded when DEV or VITE_MOCK=1, so production Tauri builds never contain it
-    stores/            Zustand stores per domain: library, player, jobs, settings, ui
-    components/        one component per file, PascalCase .tsx (see docs/UI.md)
-    hooks/             useIpcEvents (Rust events into stores), usePlaybackRefs (30 Hz refs), useShortcuts
+    stores/            Zustand stores per domain: library, player, jobs, settings, ui, devices, setlist
+    components/        one component per file, PascalCase .tsx (see docs/UI.md); controls/ holds shared widgets (Knob)
+    hooks/             useIpcEvents (Rust events into stores), usePlaybackRefs (30 Hz refs), useShortcuts, usePaneLayout (saved pane sizes)
     canvas/            waveform, overview bar, meters: imperative drawing code
     components/ui/     shadcn components (style base-mira, Base UI primitives), added with `bunx --bun shadcn@latest add`
     index.css          Tailwind v4 + design tokens (`ck-*`) mapped onto shadcn's semantic colours; fonts via fontsource
@@ -138,13 +141,15 @@ Rules:
 | --- | --- |
 | `app_version` | App version (first command; proves IPC works) |
 | `library_add_paths(paths)` | Add files/folders, returns new track ids |
-| `library_list(query)` | Tracks with filters (crate, BPM range, key match, has stems) |
+| `library_list(query)` | Tracks with filters (crate, search, BPM range, near a BPM with the tolerance decided in Rust, key match, has stems) |
 | `library_counts` / `track_detail(id)` / `crates_list` | Sidebar counts; one track with analysis, cues and waveform; all crates |
 | `crate_create / crate_add_tracks / crate_remove_tracks` | Crates |
+| `setlist_transitions(ids)` | Set builder: for each neighbour pair, `keyCompatible` (null when either key is unknown), `bpmChangePct` and `bpmJump` (Rust decides the thresholds) (#55) |
 | `analyze_tracks(ids)` | Queue analysis |
 | `job_cancel(job_id)` / `jobs_set_paused(paused)` | Cancel one job; pause or resume the queue |
 | `playback_load(id) / playback_play / playback_pause / playback_seek(sec) / playback_set_rate(r)` | Deck |
 | `playback_set_mode(mode)` | Original / Mastered / Stems |
+| `playback_set_filter(value)` | DJ filter knob: -1 full low-pass, 0 off, +1 full high-pass (#56) |
 | `stems_split(id)` / `stems_set_gain(stem, gain)` / `stems_set_mute(stem, bool)` | Stems |
 | `master_preview(id, settings)` / `master_export(id, settings, path)` | Mastering |
 | `hotcue_set(id, slot, sec)` / `hotcue_clear(id, slot)` | Cues |
@@ -152,7 +157,7 @@ Rules:
 | `export_virtualdj(ids, dry_run)` | Export |
 | `models_status / models_download(name) / models_delete(name)` | ML models |
 | `audio_list_devices / audio_set_device(id) / audio_set_buffer_size(frames)` | Audio output |
-| `settings_get / settings_set(key, value)` | Settings (watched folders, output folder, processing backend, ...) |
+| `settings_get / settings_set(key, value)` | Settings (watched folders, output folder, processing backend, pane layouts, the set list order, ...) |
 | `stems_backend_status` | Active stems backend (CoreML / DirectML / CPU) and why |
 
 **Events (Rust → UI)**: `job_progress {jobId, kind, label, done, total}`, `job_done {jobId, kind}`, `job_failed {jobId, kind, error}`, `playback_position {sec}` (30 Hz), `meter {peakDb, rmsDb}` (30 Hz), `playback_state {playing}` (start, pause, end of track), `midi_device_changed`, `midi_learned {target, binding}`, `control_event {target, value}`, `audio_device_changed {id, reason}`.

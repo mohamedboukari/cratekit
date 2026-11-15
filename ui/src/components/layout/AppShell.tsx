@@ -1,15 +1,11 @@
 import type { JSX, ReactNode } from "react";
-import type { Layout, LayoutChangedMeta } from "react-resizable-panels";
 
 import {
   ResizableHandle,
   ResizablePanel,
   ResizablePanelGroup,
 } from "@/components/ui/resizable";
-import { useSettings } from "@/stores/settings";
-
-/** Stable fallback so the selector does not return a new object every render. */
-const NO_LAYOUTS: Record<string, Record<string, number>> = {};
+import { usePaneLayout } from "@/hooks/usePaneLayout";
 
 interface AppShellProps {
   sidebar: ReactNode;
@@ -23,8 +19,10 @@ interface AppShellProps {
 /**
  * Laptop-first window layout (docs/UI.md): sidebar | [deck / (browser | tools)],
  * status bar at the bottom. Sizes in pixels set the defaults and limits; the
- * user's resized layout (percentages) is saved through settings and restored.
+ * user's resized layout is saved through settings (usePaneLayout) and restored.
  * The tool panel collapses before the track browser gets too small.
+ * Minimum widths add up to fit the 1024 px minimum window: sidebar 170 +
+ * browser 550 (tracks 360 + set list 190) + tools 280, plus the handles.
  */
 export function AppShell({
   sidebar,
@@ -34,18 +32,9 @@ export function AppShell({
   statusBar,
   banner,
 }: AppShellProps): JSX.Element {
-  const layouts = useSettings((s) => s.settings?.paneLayouts ?? NO_LAYOUTS);
-  const setPaneLayout = useSettings((s) => s.setPaneLayout);
-
-  // onLayoutChanged also fires on mount and when the window resizes. Save only
-  // real drags, and save the requested layout (before pixel limits clamped it),
-  // so a session in a small window does not overwrite the user's sizes.
-  const save =
-    (groupId: string) =>
-    (layout: Layout, meta: LayoutChangedMeta): void => {
-      if (!meta.isUserInteraction) return;
-      void setPaneLayout(groupId, meta.requestedLayout ?? layout);
-    };
+  const root = usePaneLayout("root");
+  const main = usePaneLayout("main");
+  const work = usePaneLayout("work");
 
   return (
     <div className="flex h-full flex-col">
@@ -54,13 +43,12 @@ export function AppShell({
         id="root"
         orientation="horizontal"
         className="min-h-0 flex-1"
-        defaultLayout={layouts["root"]}
-        onLayoutChanged={save("root")}
+        {...root}
       >
         <ResizablePanel
           id="sidebar"
           defaultSize={210}
-          minSize={180}
+          minSize={170}
           maxSize={320}
           collapsible
           collapsedSize={0}
@@ -68,32 +56,22 @@ export function AppShell({
           {sidebar}
         </ResizablePanel>
         <ResizableHandle />
-        <ResizablePanel id="main" minSize={640}>
-          <ResizablePanelGroup
-            id="main"
-            orientation="vertical"
-            defaultLayout={layouts["main"]}
-            onLayoutChanged={save("main")}
-          >
-            <ResizablePanel id="deck" defaultSize={210} minSize={170} maxSize={340}>
+        <ResizablePanel id="main" minSize={832}>
+          <ResizablePanelGroup id="main" orientation="vertical" {...main}>
+            <ResizablePanel id="deck" defaultSize={224} minSize={220} maxSize={340}>
               {deck}
             </ResizablePanel>
             <ResizableHandle />
             <ResizablePanel id="work" minSize={240}>
-              <ResizablePanelGroup
-                id="work"
-                orientation="horizontal"
-                defaultLayout={layouts["work"]}
-                onLayoutChanged={save("work")}
-              >
-                <ResizablePanel id="browser" minSize={360}>
+              <ResizablePanelGroup id="work" orientation="horizontal" {...work}>
+                <ResizablePanel id="browser" minSize={550}>
                   {browser}
                 </ResizablePanel>
                 <ResizableHandle />
                 <ResizablePanel
                   id="tools"
-                  defaultSize={380}
-                  minSize={300}
+                  defaultSize={340}
+                  minSize={280}
                   maxSize={560}
                   collapsible
                   collapsedSize={0}
