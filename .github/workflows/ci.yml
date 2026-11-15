@@ -71,11 +71,15 @@ jobs:
       - name: Format
         run: cargo fmt --all -- --check
 
-      - name: Clippy
+      # Twice: the build that ships (default features) and everything (all features).
+      - name: Clippy (default features)
         run: cargo clippy --workspace --all-targets --locked -- -D warnings
 
+      - name: Clippy (all features)
+        run: cargo clippy --workspace --all-targets --all-features --locked -- -D warnings
+
       - name: Tests
-        run: cargo nextest run --workspace --profile ci --locked
+        run: cargo nextest run --workspace --all-features --profile ci --locked
 
       # nextest does not run tests inside /// doc comments.
       - name: Doc tests

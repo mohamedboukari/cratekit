@@ -48,9 +48,10 @@ src/
   audio/               decode (symphonia), resample (rubato), AudioBuffer, write WAV (hound)
   analysis/
     mod.rs             analyze_track() -> TrackAnalysis
-    tempo.rs           trait TempoDetector; OnsetTempo (ours); stratum-dsp impl next (#10)
+    tempo.rs           trait TempoDetector; OnsetTempo (ours, the default)
     key.rs             Key, PitchClass, Camelot (mapping, matches(), mixes_well_with(), parsing), scale flags
-    key_detect.rs      trait KeyDetector; ProfileKey (ours: chroma + Krumhansl-Kessler); stratum-dsp impl next (#10)
+    key_detect.rs      trait KeyDetector; ProfileKey (ours, the default: chroma + Krumhansl-Kessler)
+    stratum.rs         StratumTempo, StratumKey: stratum-dsp behind the same traits (`stratum` feature, off)
     loudness.rs        integrated LUFS, true peak
     energy.rs          1 to 10 score
     waveform.rs        min/max/RMS columns for the UI
@@ -261,8 +262,8 @@ Intensity `k` (0 to 1): EQ gain × k, ratio = 1 + (ratio − 1) × k, makeup int
 
 ## Analysis notes
 
-- Prefer `stratum-dsp` for BPM, key and beat grid. Wrap it behind `TempoDetector` / `KeyDetector` traits.
-- Keep a simple fallback implementation (onset-energy autocorrelation for BPM; chroma + Krumhansl-Kessler profiles for key, using power not magnitude so bass overtones do not bias the mode). Ours is in place (`OnsetTempo`, `ProfileKey`): on the synthetic loops at 92/124/128/140 BPM it meets the SPEC targets, and in release it analyzes 90 s of audio in about 0.35 s. See `docs/analysis.md`.
+- `stratum-dsp` is wrapped behind the `TempoDetector` / `KeyDetector` traits (`StratumTempo`, `StratumKey`, `stratum` cargo feature, off by default). Measured on 16 synthetic loops of 30 s (release): ours 16/16 tempo and 16/16 key in 1.9 s, stratum-dsp 12/16 and 11/16 in 10.4 s; it also doubled a 75 BPM groove and reported a tempo for a steady drone. So our detectors are the default; re-measure on the test DJ's real tracks (#22) before deciding again. Its beat grid is not used yet.
+- Our detectors are the default: `OnsetTempo` (onset-energy autocorrelation, refined by a beat-grid fit) and `ProfileKey` (chroma + Krumhansl-Kessler profiles, using power not magnitude so bass overtones do not bias the mode). On the synthetic loops at 92/124/128/140 BPM they meet the SPEC targets, and in release they analyze 90 s of audio in about 0.35 s. See `docs/analysis.md`.
 - Analyze the middle 60 to 90 s of the track for speed; full track for loudness and waveform.
 
 ## Stems notes

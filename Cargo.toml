@@ -16,6 +16,9 @@ publish = false
 anyhow = "1"
 cratekit-core = { path = "crates/cratekit-core" }
 serde = { version = "1", features = ["derive"] }
+# BPM and key detection behind our detector traits (MIT OR Apache-2.0); approved 2026-11-15.
+# No features: keeps `ml` (ONNX Runtime) out even if a later release enables it by default.
+stratum-dsp = { version = "1", default-features = false }
 tauri = { version = "2.12", features = [] }
 tauri-build = { version = "2.7", features = [] }
 # Native file and folder pickers (MIT OR Apache-2.0, Tauri team); approved 2026-11-15.

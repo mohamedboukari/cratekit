@@ -4,4 +4,6 @@
 
 pub mod key;
 pub mod key_detect;
+#[cfg(feature = "stratum")]
+pub mod stratum;
 pub mod tempo;

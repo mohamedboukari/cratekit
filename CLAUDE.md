@@ -62,7 +62,7 @@ The maintainer stays in the loop and in control at every step. Never bypass the 
 | Audio decode | `symphonia` |
 | Resampling | `rubato` |
 | Playback | `cpal` + `rtrb` |
-| Analysis | `stratum-dsp` (BPM, key, beat grid), with our own fallback code in `cratekit-core::analysis` |
+| Analysis | Our own detectors in `cratekit-core::analysis` (default: more accurate and faster on our tests); `stratum-dsp` behind the same traits with the `stratum` cargo feature (off) |
 | Loudness | `ebur128` crate (or our own BS.1770 implementation) |
 | Stems | `stem-splitter-core` (htdemucs via ONNX Runtime); fallback: `ort` directly with the htdemucs ONNX model |
 | Mastering | Our own DSP chain (no library exists in Rust) |
@@ -106,10 +106,10 @@ bun install                    # JS deps for root + ui/, installs the husky git 
 
 bun run tauri dev              # run the app (Tauri CLI comes from bun, pinned in bun.lock)
 bun run check                  # every gate, same as pre-push and CI
-bun run test:rust              # cargo nextest run --workspace
+bun run test:rust              # cargo nextest run --workspace --all-features
 bun run test                   # UI tests (Vitest)
 bun run lint / bun run format  # oxlint (type-aware) / Prettier
-bun run coverage               # cargo llvm-cov nextest
+bun run coverage               # cargo llvm-cov nextest --all-features
 bacon                          # background clippy/tests on save (c / l / t to switch)
 cargo deny check               # licenses + advisories, with full warnings
 ```

@@ -1,7 +1,8 @@
 //! Tempo (BPM) detection (SPEC, Module 2).
 //!
 //! [`TempoDetector`] is the interface the rest of Cratekit uses, so the
-//! implementation can be swapped (a `stratum-dsp` one follows). [`OnsetTempo`]
+//! implementation can be swapped (`stratum-dsp` is the second one, behind
+//! the `stratum` feature: see `analysis::stratum`). [`OnsetTempo`]
 //! is our own: it finds where hits start (an onset envelope), estimates the
 //! beat period from how that envelope repeats (autocorrelation), then refines
 //! the tempo by lining a beat grid up with every onset in the clip.
@@ -60,7 +61,7 @@ const FINE_STEP_BPM: f64 = 0.01;
 /// Phase step of the fine search, in envelope frames.
 const PHASE_STEP: f64 = 0.5;
 /// Shortest audio worth analyzing, in seconds.
-const MIN_SECONDS: f64 = 3.0;
+pub(crate) const MIN_SECONDS: f64 = 3.0;
 
 /// Our tempo detector: onset envelope, autocorrelation, then a fine beat-grid
 /// fit over the whole clip.
@@ -303,7 +304,7 @@ fn refine_bpm(envelope: &[f64], frame_seconds: f64, coarse: f64) -> (f64, f64, f
 }
 
 /// Halves or doubles `bpm` until it is inside [`BPM_RANGE`].
-fn fold_into_range(mut bpm: f64) -> f64 {
+pub(crate) fn fold_into_range(mut bpm: f64) -> f64 {
     let (low, high) = (f64::from(BPM_RANGE.0), f64::from(BPM_RANGE.1));
     while bpm > high {
         bpm /= 2.0;
