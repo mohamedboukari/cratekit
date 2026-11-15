@@ -15,5 +15,8 @@
     "unlisted": "error",
     "exports": "error",
     "types": "error"
+  },
+  "ignoreIssues": {
+    "ui/src/components/ui/**": ["exports", "types"]
   }
 }

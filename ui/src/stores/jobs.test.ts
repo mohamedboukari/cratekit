@@ -35,4 +35,13 @@ describe("jobs store", () => {
     await useJobs.getState().setPaused(false);
     expect(useJobs.getState().jobs["j2"]?.state).toBe("running");
   });
+
+  it("keeps a cancelled job gone when late progress arrives", async () => {
+    const { onProgress } = useJobs.getState();
+    onProgress({ jobId: "j3", kind: "analysis", label: "Analyzing", done: 1, total: 9 });
+    await useJobs.getState().cancel("j3");
+    onProgress({ jobId: "j3", kind: "analysis", label: "Analyzing", done: 2, total: 9 });
+    useJobs.getState().onDone({ jobId: "j3", kind: "analysis" });
+    expect(useJobs.getState().jobs["j3"]).toBeUndefined();
+  });
 });

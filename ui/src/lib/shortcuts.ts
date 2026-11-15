@@ -108,7 +108,6 @@ const SPACE_ROLES = new Set([
   "option",
   "tab",
   "menuitem",
-  "slider",
 ]);
 
 /** True when Space should go to the focused control instead of a shortcut. */

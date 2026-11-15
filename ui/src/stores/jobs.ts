@@ -7,9 +7,14 @@ import type { Job, JobDone, JobFailed, JobId, JobProgress, JobState } from "@/li
 /** Finished jobs stay visible this long in the queue before they are dropped. */
 const DONE_TTL_MS = 4000;
 
+/** Jobs the user cancelled: late progress or done events for them are ignored. */
+const cancelled = new Set<JobId>();
+
 interface JobsState {
   jobs: Record<JobId, Job>;
   paused: boolean;
+  /** Coarse text for screen readers: a job started or finished (never progress ticks). */
+  announcement: string;
   onProgress: (p: JobProgress) => void;
   onDone: (d: JobDone) => void;
   onFailed: (f: JobFailed) => void;
@@ -27,9 +32,12 @@ export function activeJobs(jobs: Record<JobId, Job>): Job[] {
 export const useJobs = create<JobsState>()((set, get) => ({
   jobs: {},
   paused: false,
+  announcement: "",
 
-  onProgress: (p) =>
+  onProgress: (p) => {
+    if (cancelled.has(p.jobId)) return;
     set((s) => ({
+      announcement: s.jobs[p.jobId] ? s.announcement : `${p.label} started`,
       jobs: {
         ...s.jobs,
         [p.jobId]: {
@@ -41,13 +49,16 @@ export const useJobs = create<JobsState>()((set, get) => ({
           state: s.paused ? "paused" : "running",
         },
       },
-    })),
+    }));
+  },
 
   onDone: (d) => {
+    if (cancelled.has(d.jobId)) return;
     set((s) => {
       const job = s.jobs[d.jobId];
       if (!job) return s;
       return {
+        announcement: `${job.label} done`,
         jobs: { ...s.jobs, [d.jobId]: { ...job, done: job.total, state: "done" } },
       };
     });
@@ -71,6 +82,7 @@ export const useJobs = create<JobsState>()((set, get) => ({
   cancel: async (id) => {
     try {
       await api().jobCancel(id);
+      cancelled.add(id);
       set((s) => {
         const { [id]: _cancelled, ...rest } = s.jobs;
         return { jobs: rest };

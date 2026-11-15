@@ -287,4 +287,5 @@ export const DEMO_SETTINGS: Settings = {
   watchedFolders: ["~/Music/DJ"],
   watchFolders: true,
   outputFolder: "~/Music/Cratekit",
+  setList: [2, 8, 14, 20, 26],
 };

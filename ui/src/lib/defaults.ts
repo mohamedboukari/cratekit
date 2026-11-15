@@ -13,4 +13,5 @@ export const DEFAULT_SETTINGS: Settings = {
   outputFolder: "",
   stemsBackend: "auto",
   paneLayouts: {},
+  setList: [],
 };

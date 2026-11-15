@@ -25,6 +25,7 @@ export function createTauriApi(): CratekitApi {
     crateCreate: (name, color) => invoke("crate_create", { name, color }),
     crateAddTracks: (crateId, ids) => invoke("crate_add_tracks", { crateId, ids }),
     crateRemoveTracks: (crateId, ids) => invoke("crate_remove_tracks", { crateId, ids }),
+    setlistTransitions: (ids) => invoke("setlist_transitions", { ids }),
 
     analyzeTracks: (ids) => invoke("analyze_tracks", { ids }),
     jobCancel: (jobId) => invoke("job_cancel", { jobId }),
@@ -36,6 +37,7 @@ export function createTauriApi(): CratekitApi {
     playbackSeek: (sec) => invoke("playback_seek", { sec }),
     playbackSetRate: (rate) => invoke("playback_set_rate", { rate }),
     playbackSetMode: (mode) => invoke("playback_set_mode", { mode }),
+    playbackSetFilter: (value) => invoke("playback_set_filter", { value }),
 
     stemsSplit: (id) => invoke("stems_split", { id }),
     stemsSetGain: (stem, gain) => invoke("stems_set_gain", { stem, gain }),
