@@ -1,0 +1,529 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Cratekit: App preview</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #08090b; --win: #0f1114; --side: #0b0c0f; --panel: #15181d; --panel2: #1b1f25; --line: #23272e;
+    --text: #e9ebee; --muted: #858c96; --accent: #c6f432; --orange: #ff7a45; --blue: #4cc9f0; --pink: #f72585; --purple: #9b5de5;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { height: 100%; }
+  body { background: radial-gradient(1200px 600px at 50% -10%, #1d2230, var(--bg)); color: var(--text); font-family: 'Space Grotesk', system-ui, sans-serif; font-size: 13px; display: grid; place-items: center; padding: 20px; }
+  .mono { font-family: 'JetBrains Mono', monospace; }
+  .muted { color: var(--muted); }
+  button { font: inherit; color: inherit; cursor: pointer; }
+
+  /* Window */
+  .window { width: min(1280px, 100%); height: min(820px, calc(100vh - 40px)); min-height: 680px; background: var(--win); border: 1px solid var(--line); border-radius: 12px; overflow: hidden; display: grid; grid-template-rows: 38px 1fr 28px; box-shadow: 0 40px 100px rgba(0,0,0,.6); }
+  .titlebar { display: flex; align-items: center; gap: 16px; padding: 0 14px; background: #0c0d10; border-bottom: 1px solid var(--line); }
+  .dots { display: flex; gap: 7px; } .dots i { width: 12px; height: 12px; border-radius: 50%; background: #ff5f57; } .dots i:nth-child(2) { background: #febc2e; } .dots i:nth-child(3) { background: #28c840; }
+  .menu { display: flex; gap: 14px; color: var(--muted); font-size: 12px; }
+  .title { margin-left: auto; margin-right: auto; color: var(--muted); font-size: 12px; transform: translateX(-60px); }
+  .search { background: var(--panel); border: 1px solid var(--line); border-radius: 7px; padding: 4px 10px; color: var(--muted); font-size: 12px; width: 200px; }
+
+  .body { display: grid; grid-template-columns: 210px 1fr; min-height: 0; }
+
+  /* Sidebar */
+  aside { background: var(--side); border-right: 1px solid var(--line); padding: 14px 10px; overflow-y: auto; }
+  .brand { display: flex; align-items: center; gap: 8px; font-weight: 700; font-size: 15px; padding: 0 6px 14px; }
+  .brand i { width: 24px; height: 24px; border-radius: 6px; background: var(--accent); color: #0c0e11; display: grid; place-items: center; font-style: normal; font-size: 13px; }
+  .group { margin-bottom: 16px; }
+  .group h4 { font-size: 10px; letter-spacing: .1em; text-transform: uppercase; color: var(--muted); padding: 0 8px 6px; font-weight: 600; }
+  .item { display: flex; align-items: center; gap: 8px; width: 100%; background: none; border: none; text-align: left; padding: 6px 8px; border-radius: 6px; color: #c3c8cf; }
+  .item:hover { background: var(--panel); }
+  .item.on { background: var(--panel2); color: var(--text); }
+  .item .n { margin-left: auto; color: var(--muted); font-size: 11px; }
+  .sw { width: 8px; height: 8px; border-radius: 2px; }
+  .device { margin: 4px 4px 0; padding: 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--panel); }
+  .device b { display: block; font-size: 12px; }
+  .ok { color: var(--accent); font-size: 11px; display: inline-flex; align-items: center; gap: 5px; }
+  .ok::before { content: ''; width: 6px; height: 6px; border-radius: 50%; background: var(--accent); box-shadow: 0 0 6px var(--accent); }
+
+  /* Main */
+  main { display: grid; grid-template-rows: auto auto 1fr; min-height: 0; overflow: hidden; }
+
+  .deck { padding: 14px 18px 12px; border-bottom: 1px solid var(--line); }
+  .deck-top { display: flex; align-items: center; gap: 14px; }
+  .art { width: 46px; height: 46px; border-radius: 8px; background: linear-gradient(135deg, var(--purple), var(--pink)); flex: none; }
+  .deck-top h2 { font-size: 16px; }
+  .stats { margin-left: auto; display: flex; gap: 6px; }
+  .stat { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 5px 10px; min-width: 72px; }
+  .stat small { display: block; color: var(--muted); font-size: 9.5px; text-transform: uppercase; letter-spacing: .08em; }
+  .stat b { font-family: 'JetBrains Mono', monospace; font-size: 15px; }
+  .stat.hi b { color: var(--accent); }
+
+  .wave { margin: 14px 0 6px; position: relative; height: 78px; }
+  .wave svg { width: 100%; height: 100%; display: block; }
+  .cue { position: absolute; top: 0; bottom: 0; width: 2px; }
+  .cue::before { content: attr(data-n); position: absolute; top: -2px; left: 3px; font-size: 9px; font-weight: 700; padding: 0 4px; border-radius: 3px; color: #0c0e11; background: inherit; }
+  .playhead { position: absolute; top: -4px; bottom: -4px; left: 38%; width: 2px; background: #fff; box-shadow: 0 0 8px #fff; }
+  .overview { height: 14px; margin-top: 4px; border-radius: 3px; background: var(--panel); position: relative; overflow: hidden; }
+  .overview i { position: absolute; top: 0; bottom: 0; left: 0; width: 38%; background: rgba(198,244,50,.25); border-right: 2px solid #fff; }
+
+  .transport { display: flex; align-items: center; gap: 8px; margin-top: 10px; }
+  .btn { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 7px 12px; font-weight: 600; }
+  .btn:hover { border-color: #39404a; }
+  .play { background: var(--accent); color: #0c0e11; border-color: var(--accent); width: 44px; font-size: 14px; }
+  .pad { width: 36px; height: 32px; border-radius: 7px; border: none; font-weight: 700; color: #0c0e11; }
+  .time { font-size: 12px; margin-left: 6px; }
+  .hearing { margin-left: auto; font-size: 12px; color: var(--muted); }
+  .hearing b { color: var(--accent); }
+
+  /* Tools */
+  .tools { padding: 0 18px; border-bottom: 1px solid var(--line); }
+  .tabs { display: flex; gap: 2px; }
+  .tab { background: none; border: none; color: var(--muted); font-weight: 600; padding: 10px 14px; border-bottom: 2px solid transparent; }
+  .tab.on { color: var(--text); border-bottom-color: var(--accent); }
+  .panel { display: none; padding: 14px 0 16px; }
+  .panel.on { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+  .card { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 14px; }
+  .card h3 { font-size: 13px; margin-bottom: 10px; display: flex; justify-content: space-between; align-items: center; }
+  .card h3 span { font-weight: 400; color: var(--muted); font-size: 11px; }
+  .row { display: flex; justify-content: space-between; align-items: center; margin: 8px 0; gap: 10px; }
+
+  .bigkey { font-size: 40px; font-weight: 700; color: var(--accent); line-height: 1; }
+  .chroma { display: flex; align-items: flex-end; gap: 4px; height: 70px; flex: 1; }
+  .chroma div { flex: 1; text-align: center; font-size: 9px; color: var(--muted); }
+  .chroma i { display: block; background: var(--panel2); border-radius: 3px 3px 0 0; margin-bottom: 3px; }
+  .chroma .on i { background: var(--accent); }
+  .chips { display: flex; gap: 6px; flex-wrap: wrap; }
+  .chip { background: var(--panel2); border: 1px solid var(--line); border-radius: 99px; padding: 4px 10px; font-size: 12px; }
+  .chip b { color: var(--accent); margin-right: 3px; }
+
+  .presets { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 10px; }
+  .preset { padding: 7px 12px; border-radius: 8px; border: 1px solid var(--line); background: var(--panel2); font-weight: 600; }
+  .preset.on { background: var(--accent); color: #0c0e11; border-color: var(--accent); }
+  .slider { width: 100%; accent-color: var(--accent); }
+  .ab { display: inline-flex; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
+  .ab button { background: var(--panel2); border: none; color: var(--muted); padding: 6px 14px; font-weight: 700; }
+  .ab button.on { background: var(--text); color: #0c0e11; }
+  .meter { height: 8px; background: var(--panel2); border-radius: 99px; overflow: hidden; }
+  .meter i { display: block; height: 100%; background: linear-gradient(90deg, var(--accent), #ffd60a 80%, var(--orange)); }
+
+  .stem { display: grid; grid-template-columns: 70px 1fr 74px 70px; align-items: center; gap: 10px; padding: 5px 0; }
+  .stem b { font-size: 12px; display: flex; align-items: center; gap: 6px; }
+  .stem b i { width: 8px; height: 8px; border-radius: 50%; }
+  .stem svg { width: 100%; height: 24px; }
+  .ms { display: flex; gap: 4px; }
+  .ms button { width: 30px; height: 24px; border-radius: 6px; border: 1px solid var(--line); background: var(--panel2); color: var(--muted); font-weight: 700; font-size: 11px; }
+  .ms button.m-on { background: var(--orange); color: #0c0e11; border-color: var(--orange); }
+
+  .ctrl { display: flex; gap: 16px; align-items: center; justify-content: center; }
+  .jog { width: 84px; height: 84px; border-radius: 50%; background: radial-gradient(circle, #2b3038 0 30%, #1a1e24 31% 64%, #2b3038 65% 68%, #15181d 69%); border: 2px solid var(--line); position: relative; flex: none; }
+  .jog::after { content: ''; position: absolute; top: 6px; left: 50%; width: 3px; height: 14px; background: var(--accent); border-radius: 2px; transform: translateX(-50%); }
+  .pads { display: grid; grid-template-columns: repeat(4, 34px); gap: 5px; }
+  .pads span { height: 24px; border-radius: 5px; display: grid; place-items: center; font-size: 8.5px; font-weight: 700; color: #0c0e11; }
+  .mixer { display: flex; gap: 12px; }
+  .knob { width: 26px; height: 26px; border-radius: 50%; background: #2b3038; border: 2px solid var(--line); margin: 0 auto 4px; position: relative; }
+  .knob::after { content: ''; position: absolute; top: 2px; left: 50%; width: 2px; height: 8px; background: #fff; transform: translateX(-50%) rotate(var(--r, 0deg)); transform-origin: 50% 10px; }
+  .fader { width: 6px; height: 54px; background: #1a1e24; border-radius: 3px; margin: 6px auto 0; position: relative; }
+  .fader::after { content: ''; position: absolute; left: -8px; top: var(--t, 30%); width: 22px; height: 10px; background: #d8dbe0; border-radius: 3px; }
+  .lbl { font-size: 9px; color: var(--muted); text-align: center; margin-top: 3px; }
+  table { width: 100%; border-collapse: collapse; }
+  .map td { padding: 5px 4px; border-bottom: 1px solid var(--line); font-size: 12px; }
+  .map td:last-child { text-align: right; }
+  .learn { font-size: 10.5px; padding: 3px 9px; border-radius: 6px; border: 1px solid var(--line); background: var(--panel2); }
+  .learn.done { border-color: var(--accent); color: var(--accent); }
+
+  /* Browser */
+  .browser { overflow: auto; min-height: 0; }
+  .browser-head { display: flex; align-items: center; gap: 10px; padding: 10px 18px; position: sticky; top: 0; background: var(--win); border-bottom: 1px solid var(--line); z-index: 1; }
+  .browser-head b { font-size: 13px; }
+  .filters { margin-left: auto; display: flex; gap: 6px; }
+  .filter { font-size: 11px; padding: 3px 9px; border-radius: 99px; border: 1px solid var(--line); background: var(--panel); color: var(--muted); }
+  .filter.on { color: var(--accent); border-color: var(--accent); }
+  .tracks th { position: sticky; top: 45px; background: var(--win); text-align: left; font-weight: 500; font-size: 10px; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); padding: 7px 10px; border-bottom: 1px solid var(--line); }
+  .tracks td { padding: 7px 10px; border-bottom: 1px solid #181b20; white-space: nowrap; }
+  .tracks tr:hover td { background: #13161a; }
+  .tracks tr.playing td { background: rgba(198,244,50,.07); }
+  .tracks tr.playing td:first-child { box-shadow: inset 2px 0 0 var(--accent); }
+  .tracks tr.match .cam, .tracks tr.playing .cam { color: var(--accent); }
+  .cam { font-family: 'JetBrains Mono', monospace; font-weight: 600; }
+  .tag { font-size: 10px; padding: 1px 6px; border-radius: 4px; background: var(--panel2); color: var(--muted); margin-right: 3px; }
+  .tag.g { color: var(--accent); }
+  .energy { display: inline-flex; gap: 2px; } .energy i { width: 4px; height: 10px; border-radius: 1px; background: var(--panel2); } .energy i.f { background: var(--blue); }
+
+  .status { display: flex; align-items: center; gap: 18px; padding: 0 14px; border-top: 1px solid var(--line); background: #0c0d10; font-size: 11px; color: var(--muted); }
+  .status .right { margin-left: auto; display: flex; gap: 18px; }
+  .prog { display: inline-block; width: 80px; height: 4px; background: var(--panel2); border-radius: 2px; vertical-align: middle; margin-left: 6px; overflow: hidden; } .prog i { display: block; width: 62%; height: 100%; background: var(--accent); }
+
+
+  /* Animation + tour */
+  .window { position: relative; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  body.playing .jog { animation: spin 1.8s linear infinite; }
+  .pads span.flash { filter: brightness(1.6); box-shadow: 0 0 12px currentColor; outline: 2px solid #fff; }
+  .spot { outline: 2px solid var(--accent); outline-offset: 3px; border-radius: 10px; transition: outline-color .3s; }
+  .tour { position: absolute; left: 50%; bottom: 44px; transform: translateX(-50%); background: rgba(20,23,28,.96); border: 1px solid #343a44; border-radius: 12px; padding: 12px 16px; display: flex; align-items: center; gap: 14px; box-shadow: 0 16px 40px rgba(0,0,0,.5); z-index: 5; max-width: calc(100% - 40px); }
+  .tour .step { font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--accent); white-space: nowrap; }
+  .tour p { font-size: 13px; }
+  .tour p b { color: var(--text); }
+  .tour .dots2 { display: flex; gap: 4px; } .tour .dots2 i { width: 6px; height: 6px; border-radius: 50%; background: #3a414c; } .tour .dots2 i.on { background: var(--accent); }
+  .tour button { background: none; border: 1px solid var(--line); border-radius: 7px; padding: 4px 10px; color: var(--muted); font-size: 11px; white-space: nowrap; }
+  .tour.hidden { display: none; }
+  .tourbtn { background: var(--accent); color: #0c0e11; border: none; border-radius: 7px; padding: 4px 10px; font-size: 11px; font-weight: 700; }
+  .fadein { animation: fadein .35s ease; } @keyframes fadein { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
+  @media (max-width: 900px) {
+    body { padding: 0; }
+    .window { border-radius: 0; height: auto; min-height: 100vh; }
+    .body { grid-template-columns: 1fr; }
+    aside { display: none; }
+    .stats .stat:nth-child(n+4), .menu, .search { display: none; }
+    .panel.on { grid-template-columns: 1fr; }
+  }
+</style>
+</head>
+<body>
+<div class="window">
+
+  <div class="titlebar">
+    <span class="dots"><i></i><i></i><i></i></span>
+    <span class="menu"><span>File</span><span>Edit</span><span>Track</span><span>Controller</span><span>Help</span></span>
+    <span class="title">Cratekit</span>
+    <span class="search">⌕ Search tracks, keys, BPM…</span>
+    <button class="tourbtn" id="tourbtn">▶ Tour</button>
+  </div>
+
+  <div class="body">
+    <!-- Sidebar -->
+    <aside>
+      <div class="brand"><i>◉</i>Cratekit</div>
+      <div class="group">
+        <h4>Library</h4>
+        <button class="item">All tracks<span class="n">1,284</span></button>
+        <button class="item">Recently added<span class="n">48</span></button>
+        <button class="item">Needs analysis<span class="n">12</span></button>
+      </div>
+      <div class="group">
+        <h4>Crates</h4>
+        <button class="item on"><span class="sw" style="background:var(--accent)"></span>Friday club set<span class="n">32</span></button>
+        <button class="item"><span class="sw" style="background:var(--pink)"></span>Wedding, 25 Nov<span class="n">64</span></button>
+        <button class="item"><span class="sw" style="background:var(--blue)"></span>Afro house<span class="n">41</span></button>
+        <button class="item"><span class="sw" style="background:var(--purple)"></span>Edits &amp; acapellas<span class="n">19</span></button>
+        <button class="item muted">+ New crate</button>
+      </div>
+      <div class="group">
+        <h4>Tools</h4>
+        <button class="item">Sample library<span class="n">2,418</span></button>
+        <button class="item">Batch master</button>
+        <button class="item">Export to VirtualDJ</button>
+      </div>
+      <div class="group">
+        <h4>Devices</h4>
+        <div class="device" id="device"><b>Pioneer DDJ-FLX4</b><span class="ok">connected · USB MIDI</span></div>
+      </div>
+    </aside>
+
+    <main>
+      <!-- Deck -->
+      <section class="deck">
+        <div class="deck-top">
+          <div class="art"></div>
+          <div>
+            <h2>Midnight Drive (Extended Mix)</h2>
+            <div class="muted">Demo Artist · Friday club set</div>
+          </div>
+          <div class="stats" id="statsbox">
+            <div class="stat hi"><small>BPM</small><b>124.0</b></div>
+            <div class="stat"><small>Key</small><b>A min</b></div>
+            <div class="stat hi"><small>Camelot</small><b>8A</b></div>
+            <div class="stat"><small>Energy</small><b>7</b></div>
+            <div class="stat"><small>LUFS</small><b>-9.2</b></div>
+          </div>
+        </div>
+        <div class="wave">
+          <svg viewBox="0 0 1000 78" preserveAspectRatio="none" aria-label="Waveform">
+            <defs><linearGradient id="played" x1="0" x2="0" y1="0" y2="1"><stop offset="0" stop-color="#c6f432"/><stop offset="1" stop-color="#7fa61a"/></linearGradient></defs>
+            <g id="bars"></g>
+          </svg>
+          <div class="cue" data-n="1" style="left:8%;background:var(--orange)"></div>
+          <div class="cue" data-n="2" style="left:30%;background:var(--blue)"></div>
+          <div class="cue" data-n="3" style="left:56%;background:var(--pink)"></div>
+          <div class="cue" data-n="4" style="left:84%;background:var(--purple)"></div>
+          <div class="playhead" id="ph"></div>
+        </div>
+        <div class="overview"><i id="ov"></i></div>
+        <div class="transport">
+          <button class="btn">CUE</button>
+          <button class="btn play" id="play">▶</button>
+          <button class="pad" style="background:var(--orange)" data-cue="8">1</button>
+          <button class="pad" style="background:var(--blue)" data-cue="30">2</button>
+          <button class="pad" style="background:var(--pink)" data-cue="56">3</button>
+          <button class="pad" style="background:var(--purple)" data-cue="84">4</button>
+          <span class="time mono"><span id="time">2:33</span> <span class="muted">/ 6:42</span></span>
+          <span class="hearing">Hearing: <b id="hearing">Original</b></span>
+        </div>
+      </section>
+
+      <!-- Tools -->
+      <section class="tools">
+        <div class="tabs">
+          <button class="tab on" data-tab="analyze" data-hear="Original">Analyze</button>
+          <button class="tab" data-tab="master" data-hear="Mastered · Club">Master</button>
+          <button class="tab" data-tab="stems" data-hear="Stems mix">Stems</button>
+          <button class="tab" data-tab="controller" data-hear="Original">Controller</button>
+        </div>
+
+        <div class="panel on" id="analyze">
+          <div class="card">
+            <h3>Key <span>confidence high</span></h3>
+            <div class="row" style="align-items:flex-end;margin:0">
+              <div><div class="bigkey">8A</div><div class="muted" style="margin-top:4px">A minor</div></div>
+              <div class="chroma" id="chroma" style="margin-left:18px"></div>
+            </div>
+          </div>
+          <div class="card">
+            <h3>Mixes well with <span>Camelot wheel</span></h3>
+            <div class="chips">
+              <span class="chip"><b>8B</b>relative key</span>
+              <span class="chip"><b>7A</b>one step down</span>
+              <span class="chip"><b>9A</b>energy boost</span>
+            </div>
+            <div class="row" style="margin-top:14px"><span class="muted">Drop at</span><span class="mono">2:41</span></div>
+            <div class="row" style="margin:0"><span class="muted">Mix out from</span><span class="mono">5:38</span></div>
+          </div>
+        </div>
+
+        <div class="panel" id="master">
+          <div class="card">
+            <h3>Preset <span>intensity 70%</span></h3>
+            <div class="presets"><button class="preset on">Club</button><button class="preset">Hip-hop</button><button class="preset">Pop</button><button class="preset">Lo-fi</button><button class="preset">Chill</button></div>
+            <input class="slider" type="range" value="70">
+            <div class="row"><span class="muted">Loudness target</span><span class="mono">-8 LUFS</span></div>
+          </div>
+          <div class="card">
+            <h3>Compare <span class="ab"><button>A</button><button class="on">B</button></span></h3>
+            <div class="row" style="margin-top:0"><span class="muted">Original</span><span class="mono">-14.1 LUFS</span></div>
+            <div class="meter"><i id="m1" style="width:52%"></i></div>
+            <div class="row"><span class="muted">Mastered</span><span class="mono">-8.3 LUFS</span></div>
+            <div class="meter"><i id="m2" style="width:81%"></i></div>
+            <div class="row" style="margin-bottom:0"><span class="muted">Low end +3 dB · glue · limit -1 dB</span><button class="btn play" style="width:auto;padding:6px 12px">Export WAV</button></div>
+          </div>
+        </div>
+
+        <div class="panel" id="stems">
+          <div class="card" style="grid-column: 1 / -1">
+            <h3>4 stems <span>split on your GPU in 38 s · cached</span></h3>
+            <div id="stemlist"></div>
+          </div>
+        </div>
+
+        <div class="panel" id="controller">
+          <div class="card">
+            <h3>Pioneer DDJ-FLX4 <span class="ok">live</span></h3>
+            <div class="ctrl">
+              <div>
+                <div class="jog"></div>
+              </div>
+              <div>
+                <div class="pads">
+                  <span style="background:var(--orange)">CUE 1</span><span style="background:var(--blue)">CUE 2</span><span style="background:var(--pink)">CUE 3</span><span style="background:var(--purple)">CUE 4</span>
+                  <span style="background:var(--accent)">VOX</span><span style="background:var(--accent)">DRUM</span><span style="background:var(--accent)">BASS</span><span style="background:#555;color:#ccc">OTHER</span>
+                </div>
+                <div class="lbl" style="margin-top:6px">Stem pads mute parts live</div>
+              </div>
+              <div class="mixer">
+                <div><div class="knob" style="--r:-40deg"></div><div class="lbl">FILTER</div><div class="fader" style="--t:22%"></div></div>
+                <div><div class="knob" style="--r:30deg"></div><div class="lbl">TEMPO</div><div class="fader" style="--t:46%"></div></div>
+              </div>
+            </div>
+          </div>
+          <div class="card">
+            <h3>MIDI mapping <span>any controller</span></h3>
+            <table class="map">
+              <tr><td>Play / pause</td><td class="mono muted">Note 11</td><td><button class="learn done">✓</button></td></tr>
+              <tr><td>Hot cues 1 to 4</td><td class="mono muted">Note 0 to 3</td><td><button class="learn done">✓</button></td></tr>
+              <tr><td>Stem pads</td><td class="mono muted">Note 4 to 7</td><td><button class="learn done">✓</button></td></tr>
+              <tr><td>Tempo fader</td><td class="mono muted">not set</td><td><button class="learn">Learn</button></td></tr>
+            </table>
+          </div>
+        </div>
+      </section>
+
+      <!-- Browser -->
+      <section class="browser" id="browser">
+        <div class="browser-head">
+          <b>Friday club set</b><span class="muted">32 tracks · 3 h 41 min</span>
+          <div class="filters"><button class="filter on">Matches 8A</button><button class="filter">122 to 126 BPM</button><button class="filter">Has stems</button></div>
+        </div>
+        <table class="tracks">
+          <thead><tr><th>#</th><th>Title</th><th>Artist</th><th>BPM</th><th>Key</th><th>Energy</th><th>Time</th><th>Ready</th></tr></thead>
+          <tbody id="tracks"></tbody>
+        </table>
+      </section>
+    </main>
+  </div>
+
+  <div class="tour" id="tour">
+    <span class="step" id="tstep">1 / 5</span>
+    <p id="tcap"></p>
+    <span class="dots2" id="tdots"></span>
+    <button id="tskip">Skip tour</button>
+  </div>
+
+  <div class="status">
+    <span class="ok">DDJ-FLX4</span>
+    <span>Analyzing Afro house <span class="prog"><i id="progbar"></i></span> <span id="progn">26</span> / 41</span>
+    <span class="right"><span>GPU: on</span><span>Offline · nothing uploaded</span><span>v0.1 preview</span></span>
+  </div>
+</div>
+
+<script>
+  // Static visuals for the preview (no audio processing)
+  let svg = '';
+  for (let i = 0; i < 200; i++) {
+    const env = i < 16 ? 0.35 : i > 168 ? 0.4 : (i > 60 && i < 76) ? 0.3 : 1;
+    const h = (10 + 26 * Math.abs(Math.sin(i * 1.7) * Math.cos(i * 0.31))) * env;
+    svg += `<rect x="${i * 5}" y="${39 - h}" width="3" height="${h * 2}" rx="1.5" fill="${i < 76 ? 'url(#played)' : '#3a414c'}"/>`;
+  }
+  document.getElementById('bars').innerHTML = svg;
+
+  const notes = ['C','C#','D','D#','E','F','F#','G','G#','A','A#','B'];
+  const vals = [44, 12, 28, 10, 52, 24, 9, 32, 14, 64, 15, 19];
+  document.getElementById('chroma').innerHTML = notes.map((n, i) =>
+    `<div class="${[0, 4, 9].includes(i) ? 'on' : ''}"><i style="height:${vals[i]}px"></i>${n}</div>`).join('');
+
+  const stems = [['Vocals', '#f72585'], ['Drums', '#c6f432'], ['Bass', '#4cc9f0'], ['Other', '#9b5de5']];
+  document.getElementById('stemlist').innerHTML = stems.map(([name, c], s) => {
+    let w = '';
+    for (let i = 0; i < 150; i++) {
+      const h = 2 + 9 * Math.abs(Math.sin(i * (0.9 + s * 0.4)) * Math.cos(i * (0.2 + s * 0.05)));
+      w += `<rect x="${i * 5}" y="${12 - h}" width="3" height="${h * 2}" rx="1" fill="${c}" opacity="0.85"/>`;
+    }
+    return `<div class="stem"><b><i style="background:${c}"></i>${name}</b>
+      <svg viewBox="0 0 750 24" preserveAspectRatio="none">${w}</svg>
+      <div class="ms"><button class="mute">M</button><button>S</button></div>
+      <input class="slider" type="range" value="80"></div>`;
+  }).join('');
+
+  const tracks = [
+    ['Midnight Drive (Extended Mix)', 'Demo Artist', '124.0', '8A', 7, '6:42', 'playing'],
+    ['Night Shift', 'Kora Lane', '125.0', '8B', 6, '5:58', 'match'],
+    ['Low Tide', 'Sable', '123.0', '9A', 8, '7:12', 'match'],
+    ['Glass City', 'Northline', '124.0', '7A', 6, '6:05', 'match'],
+    ['Sahara Lights', 'Medina Sound', '122.0', '3A', 5, '6:30', ''],
+    ['Golden Hour (Dub)', 'Ilyes', '126.0', '11B', 7, '5:44', ''],
+    ['Pulse', 'Vera Kai', '124.5', '8A', 9, '6:18', 'match'],
+    ['Carthage', 'Medina Sound', '121.0', '5A', 4, '7:01', ''],
+    ['Afterglow', 'Northline', '125.5', '2B', 6, '6:49', ''],
+  ];
+  document.getElementById('tracks').innerHTML = tracks.map(([t, a, b, k, e, d, cls], i) =>
+    `<tr class="${cls}"><td class="muted">${i + 1}</td><td>${cls === 'playing' ? '▶ ' : ''}${t}</td><td class="muted">${a}</td>
+     <td class="mono">${b}</td><td class="cam">${k}</td>
+     <td><span class="energy">${Array.from({length: 10}, (_, j) => `<i class="${j < e ? 'f' : ''}"></i>`).join('')}</span></td>
+     <td class="mono muted">${d}</td>
+     <td><span class="tag g">analyzed</span>${i % 3 === 0 ? '<span class="tag g">stems</span>' : ''}${i === 0 ? '<span class="tag g">mastered</span>' : ''}</td></tr>`).join('');
+
+  // Interactions (UI only)
+  document.querySelectorAll('.tab').forEach(t => t.addEventListener('click', () => {
+    document.querySelectorAll('.tab, .panel').forEach(el => el.classList.remove('on'));
+    t.classList.add('on');
+    document.getElementById(t.dataset.tab).classList.add('on');
+    document.getElementById('hearing').textContent = t.dataset.hear;
+  }));
+  document.addEventListener('click', e => {
+    const b = e.target.closest('button');
+    if (!b) return;
+    if (b.id === 'play') setPlaying(!playing);
+    if (b.dataset.cue) { pos = b.dataset.cue / 100; draw(); setPlaying(true); }
+    if (b.classList.contains('preset')) { document.querySelectorAll('.preset').forEach(p => p.classList.remove('on')); b.classList.add('on'); document.getElementById('hearing').textContent = 'Mastered · ' + b.textContent; }
+    if (b.parentElement.classList.contains('ab')) { b.parentElement.querySelectorAll('button').forEach(x => x.classList.remove('on')); b.classList.add('on'); document.getElementById('hearing').textContent = b.textContent === 'A' ? 'Original' : 'Mastered'; }
+    if (b.classList.contains('mute')) b.classList.toggle('m-on');
+    if (b.classList.contains('filter')) b.classList.toggle('on');
+    if (b.classList.contains('item') && !b.classList.contains('muted')) { document.querySelectorAll('.item').forEach(x => x.classList.remove('on')); b.classList.add('on'); }
+    if (b.classList.contains('learn') && !b.classList.contains('done')) { b.textContent = 'Move a control…'; setTimeout(() => { b.textContent = '✓'; b.classList.add('done'); }, 1200); }
+  });
+
+  // ---------- Animation: simulated playback ----------
+  const DUR = 402; // 6:42
+  let pos = 0.38, playing = false;
+  const rects = () => document.querySelectorAll('#bars rect');
+  const fmt = t => `${Math.floor(t / 60)}:${String(Math.floor(t % 60)).padStart(2, '0')}`;
+  function draw() {
+    const p = (pos * 100).toFixed(2) + '%';
+    document.getElementById('ph').style.left = p;
+    document.getElementById('ov').style.width = p;
+    document.getElementById('time').textContent = fmt(pos * DUR);
+    const cut = Math.floor(pos * 200);
+    rects().forEach((r, i) => r.setAttribute('fill', i < cut ? 'url(#played)' : '#3a414c'));
+  }
+  function setPlaying(v) {
+    playing = v;
+    document.body.classList.toggle('playing', v);
+    document.getElementById('play').textContent = v ? '❚❚' : '▶';
+  }
+  setInterval(() => {
+    if (playing) { pos += 0.3 / DUR; if (pos >= 1) pos = 0; draw(); }
+    if (playing) {
+      const j = () => (Math.random() * 6 - 3);
+      document.getElementById('m1').style.width = (52 + j()) + '%';
+      document.getElementById('m2').style.width = (81 + j()) + '%';
+    }
+  }, 100);
+  // analysis progress in the status bar
+  let prog = 26;
+  setInterval(() => { prog = prog >= 41 ? 26 : prog + 1; document.getElementById('progn').textContent = prog; document.getElementById('progbar').style.width = (prog / 41 * 100) + '%'; }, 1500);
+  // controller pads flash on the beat while playing
+  let beat = 0;
+  setInterval(() => {
+    if (!playing) return;
+    const pads = document.querySelectorAll('#controller .pads span');
+    pads.forEach(x => x.classList.remove('flash'));
+    pads[beat % 4].classList.add('flash');
+    beat++;
+  }, 484); // 124 BPM
+
+  // ---------- Guided tour ----------
+  const steps = [
+    { tab: 'analyze', spot: 'statsbox', cap: '<b>Analyze.</b> Drop a track: BPM, key, Camelot code and energy in seconds.' },
+    { tab: 'master', spot: 'master', cap: '<b>Master.</b> Pick a genre preset, compare A/B, export a loud and clean WAV.', preset: 'Club' },
+    { tab: 'stems', spot: 'stems', cap: '<b>Stems.</b> Split vocals, drums, bass and other. Mute any part for edits and acapellas.', mute: true },
+    { tab: 'controller', spot: 'controller', cap: '<b>Controller.</b> Your DDJ pads trigger hot cues and mute stems, like in VirtualDJ.' },
+    { tab: 'analyze', spot: 'browser', cap: '<b>Crates.</b> Tracks that mix with the one playing (8A) light up. Export cues to VirtualDJ.' },
+  ];
+  let si = 0, tourTimer = null;
+  document.getElementById('tdots').innerHTML = steps.map(() => '<i></i>').join('');
+  function showTab(id, hear) {
+    document.querySelectorAll('.tab, .panel').forEach(el => el.classList.remove('on'));
+    const t = document.querySelector(`.tab[data-tab="${id}"]`);
+    t.classList.add('on');
+    document.getElementById(id).classList.add('on');
+    document.getElementById('hearing').textContent = t.dataset.hear;
+  }
+  function runStep() {
+    const st = steps[si];
+    showTab(st.tab);
+    document.querySelectorAll('.spot').forEach(x => x.classList.remove('spot'));
+    document.getElementById(st.spot).classList.add('spot');
+    const cap = document.getElementById('tcap');
+    cap.innerHTML = st.cap; cap.classList.remove('fadein'); void cap.offsetWidth; cap.classList.add('fadein');
+    document.getElementById('tstep').textContent = `${si + 1} / ${steps.length}`;
+    document.querySelectorAll('#tdots i').forEach((d, i) => d.classList.toggle('on', i === si));
+    if (st.mute) setTimeout(() => { const m = document.querySelector('#stems .mute'); if (m) m.classList.add('m-on'); }, 1500);
+    else document.querySelectorAll('#stems .mute').forEach(m => m.classList.remove('m-on'));
+    si = (si + 1) % steps.length;
+  }
+  function startTour() {
+    document.getElementById('tour').classList.remove('hidden');
+    si = 0; runStep(); setPlaying(true);
+    clearInterval(tourTimer); tourTimer = setInterval(runStep, 4500);
+  }
+  function stopTour() {
+    clearInterval(tourTimer); tourTimer = null;
+    document.getElementById('tour').classList.add('hidden');
+    document.querySelectorAll('.spot').forEach(x => x.classList.remove('spot'));
+  }
+  document.getElementById('tskip').addEventListener('click', e => { e.stopPropagation(); stopTour(); });
+  document.getElementById('tourbtn').addEventListener('click', e => { e.stopPropagation(); startTour(); });
+  // any click inside the app ends the tour, so people can explore
+  document.querySelector('.body').addEventListener('click', () => { if (tourTimer) stopTour(); }, true);
+  draw();
+  startTour();
+</script>
+</body>
+</html>

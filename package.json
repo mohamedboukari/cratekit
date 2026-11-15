@@ -1,0 +1,56 @@
+{
+  "name": "cratekit",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "workspaces": [
+    "ui"
+  ],
+  "scripts": {
+    "tauri": "tauri",
+    "dev": "tauri dev",
+    "typecheck": "bun run --cwd ui typecheck",
+    "lint": "oxlint --type-aware --deny-warnings ui/src",
+    "lint:fix": "oxlint --type-aware --fix ui/src",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "knip": "knip",
+    "test": "bun run --cwd ui test",
+    "test:rust": "cargo nextest run --workspace",
+    "coverage": "cargo llvm-cov nextest --workspace",
+    "check:rust": "mkdir -p ui/dist && cargo fmt --all -- --check && taplo fmt --check && cargo clippy --workspace --all-targets -- -D warnings && cargo nextest run --workspace && cargo test --doc --workspace && cargo deny --log-level error check && cargo shear && typos",
+    "check:ui": "bun run typecheck && bun run lint && bun run format:check && bun run knip && bun run test",
+    "check": "bun run check:rust && bun run check:ui",
+    "prepare": "husky"
+  },
+  "lint-staged": {
+    "*.{ts,tsx}": [
+      "prettier --write",
+      "oxlint --fix"
+    ],
+    "*.{json,css,html,yml,yaml}": [
+      "prettier --write"
+    ],
+    "*.rs": [
+      "rustfmt --edition 2024"
+    ],
+    "*.toml": [
+      "taplo fmt"
+    ],
+    "*": [
+      "typos --force-exclude"
+    ]
+  },
+  "devDependencies": {
+    "@commitlint/cli": "^21.2.4",
+    "@commitlint/config-conventional": "^21.2.4",
+    "@tauri-apps/cli": "^2.12.4",
+    "husky": "^9.1.7",
+    "knip": "^6.45.1",
+    "lint-staged": "^17.6.0",
+    "oxlint": "^1.93.0",
+    "oxlint-tsgolint": "^7.0.2007",
+    "prettier": "^3.10.1",
+    "typescript": "^7.0.2"
+  }
+}

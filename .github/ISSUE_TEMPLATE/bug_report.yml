@@ -1,0 +1,66 @@
+name: Bug report
+description: Something doesn't work as expected
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting! Please fill in the sections below so the problem can be reproduced.
+        **Security problems:** don't open an issue, use private reporting instead (see SECURITY.md).
+
+  - type: dropdown
+    id: module
+    attributes:
+      label: Module
+      options:
+        - Library / crates
+        - Analyze (BPM, key, loudness)
+        - Master
+        - Stems
+        - Controller (MIDI)
+        - Export (VirtualDJ)
+        - Playback / audio
+        - UI / app shell
+        - Build / install
+        - Other
+    validations:
+      required: true
+
+  - type: textarea
+    id: description
+    attributes:
+      label: What happened?
+      description: What did you do, what did you expect, and what happened instead?
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. Add a folder with ...
+        2. Open the Master tab and pick ...
+        3. See ...
+    validations:
+      required: true
+
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      placeholder: |
+        - Cratekit version or commit: 0.1.0 / abc1234
+        - OS and version: macOS 15 / Windows 11 / Ubuntu 24.04
+        - CPU architecture: Apple Silicon (arm64) / Intel or AMD (x86_64) / Windows on ARM
+        - GPU (for stems): none / Apple / NVIDIA / AMD / Intel
+        - Audio file type, if relevant: MP3 / WAV / FLAC / ...
+    validations:
+      required: true
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs or error output
+      description: Paste error messages or logs. Please don't attach copyrighted audio files.
+      render: shell

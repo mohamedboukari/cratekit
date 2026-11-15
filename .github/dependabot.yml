@@ -1,0 +1,61 @@
+# Dependabot: weekly dependency updates plus security updates.
+#
+# - cargo: the Rust workspace (Cargo.lock)
+# - bun: the JS workspace (root + ui/, bun.lock); Dependabot supports bun natively
+# - github-actions: keeps the SHA pins in .github/workflows current (it updates the
+#   SHA and the trailing "# vX" comment together)
+#
+# cooldown: wait a week before proposing a new release; most malicious releases are
+# caught and pulled within days. Security updates are not delayed by this.
+# Minor and patch updates are grouped into one PR per ecosystem; majors come alone
+# so their breaking changes get a proper look.
+
+version: 2
+
+updates:
+  - package-ecosystem: cargo
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+    cooldown:
+      default-days: 7
+    open-pull-requests-limit: 10
+    labels: [dependencies]
+    commit-message:
+      prefix: build
+      include: scope
+    groups:
+      rust-minor-patch:
+        update-types: [minor, patch]
+
+  - package-ecosystem: bun
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+    cooldown:
+      default-days: 7
+    open-pull-requests-limit: 10
+    labels: [dependencies]
+    commit-message:
+      prefix: build
+      include: scope
+    groups:
+      js-minor-patch:
+        update-types: [minor, patch]
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+    cooldown:
+      default-days: 7
+    labels: [dependencies]
+    commit-message:
+      prefix: ci
+      include: scope
+    groups:
+      actions:
+        patterns: ["*"]

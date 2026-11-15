@@ -1,0 +1,48 @@
+# Cratekit dependency policy, checked by `cargo deny check` (cargo-deny 0.20).
+# Changing the license allow-list needs the maintainer's approval.
+# See CONTRIBUTING.md (Hard rules) and CLAUDE.md (rule 5).
+
+[graph]
+all-features = true
+
+[advisories]
+# RustSec advisories. Add an entry here only with a reason and the maintainer's approval.
+ignore = [
+  # proc-macro-error is unmaintained (not a vulnerability). Pulled in at build time by
+  # glib-macros 0.18 (gtk-rs), Tauri 2's Linux GTK3 stack; none of it ships in the binary.
+  # Approved by the maintainer 2026-11-14. Revisit on every Tauri upgrade.
+  { id = "RUSTSEC-2024-0370", reason = "build-time only, via Tauri 2 Linux GTK3 stack (glib-macros 0.18)" },
+]
+
+[licenses]
+# Any license not listed here is rejected, so GPL, AGPL and LGPL are denied without being named.
+allow = [
+  "MIT",
+  "Apache-2.0",
+  "BSD-2-Clause",
+  "BSD-3-Clause",
+  "ISC",
+  "Zlib",
+  "MPL-2.0",
+  # Permissive Unicode data/code license; ICU4X crates (via url/idna in Tauri) and
+  # unicode-ident. Approved by the maintainer 2026-11-14.
+  "Unicode-3.0",
+]
+confidence-threshold = 0.9
+# Per-crate exceptions, each approved by the maintainer.
+exceptions = [
+  # Apache-2.0 plus an exception that only adds permissions. Tauri build tooling.
+  # Approved by the maintainer 2026-11-14.
+  { allow = ["Apache-2.0 WITH LLVM-exception"], crate = "target-lexicon" },
+]
+
+[bans]
+multiple-versions = "warn"
+wildcards = "deny"
+# Our own path dependencies have no version, which `wildcards` would otherwise flag.
+allow-wildcard-paths = true
+
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"
+allow-registry = ["https://github.com/rust-lang/crates.io-index"]

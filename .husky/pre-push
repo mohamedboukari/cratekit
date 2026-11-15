@@ -1,0 +1,18 @@
+# Full gates before anything leaves this machine: Rust (fmt, taplo, clippy,
+# nextest, cargo-deny, cargo-shear, typos) then UI (tsc, oxlint, prettier,
+# knip, vitest). Same as `bun run check` and CI. Never bypass with --no-verify.
+
+# Git clients that don't load the shell profile (GUI apps, IDEs) miss rustup's PATH.
+[ -d "$HOME/.cargo/bin" ] && PATH="$HOME/.cargo/bin:$PATH" && export PATH
+
+# Git passes one line per ref: "<local ref> <local sha> <remote ref> <remote sha>".
+# A local sha of all zeros means that ref is being deleted. When every ref in
+# this push is a deletion, no code leaves the machine, so there is nothing to check.
+zero=0000000000000000000000000000000000000000
+only_deletes=1
+while read -r _local_ref local_sha _remote_ref _remote_sha; do
+  [ "$local_sha" != "$zero" ] && only_deletes=0
+done
+[ "$only_deletes" = 1 ] && exit 0
+
+bun run check

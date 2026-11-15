@@ -1,0 +1,9 @@
+# Fast: formats and lints only the staged files (see "lint-staged" in package.json).
+# The full gates run on pre-push.
+
+# Git clients that don't load the shell profile (GUI apps, IDEs) miss rustup's PATH
+# (lint-staged runs rustfmt on staged .rs files).
+[ -d "$HOME/.cargo/bin" ] && PATH="$HOME/.cargo/bin:$PATH" && export PATH
+
+# --relative: typos only honours its exclude list (vendored skills) for relative paths.
+bunx lint-staged --relative

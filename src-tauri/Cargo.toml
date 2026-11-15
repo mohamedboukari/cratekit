@@ -1,0 +1,25 @@
+[package]
+name = "cratekit"
+description = "Cratekit desktop app: thin Tauri glue (commands, events, MIDI, wiring)."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+[lib]
+# The app logic lives in a library so `main.rs` stays a one-liner.
+name = "cratekit_lib"
+
+[build-dependencies]
+tauri-build = { workspace = true }
+
+[dependencies]
+anyhow = { workspace = true }
+cratekit-core = { workspace = true }
+serde = { workspace = true }
+tauri = { workspace = true }
+
+[lints]
+workspace = true

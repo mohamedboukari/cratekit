@@ -1,0 +1,291 @@
+# Cratekit: Architecture
+
+## Overview
+
+```
+┌──────────────┐   IPC (commands + events)   ┌───────────────────────────┐   jobs   ┌──────────────────────┐
+│   React UI   │ ◄─────────────────────────► │  Tauri app (src-tauri)    │ ───────► │  cratekit-core       │
+│   (ui/)      │                             │  commands, MIDI, wiring   │          │  analysis, mastering,│
+└──────────────┘                             └───────────┬───────────────┘          │  stems, library,     │
+                                                         │                          │  export              │
+┌──────────────┐   USB MIDI (midir)                      │                          └──────────┬───────────┘
+│ DJ controller│ ───────────────────────────────────────►│                                     │
+└──────────────┘                                         ▼                                     ▼
+                                              ┌─────────────────────┐            ┌──────────────────────┐
+                                              │ cratekit-audio      │            │ SQLite library +     │
+                                              │ cpal playback,      │            │ app data folder      │
+                                              │ stem mixer, A/B     │            │ (stems, masters,     │
+                                              └─────────────────────┘            │  waveforms, models)  │
+                                                                                 └──────────────────────┘
+```
+
+- **One Rust process.** No Python, no sidecars.
+- `cratekit-core` is a normal Rust library crate: testable with `cargo test`, no Tauri dependency.
+- `cratekit-audio` owns the real-time audio thread.
+- `src-tauri` is glue: it exposes commands, emits events, owns the MIDI connection and the job queue.
+- `ui/` renders state and sends commands. It holds no domain logic.
+
+## Threads
+
+| Thread | Owns | Rules |
+| --- | --- | --- |
+| Main / Tauri | Window, IPC | Never does heavy work |
+| Audio (cpal callback) | Output buffer | No alloc, no locks, no I/O. Reads commands from an `rtrb` ring buffer; publishes position through an `AtomicU64` |
+| Decoder | Streams decoded PCM for the playing track into a ring buffer | Prefills 2 s ahead |
+| MIDI (midir callback) | Incoming messages | Translates to `ControlEvent`, pushes to a channel; never touches audio directly |
+| Job workers (tokio + rayon) | Analysis, stems, mastering, export | Report progress via `ProgressSink`, support cancellation |
+| DB writer | The single write connection to SQLite | All writes go through it; reads use their own connections (WAL mode) |
+
+## Workspace crates
+
+### `crates/cratekit-core`
+
+```
+src/
+  lib.rs
+  error.rs             CoreError (thiserror)
+  audio/               decode (symphonia), resample (rubato), AudioBuffer, write WAV (hound)
+  analysis/
+    mod.rs             analyze_track() -> TrackAnalysis
+    tempo.rs           trait TempoDetector; impl via stratum-dsp + our fallback
+    key.rs             trait KeyDetector; Camelot mapping, matches()
+    loudness.rs        integrated LUFS, true peak
+    energy.rs          1 to 10 score
+    waveform.rs        min/max/RMS columns for the UI
+  mastering/
+    mod.rs             master() -> MasterResult
+    presets.rs         Preset structs (see table below)
+    eq.rs              biquad shelves and peaks (RBJ cookbook)
+    compressor.rs      RMS glue compressor
+    limiter.rs         look-ahead true-peak limiter (4x oversampled detection)
+    reference.rs       reference-track spectral matching
+  stems/
+    mod.rs             trait StemSeparator; split() -> StemSet
+    htdemucs.rs        impl using stem-splitter-core (or ort directly)
+    models.rs          download + checksum + cache path
+  library/
+    db.rs              rusqlite connection setup (WAL), schema + migrations
+    scan.rs            folder scan, tag reading (lofty crate, check license)
+  export/
+    virtualdj.rs       read/write VirtualDJ database (format TBD, see ROADMAP research task)
+  progress.rs          ProgressSink trait, CancellationToken
+```
+
+### `crates/cratekit-audio`
+
+```
+src/
+  engine.rs      AudioEngine: start/stop, load track, play/pause/seek, rate
+  mixer.rs       modes: Original | Mastered(preview chain) | Stems(4 gains + mute/solo)
+  commands.rs    enum EngineCommand (sent over rtrb)
+  filter.rs      DJ filter (one knob: LP below centre, HP above)
+  meter.rs       peak/RMS meter published via atomics
+```
+
+A/B and mode switches use a 10 ms crossfade to stay click-free.
+
+### `src-tauri`
+
+```
+src/
+  main.rs        builder, state, plugins
+  state.rs       AppState { db, engine, jobs, midi }
+  commands/      library.rs, analysis.rs, mastering.rs, stems.rs, playback.rs, midi.rs, export.rs
+  midi/          device watch, MIDI learn, mapping store, LED feedback
+  jobs.rs        job queue, progress events
+```
+
+## UI (`ui/`, React 19 + Vite + TypeScript, bun)
+
+```
+ui/
+  index.html
+  vite.config.ts
+  src/
+    main.tsx           React root
+    App.tsx            window layout (titlebar, sidebar, deck, tool tabs, browser, status bar)
+    lib/
+      ipc.ts           the ONLY place that calls invoke() and listen(); typed wrappers per command/event
+      types.ts         TS types mirroring the Rust command/event payloads
+      format.ts        time, BPM, LUFS formatting
+    components/        one component per file, PascalCase .tsx (see docs/UI.md)
+    hooks/             useTrack, useJobs, usePlaybackPosition (ref-based), ...
+    canvas/            waveform, overview bar, meters: imperative drawing code
+    components/ui/     shadcn components (style base-mira, Base UI primitives), added with `bunx --bun shadcn@latest add`
+    index.css          Tailwind v4 + design tokens (`ck-*`) mapped onto shadcn's semantic colours; fonts via fontsource
+  test/                Vitest setup and helpers
+```
+
+Rules:
+
+- **Typed IPC.** `lib/ipc.ts` exports one function per Tauri command and one subscribe function per event. Components and hooks import from there; nobody calls `invoke()` directly. The payload types in `lib/types.ts` mirror the Rust structs (later we can generate them from Rust with a crate such as `ts-rs` or `specta`, after a license check).
+- **High-frequency data bypasses React state.** `playback_position` and `meter` arrive at 30 Hz. Their listeners write into refs, and canvas components redraw in a `requestAnimationFrame` loop. React state is for things that change at human speed (selected track, active tab, job list).
+- **Event subscriptions live in hooks** with cleanup on unmount, so listeners never leak.
+- The state library (if any beyond React's own state and context) is chosen in the Phase 1 scaffold task.
+
+## IPC
+
+**Commands (UI → Rust)**
+
+| Command | Purpose |
+| --- | --- |
+| `library_add_paths(paths)` | Add files/folders, returns new track ids |
+| `library_list(query)` | Tracks with filters (crate, BPM range, key match, has stems) |
+| `crate_create / crate_add_tracks / crate_remove_tracks` | Crates |
+| `analyze_tracks(ids)` | Queue analysis |
+| `playback_load(id) / playback_play / playback_pause / playback_seek(sec) / playback_set_rate(r)` | Deck |
+| `playback_set_mode(mode)` | Original / Mastered / Stems |
+| `stems_split(id)` / `stems_set_gain(stem, gain)` / `stems_set_mute(stem, bool)` | Stems |
+| `master_preview(id, settings)` / `master_export(id, settings, path)` | Mastering |
+| `hotcue_set(id, slot, sec)` / `hotcue_clear(id, slot)` | Cues |
+| `midi_list_devices / midi_learn_start(target) / midi_learn_cancel / midi_mappings` | Controller |
+| `export_virtualdj(ids, dry_run)` | Export |
+| `models_status / models_download(name) / models_delete(name)` | ML models |
+| `audio_list_devices / audio_set_device(id) / audio_set_buffer_size(frames)` | Audio output |
+| `settings_get / settings_set(key, value)` | Settings (watched folders, output folder, processing backend, ...) |
+| `stems_backend_status` | Active stems backend (CoreML / DirectML / CPU) and why |
+
+**Events (Rust → UI)**: `job_progress {job_id, kind, done, total}`, `job_done`, `job_failed`, `playback_position {sec}` (30 Hz), `meter {peak, rms}` (30 Hz), `midi_device_changed`, `midi_learned {target, binding}`, `control_event {target, value}`, `audio_device_changed {id, reason}`.
+
+## Database (SQLite via rusqlite)
+
+- **One file**, `cratekit.db`, in the app data folder. `rusqlite` with the `bundled` feature compiles SQLite into the binary, so there is nothing to install.
+- **WAL mode** (`PRAGMA journal_mode=WAL`) and `PRAGMA foreign_keys=ON` on every connection. WAL lets the UI read the library while a job writes results.
+- **One writer.** All writes go through a single connection owned by the DB writer thread (jobs send it results). Reads open their own connections.
+- **Migrations** are numbered SQL steps applied at startup, tracked with `PRAGMA user_version`. A small migrations crate (e.g. `rusqlite_migration`) is chosen in Phase 1 after a license check.
+- `rusqlite` is synchronous on purpose: jobs already run on worker threads, and sync code is simpler to write and test in `cratekit-core`.
+
+```sql
+CREATE TABLE tracks (
+  id INTEGER PRIMARY KEY,
+  path TEXT NOT NULL UNIQUE,
+  file_hash TEXT NOT NULL,          -- detect moved/changed files
+  title TEXT, artist TEXT, album TEXT,
+  duration_sec REAL, sample_rate INTEGER, channels INTEGER,
+  added_at TEXT NOT NULL
+);
+CREATE TABLE analysis (
+  track_id INTEGER PRIMARY KEY REFERENCES tracks(id) ON DELETE CASCADE,
+  bpm REAL, bpm_confidence REAL,
+  key_tonic INTEGER, key_mode TEXT, camelot TEXT, key_confidence REAL,
+  energy INTEGER, lufs REAL, true_peak_db REAL,
+  first_beat_sec REAL,
+  waveform BLOB,                     -- compressed columns
+  analyzer_version INTEGER NOT NULL,
+  analyzed_at TEXT NOT NULL
+);
+CREATE TABLE cues (
+  track_id INTEGER REFERENCES tracks(id) ON DELETE CASCADE,
+  slot INTEGER,                      -- 1..8
+  position_sec REAL NOT NULL, color TEXT, name TEXT,
+  PRIMARY KEY (track_id, slot)
+);
+CREATE TABLE stems (
+  track_id INTEGER PRIMARY KEY REFERENCES tracks(id) ON DELETE CASCADE,
+  model TEXT NOT NULL, dir TEXT NOT NULL, created_at TEXT NOT NULL
+);
+CREATE TABLE masters (
+  id INTEGER PRIMARY KEY, track_id INTEGER REFERENCES tracks(id) ON DELETE CASCADE,
+  preset TEXT, settings_json TEXT, path TEXT, lufs REAL, created_at TEXT
+);
+CREATE TABLE crates (id INTEGER PRIMARY KEY, name TEXT NOT NULL, color TEXT, sort INTEGER);
+CREATE TABLE crate_tracks (crate_id INTEGER REFERENCES crates(id) ON DELETE CASCADE,
+  track_id INTEGER REFERENCES tracks(id) ON DELETE CASCADE, sort INTEGER,
+  PRIMARY KEY (crate_id, track_id));
+CREATE TABLE midi_mappings (device TEXT, target TEXT, kind TEXT, channel INTEGER, number INTEGER,
+  PRIMARY KEY (device, target));
+CREATE TABLE settings (key TEXT PRIMARY KEY, value TEXT);
+```
+
+Bump `analyzer_version` when analysis code changes, so old results are recomputed lazily.
+
+## Files on disk
+
+App data folder (Tauri `app_data_dir`):
+
+```
+cratekit.db
+models/htdemucs/...          downloaded once, checksum verified
+stems/<track_id>/{vocals,drums,bass,other}.wav
+masters/<track_id>/<timestamp>-<preset>.wav
+waveforms/ (optional cache if not in DB)
+backups/virtualdj/<timestamp>/  copies made before any export
+```
+
+## Mastering chain
+
+```
+decode → resample to 48 kHz (or keep source rate) → [reference match EQ] → preset EQ
+       → glue compressor → makeup gain (2-pass loudness targeting) → true-peak limiter (−1 dBTP)
+       → [TPDF dither if 16-bit] → WAV
+```
+
+Loudness targeting: render once, measure integrated LUFS, adjust makeup gain, render again (max 3 passes) until within ±0.3 LU.
+
+**Presets (starting values, to tune by ear with the test DJ)**
+
+| Preset | Low shelf | Mid peak | High shelf | Comp threshold / ratio / attack / release | Target |
+| --- | --- | --- | --- | --- | --- |
+| Club | 90 Hz +3 dB | 400 Hz −2 dB, Q 0.9 | 9 kHz +2.5 dB | −18 dB / 3:1 / 10 ms / 200 ms | −8 LUFS |
+| Hip-hop | 70 Hz +4 dB | 300 Hz −1.5 dB, Q 0.9 | 10 kHz +1.5 dB | −20 dB / 3.5:1 / 15 ms / 250 ms | −9 LUFS |
+| Pop | 100 Hz +1.5 dB | 2.5 kHz +1.5 dB, Q 0.8 | 12 kHz +3 dB | −16 dB / 2.5:1 / 10 ms / 150 ms | −9 LUFS |
+| Lo-fi | 120 Hz +2 dB | 1 kHz −1 dB, Q 0.7 | 6 kHz −6 dB (+ LP 5.5 kHz) | −22 dB / 4:1 / 20 ms / 300 ms | −12 LUFS |
+| Chill | 80 Hz +1 dB | 3 kHz −1 dB, Q 0.8 | 10 kHz +1 dB | −14 dB / 2:1 / 20 ms / 300 ms | −12 LUFS |
+
+Intensity `k` (0 to 1): EQ gain × k, ratio = 1 + (ratio − 1) × k, makeup interpolated.
+
+**Reference matching**: compute the long-term average spectrum (1/3-octave bands, 31 bands) of the track and of the reference; EQ curve = difference, smoothed across neighbours, clamped to ±6 dB, applied with a linear-phase FIR or a bank of peaking biquads.
+
+## Analysis notes
+
+- Prefer `stratum-dsp` for BPM, key and beat grid. Wrap it behind `TempoDetector` / `KeyDetector` traits.
+- Keep a simple fallback implementation (onset-energy autocorrelation for BPM; chroma + Krumhansl-Kessler profiles for key, using power not magnitude so bass overtones do not bias the mode). A JS prototype of both passed tests on synthetic loops at 92/124/128/140 BPM.
+- Analyze the middle 60 to 90 s of the track for speed; full track for loudness and waveform.
+
+## Stems notes
+
+- `stem-splitter-core` (Rust + ONNX Runtime, htdemucs) is the first choice: it handles model download and caching.
+- If it does not fit, use the `ort` crate with an htdemucs ONNX export (Apache-2.0 conversion of Demucs), chunking ~7.8 s windows (343,980 samples at 44.1 kHz) with overlap-add.
+- Backup option: the Burn-based Rust reimplementation of HTDemucs.
+- **Execution providers (GPU with CPU fallback).** At startup, `stems/models.rs` builds a priority list and keeps the first provider that initializes:
+  1. macOS: **CoreML** (GPU and Neural Engine on Apple Silicon).
+  2. Windows: **DirectML** (any DirectX 12 GPU: NVIDIA, AMD, Intel, Qualcomm). Microsoft has moved DirectML to maintenance in favour of Windows ML; re-check which one `ort` supports best in the Phase 2 research.
+  3. **CPU** always last, always available.
+- The first split on a GPU backend is checked against a short CPU reference chunk. If the residual exceeds the SPEC threshold, the app switches to CPU and records why. Settings can force "CPU only"; the status bar shows the active backend.
+- CUDA is not bundled (its libraries are hundreds of MB, far over the installer budget). It could become an optional download later.
+- Verify each provider on real hardware before enabling it by default.
+- Only stems use the GPU. Analysis, mastering and playback run on the CPU.
+
+## Tooling
+
+| Area | Tools | Where configured |
+| --- | --- | --- |
+| Rust toolchain | rustc 1.100 (edition 2024), rustfmt, clippy, rust-analyzer, llvm-tools | `rust-toolchain.toml`, `rustfmt.toml`, `clippy.toml`, `[workspace.lints]` in `Cargo.toml` |
+| Rust checks | cargo-nextest, cargo-deny, cargo-shear, cargo-llvm-cov, taplo, typos, bacon | `.config/nextest.toml`, `deny.toml`, `.taplo.toml`, `_typos.toml`, `bacon.toml` |
+| UI checks | TypeScript 7 (`tsc`), oxlint + tsgolint, Prettier, knip, Vitest | `ui/tsconfig.json`, `.oxlintrc.json`, `.prettierrc`, `knip.json`, `ui/vite.config.ts` |
+| Git hooks | husky, lint-staged, commitlint | `.husky/`, `package.json` (`lint-staged`), `commitlint.config.ts` |
+| CI | GitHub Actions, actions pinned by SHA | `.github/workflows/ci.yml` |
+
+`bun run check` runs every gate in the same order as the pre-push hook and CI.
+
+## Platforms and portability
+
+| OS | Rust targets | Package |
+| --- | --- | --- |
+| macOS | `aarch64-apple-darwin` + `x86_64-apple-darwin`, combined as `universal-apple-darwin` | dmg |
+| Windows | `x86_64-pc-windows-msvc`, `aarch64-pc-windows-msvc` | msi |
+| Linux | `x86_64-unknown-linux-gnu`, `aarch64-unknown-linux-gnu` | AppImage |
+
+Rules:
+
+- **Portable code only.** No architecture-specific intrinsics (`std::arch::x86_64::*`, NEON) unless behind runtime feature detection with a scalar fallback, and with a test for both paths. Prefer plain loops over slices (`chunks_exact`, iterators) that the compiler auto-vectorizes on both x86_64 and arm64.
+- **Native dependencies must exist for every target**: check ONNX Runtime prebuilt binaries per target before adopting a version. SQLite (rusqlite `bundled`) compiles from source, so it works everywhere.
+- **Floating point:** do not rely on CPU-specific flush-to-zero modes; flush denormals in code inside the DSP and audio callback paths.
+- **CI builds and tests natively on each architecture** (GitHub-hosted macOS arm64, Windows ARM64 and Linux arm64 runners exist), not only cross-compiles.
+
+## MIDI notes
+
+- `midir` input per device; parse status byte: `0x90` Note On, `0x80` Note Off, `0xB0` CC.
+- Binding = `{ kind: note|cc, channel, number }`. Button trigger: Note On velocity > 0, or CC rising through 64. Continuous: CC value / 127.
+- Some jog wheels send relative CC (64 ± n). Detect and treat as relative for the seek/nudge target.
+- MIDI output for pad LEDs: send Note On with velocity = colour/brightness value per controller mapping.

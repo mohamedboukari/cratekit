@@ -1,0 +1,19 @@
+{
+  "$schema": "https://unpkg.com/knip@6/schema.json",
+  "workspaces": {
+    ".": {
+      "project": []
+    },
+    "ui": {
+      "project": ["src/**/*.{ts,tsx,css}"],
+      "ignore": ["src/lib/utils.ts"]
+    }
+  },
+  "ignoreExportsUsedInFile": true,
+  "ignoreBinaries": ["typos", "rustfmt", "taplo"],
+  "rules": {
+    "unlisted": "error",
+    "exports": "error",
+    "types": "error"
+  }
+}

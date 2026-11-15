@@ -1,0 +1,50 @@
+# Rust
+target/
+
+# UI (React + Vite, bun)
+node_modules/
+ui/dist/
+*.tsbuildinfo
+
+# Session context for Claude Code (handoff, decisions, research, vendor clones). Local only.
+temp/
+# Local Claude Code tooling (skills, hooks, settings). Kept on the maintainer's machine, not published.
+.claude/
+
+# graphify (Claude Code knowledge graph): generated locally, rebuilt by hooks
+graphify-out/
+# backups graphify makes before editing config files
+*.graphify-bak
+# graphify's auto-rebuild git hooks embed an absolute local path; husky still
+# runs them from disk, they just must not be committed (same as bunmail)
+.husky/post-commit
+.husky/post-checkout
+.husky/post-merge
+.husky/post-rewrite
+
+# Tauri generated files and test reports
+src-tauri/gen/
+junit.xml
+target/nextest/
+lcov.info
+
+# Test material from the test DJ: copyrighted audio and a real VirtualDJ database.
+# Never commit these. The repo will be open sourced and git history goes with it.
+test-data/
+*.mp3
+*.wav
+*.flac
+*.aiff
+*.aif
+*.m4a
+*.ogg
+
+# Secrets and local overrides
+.env
+.env.*
+.claude/settings.local.json
+
+# OS / editors
+.DS_Store
+.idea/
+*.swp

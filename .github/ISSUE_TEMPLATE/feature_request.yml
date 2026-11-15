@@ -1,0 +1,52 @@
+name: Feature request
+description: Suggest a feature or an improvement
+labels: [feat]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for the idea! Cratekit is a prep tool that works alongside DJ software: it is not a live-mixing app or a DAW (see docs/SPEC.md, "Out of scope").
+
+  - type: dropdown
+    id: module
+    attributes:
+      label: Module
+      options:
+        - Library / crates
+        - Analyze (BPM, key, loudness)
+        - Master
+        - Stems
+        - Controller (MIDI)
+        - Export (VirtualDJ, Rekordbox, Serato)
+        - UI / app shell
+        - Other
+    validations:
+      required: true
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: What are you trying to do, and what gets in the way today?
+    validations:
+      required: true
+
+  - type: textarea
+    id: solution
+    attributes:
+      label: Proposed solution
+      description: How would you like it to work?
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives
+      description: Workarounds or other tools you use for this today.
+
+  - type: textarea
+    id: context
+    attributes:
+      label: Additional context
+      description: DJ software and controller you use, screenshots, links.

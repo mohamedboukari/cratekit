@@ -1,0 +1,63 @@
+{
+  "$schema": "./node_modules/oxlint/configuration_schema.json",
+
+  // Ported from bunmail. Type-aware rules run on tsgolint (the TypeScript 7
+  // engine); ESLint + typescript-eslint cannot run on TS 7.
+  "plugins": ["typescript", "oxc", "unicorn", "promise", "import", "react", "jsx-a11y"],
+
+  "categories": {
+    "correctness": "error",
+    "suspicious": "warn",
+    "perf": "warn"
+  },
+
+  "env": {
+    "browser": true,
+    "es2024": true
+  },
+
+  "rules": {
+    // From bunmail
+    "typescript/no-explicit-any": "error",
+    "typescript/no-unused-vars": [
+      "warn",
+      { "argsIgnorePattern": "^_", "varsIgnorePattern": "^_" }
+    ],
+    "typescript/consistent-type-imports": "warn",
+    "no-console": "warn",
+    "typescript/no-floating-promises": "error",
+    "typescript/await-thenable": "error",
+    "typescript/no-base-to-string": "error",
+    "typescript/no-misused-promises": "error",
+    "typescript/no-unsafe-type-assertion": "error",
+    "typescript/no-unnecessary-type-assertion": "error",
+    "promise/no-return-wrap": "error",
+    "promise/param-names": "error",
+
+    // React: hooks must follow the rules; components must not be defined inline.
+    "react/rules-of-hooks": "error",
+    "react/exhaustive-deps": "warn",
+    "react/jsx-key": "error",
+
+    // Accessibility: every control reachable and labelled (docs/UI.md interaction rules).
+    "jsx-a11y/alt-text": "error",
+    "jsx-a11y/anchor-is-valid": "error",
+    "jsx-a11y/click-events-have-key-events": "error",
+    "jsx-a11y/no-static-element-interactions": "error",
+
+    // Conflicts with the `_` prefix convention for intentionally unused bindings.
+    "no-underscore-dangle": "off",
+
+    // Pre-2020 rule: the automatic JSX runtime ("jsx": "react-jsx") does not need
+    // React in scope.
+    "react/react-in-jsx-scope": "off",
+
+    // Side-effect imports are allowed only for styles and the test matchers setup.
+    "import/no-unassigned-import": [
+      "warn",
+      { "allow": ["**/*.css", "@testing-library/jest-dom/vitest"] }
+    ]
+  },
+
+  "ignorePatterns": ["dist/", "node_modules/", "src-tauri/", "target/"]
+}

@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+  <!-- Placeholder Cratekit icon (lime tile, dark ring). Replace with the final logo before v0.1. -->
+  <rect x="64" y="64" width="896" height="896" rx="200" fill="#c6f432"/>
+  <circle cx="512" cy="512" r="250" fill="none" stroke="#0c0e11" stroke-width="72"/>
+  <circle cx="512" cy="512" r="70" fill="#0c0e11"/>
+</svg>

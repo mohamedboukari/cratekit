@@ -1,0 +1,16 @@
+# Rust and generated output
+target/
+src-tauri/gen/
+src-tauri/icons/
+ui/dist/
+node_modules/
+bun.lock
+graphify-out/
+
+# Local session context and vendored third-party skills (kept verbatim)
+temp/
+.claude/skills/
+
+# Docs are formatted by hand (tables, line breaks)
+*.md
+docs/ui-preview.html

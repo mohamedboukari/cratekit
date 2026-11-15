@@ -1,0 +1,9 @@
+# taplo: TOML formatter (https://taplo.tamasfe.dev). Runs on staged *.toml files.
+exclude = ["target/**", "node_modules/**", "temp/**"]
+
+[formatting]
+align_comments = false
+array_auto_expand = true
+array_trailing_comma = true
+column_width = 100
+indent_string = "  "

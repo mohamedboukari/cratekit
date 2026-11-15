@@ -1,0 +1,6 @@
+# Pins every machine and CI to the same compiler. rustup reads this file
+# automatically and installs the toolchain on first use.
+[toolchain]
+channel = "1.100"
+components = ["rustfmt", "clippy", "rust-analyzer", "llvm-tools"]
+profile = "minimal"

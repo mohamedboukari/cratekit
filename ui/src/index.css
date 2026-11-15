@@ -1,0 +1,153 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+@import "shadcn/tailwind.css";
+/* Fonts bundled locally (offline app). SIL OFL-1.1, approved for font assets. */
+@import "@fontsource-variable/space-grotesk";
+@import "@fontsource-variable/jetbrains-mono";
+
+@custom-variant dark (&:is(.dark *));
+
+/*
+ * Cratekit design tokens (docs/UI.md), exposed to Tailwind as `ck-*` utilities
+ * (e.g. bg-ck-win, text-ck-muted, border-ck-line). shadcn's semantic colours
+ * (background, primary, accent, ...) are mapped onto these tokens below, so
+ * shadcn components and our own code share one palette.
+ */
+@theme {
+  --color-ck-win: #0f1114;
+  --color-ck-side: #0b0c0f;
+  --color-ck-panel: #15181d;
+  --color-ck-panel2: #1b1f25;
+  --color-ck-line: #23272e;
+  --color-ck-text: #e9ebee;
+  --color-ck-muted: #858c96;
+  --color-ck-lime: #c6f432;
+  --color-ck-ink: #0c0e11; /* text on lime */
+  --color-ck-orange: #ff7a45;
+  --color-ck-blue: #4cc9f0;
+  --color-ck-pink: #f72585;
+  --color-ck-purple: #9b5de5;
+}
+
+/* shadcn semantic tokens, resolved from the variables in :root. */
+@theme inline {
+  --font-sans: "Space Grotesk Variable", system-ui, sans-serif;
+  --font-heading: var(--font-sans);
+  --font-mono: "JetBrains Mono Variable", ui-monospace, monospace;
+
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-chart-1: var(--chart-1);
+  --color-chart-2: var(--chart-2);
+  --color-chart-3: var(--chart-3);
+  --color-chart-4: var(--chart-4);
+  --color-chart-5: var(--chart-5);
+  --color-sidebar: var(--sidebar);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-ring: var(--sidebar-ring);
+
+  --radius-sm: calc(var(--radius) * 0.6);
+  --radius-md: calc(var(--radius) * 0.8);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) * 1.4);
+  --radius-2xl: calc(var(--radius) * 1.8);
+  --radius-3xl: calc(var(--radius) * 2.2);
+  --radius-4xl: calc(var(--radius) * 2.6);
+}
+
+/*
+ * Dark only for v0.1 (docs/UI.md), so the dark palette lives on :root and no
+ * light theme is defined. shadcn's `primary` is the lime accent; shadcn's
+ * `accent` is its subtle hover background, not our lime.
+ */
+:root {
+  --radius: 0.45rem;
+
+  --background: var(--color-ck-win);
+  --foreground: var(--color-ck-text);
+  --card: var(--color-ck-panel);
+  --card-foreground: var(--color-ck-text);
+  --popover: var(--color-ck-panel);
+  --popover-foreground: var(--color-ck-text);
+  --primary: var(--color-ck-lime);
+  --primary-foreground: var(--color-ck-ink);
+  --secondary: var(--color-ck-panel2);
+  --secondary-foreground: var(--color-ck-text);
+  --muted: var(--color-ck-panel2);
+  --muted-foreground: var(--color-ck-muted);
+  --accent: var(--color-ck-panel2);
+  --accent-foreground: var(--color-ck-text);
+  --destructive: var(--color-ck-orange);
+  --border: var(--color-ck-line);
+  --input: var(--color-ck-line);
+  --ring: var(--color-ck-lime);
+
+  /* Charts use the hot cue / stem colours. */
+  --chart-1: var(--color-ck-lime);
+  --chart-2: var(--color-ck-blue);
+  --chart-3: var(--color-ck-pink);
+  --chart-4: var(--color-ck-purple);
+  --chart-5: var(--color-ck-orange);
+
+  --sidebar: var(--color-ck-side);
+  --sidebar-foreground: var(--color-ck-text);
+  --sidebar-primary: var(--color-ck-lime);
+  --sidebar-primary-foreground: var(--color-ck-ink);
+  --sidebar-accent: var(--color-ck-panel2);
+  --sidebar-accent-foreground: var(--color-ck-text);
+  --sidebar-border: var(--color-ck-line);
+  --sidebar-ring: var(--color-ck-lime);
+
+  color-scheme: dark;
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+
+  html,
+  body,
+  #root {
+    height: 100%;
+  }
+
+  body {
+    @apply bg-background font-sans text-[13px] text-foreground antialiased;
+    /* Desktop app: app chrome is not selectable text. Inputs re-enable it below. */
+    user-select: none;
+    -webkit-user-select: none;
+  }
+
+  input,
+  textarea,
+  [contenteditable="true"] {
+    user-select: text;
+    -webkit-user-select: text;
+  }
+
+  :focus-visible {
+    @apply outline-2 outline-offset-2 outline-ring;
+  }
+}

@@ -1,0 +1,27 @@
+# typos: source code spell checker (https://github.com/crate-ci/typos).
+# It only flags known misspellings. Add real words it gets wrong under [default.extend-words].
+
+[files]
+extend-exclude = [
+  "bun.lock",
+  "Cargo.lock",
+  "docs/ui-preview.html",
+  "graphify-out/",
+  "temp/",
+  "src-tauri/gen/",
+  "src-tauri/icons/",
+  # Vendored third-party skills: upstream text, kept verbatim (see each VENDORED.md).
+  ".claude/skills/graphify/**",
+  ".claude/skills/rust-best-practices/**",
+  ".claude/skills/rust-review/**",
+  ".claude/skills/systematic-debugging/**",
+  ".claude/skills/test-driven-development/**",
+  ".claude/skills/verification-before-completion/**",
+  ".claude/skills/writing-plans/**",
+  ".claude/skills/interface-design/**",
+  ".claude/skills/react-patterns/**",
+  ".claude/skills/interface-guidelines/**",
+  ".claude/skills/shadcn/**",
+]
+
+[default.extend-words]

@@ -1,0 +1,42 @@
+[workspace]
+members = ["crates/cratekit-core", "crates/cratekit-audio", "src-tauri"]
+resolver = "3"
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.100"
+license = "MIT"
+repository = "https://github.com/mohamedboukari/cratekit"
+publish = false
+
+# Shared dependency versions. Crates use `name = { workspace = true }`.
+# Every new entry needs a license check first (see CONTRIBUTING.md, Hard rules).
+[workspace.dependencies]
+anyhow = "1"
+cratekit-core = { path = "crates/cratekit-core" }
+serde = { version = "1", features = ["derive"] }
+tauri = { version = "2.12", features = [] }
+tauri-build = { version = "2.7", features = [] }
+thiserror = "2"
+
+# Lints shared by every crate (each crate opts in with `[lints] workspace = true`).
+# CI runs clippy with `-D warnings`, so "warn" also fails the build.
+[workspace.lints.rust]
+# No `unsafe` in our code. A module that truly needs it opts out with
+# `#[expect(unsafe_code, reason = "...")]` and a `// SAFETY:` comment.
+unsafe_code = "deny"
+
+[workspace.lints.clippy]
+# No panicking shortcuts in library code: return typed errors instead.
+# Tests may use them (see clippy.toml); `main` opts out with a reason.
+unwrap_used = "deny"
+expect_used = "deny"
+# No stray output: the app logs through a proper logger, never println!.
+print_stdout = "deny"
+print_stderr = "deny"
+dbg_macro = "deny"
+# Silencing a lint must use `#[expect(lint, reason = "...")]`, never `#[allow]`.
+allow_attributes = "deny"
+allow_attributes_without_reason = "deny"
+todo = "warn"
