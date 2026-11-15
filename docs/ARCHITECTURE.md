@@ -48,7 +48,7 @@ src/
   analysis/
     mod.rs             analyze_track() -> TrackAnalysis
     tempo.rs           trait TempoDetector; impl via stratum-dsp + our fallback
-    key.rs             trait KeyDetector; Camelot mapping, matches()
+    key.rs             Key, PitchClass, Camelot (mapping, matches(), mixes_well_with(), parsing), scale flags; trait KeyDetector (#10)
     loudness.rs        integrated LUFS, true peak
     energy.rs          1 to 10 score
     waveform.rs        min/max/RMS columns for the UI

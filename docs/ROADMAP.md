@@ -38,7 +38,7 @@ v0.1 in about 8 weeks of part-time work. Each phase ends with a gate: the test D
 - [ ] Decode any supported file to `AudioBuffer` (symphonia) + resample (rubato) (#8)
 - [ ] Synthetic audio test helpers (kick at BPM, chords in a key, sine at level) (#9)
 - [ ] `TempoDetector` + `KeyDetector` traits; stratum-dsp implementation; fallback implementation (#10)
-- [ ] Camelot mapping + `matches()` with tests for every key (#11)
+- [x] Camelot mapping + `matches()` with tests for every key (#11)
 - [ ] Loudness (LUFS, true peak) + energy score (#12)
 - [ ] Waveform columns (#13)
 - [ ] SQLite (rusqlite, WAL, single writer) schema + migrations; add files/folders; tag reading (#14)
