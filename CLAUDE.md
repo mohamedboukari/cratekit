@@ -14,7 +14,10 @@ Read this file first. Then read **`temp/HANDOFF.md`** (current state, pending st
 - **Controller**: DJ controllers over USB MIDI, with MIDI learn (hot cues, stem mute pads, filter, tempo)
 - **Export**: hot cues, BPM and key written for VirtualDJ (Rekordbox and Serato later)
 
-Cratekit is a **prep tool that works alongside VirtualDJ**. It is **not** a live-mixing DJ app and **not** a DAW. Do not add features in those directions.
+**Direction (phased, decided 2026-11-15):**
+- **v0.1 is a prep tool that works alongside VirtualDJ** (the modules above, plus a set builder side list and a filter knob on the deck). Don't build performance features before v0.1 ships.
+- **v0.2+ adds a Performance mode** (two decks, mixer, sync and key lock, effects, loops, recording, full controller mapping; SPEC Module 8), with the goal of replacing VirtualDJ. Design the engine and UI so this fits later: deck ids in engine commands, FX slots in the mixer, a deck component that can be instantiated twice.
+- **A DAW (replacing FL Studio) is a long-term vision only**, not planned. Don't add DAW features (sequencer, piano roll, plugin hosting, multitrack recording).
 
 **Repo status:** public and open source (MIT) at `mohamedboukari/cratekit` since 2026-11-15. Every commit, issue and PR is public. `.claude/` (skills, hooks, settings) and `temp/` are local and git-ignored: they are never published. Cratekit is a personal project: never use the maintainer's work identity or email in it.
 

@@ -84,6 +84,8 @@ src/
 
 A/B and mode switches use a 10 ms crossfade to stay click-free.
 
+**Built to grow into Performance mode (v0.2+, SPEC Module 8):** engine commands and published state carry a deck id from the start (v0.1 uses deck A only), the mixer keeps per-deck FX slots (empty in v0.1), and the UI deck component can be instantiated twice. Time-stretching for sync and key lock must be GPL-free (Rubber Band is GPL): see the research issue.
+
 ### `src-tauri`
 
 ```
