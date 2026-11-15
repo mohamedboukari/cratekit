@@ -1,14 +1,15 @@
 import { cn } from "cn";
 import { Download, Scissors, X } from "lucide-react";
-import { useEffect, useRef, type JSX } from "react";
+import { useEffect, useRef, useState, type JSX } from "react";
 import { toast } from "sonner";
 
 import { drawMiniWaveform } from "@/canvas/waveform";
+import { ModelDownloadDialog } from "@/components/dialogs/ModelDownloadDialog";
 import { ToolCard, ToolEmpty } from "@/components/tools/ToolCard";
 import { Button } from "@/components/ui/button";
 import { usePanelFocusFallback } from "@/hooks/usePanelFocusFallback";
 import { BACKEND_LABEL } from "@/lib/format";
-import type { StemName, Waveform } from "@/lib/types";
+import type { Job, StemName, Waveform } from "@/lib/types";
 import { useDevices } from "@/stores/devices";
 import { activeJobs, useJobs } from "@/stores/jobs";
 import { usePlayer } from "@/stores/player";
@@ -146,24 +147,15 @@ export function StemsPanel(): JSX.Element {
 
   if (!info) {
     if (status !== "ready") return <ToolEmpty>Checking stems...</ToolEmpty>;
-    if (modelReady === false) {
+    if (modelReady === false)
       return (
-        <ToolEmpty>
-          <p>
-            Splitting stems needs the stems model
-            {modelSize !== null ? ` (${megabytes(modelSize)})` : ""}. It downloads once
-            and stays on this computer.
-          </p>
-          <Button
-            disabled={downloadJob !== undefined}
-            onClick={() => void downloadModel()}
-          >
-            <Download aria-hidden="true" data-icon="inline-start" />
-            {downloadJob ? "Downloading..." : "Download model"}
-          </Button>
-        </ToolEmpty>
+        <ModelRequired
+          sizeBytes={modelSize}
+          job={downloadJob}
+          onStart={() => void downloadModel()}
+          onCancelJob={(job) => void cancel(job.id)}
+        />
       );
-    }
     return (
       <ToolEmpty>
         <p>Split {detail.track.title} into vocals, drums, bass and other.</p>
@@ -344,4 +336,43 @@ function StemWave({
     return () => observer.disconnect();
   }, [waveform, colorToken]);
   return <canvas ref={canvasRef} aria-hidden="true" className="h-6 w-full rounded-sm" />;
+}
+
+/**
+ * The model is missing: explain, and offer the download dialog. Its open state
+ * lives here, so it resets when the model arrives and this view goes away.
+ */
+function ModelRequired({
+  sizeBytes,
+  job,
+  onStart,
+  onCancelJob,
+}: {
+  sizeBytes: number | null;
+  job: Job | undefined;
+  onStart: () => void;
+  onCancelJob: (job: Job) => void;
+}): JSX.Element {
+  const [open, setOpen] = useState(false);
+  return (
+    <ToolEmpty>
+      <p>
+        Splitting stems needs the stems model
+        {sizeBytes !== null ? ` (${megabytes(sizeBytes)})` : ""}. It downloads once and
+        stays on this computer.
+      </p>
+      <Button onClick={() => setOpen(true)}>
+        <Download aria-hidden="true" data-icon="inline-start" />
+        {job ? "Downloading..." : "Download model"}
+      </Button>
+      <ModelDownloadDialog
+        open={open}
+        sizeBytes={sizeBytes}
+        job={job}
+        onStart={onStart}
+        onCancelJob={onCancelJob}
+        onClose={() => setOpen(false)}
+      />
+    </ToolEmpty>
+  );
 }

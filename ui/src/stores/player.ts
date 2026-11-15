@@ -2,7 +2,7 @@ import { create } from "zustand";
 
 import { api } from "@/lib/ipc";
 import { notifyError } from "@/lib/notify";
-import type { CueSlot, PlaybackMode, TrackDetail, TrackId } from "@/lib/types";
+import type { CueColor, CueSlot, PlaybackMode, TrackDetail, TrackId } from "@/lib/types";
 
 /** Only the newest load may update the deck or the engine (clicks can overlap). */
 let loadSeq = 0;
@@ -34,6 +34,8 @@ interface PlayerState {
   /** Sets or moves a hot cue (e.g. after dragging its flag). */
   setHotCue: (slot: CueSlot, positionSec: number) => Promise<void>;
   clearHotCue: (slot: CueSlot) => Promise<void>;
+  /** Renames or recolours a hot cue. */
+  updateHotCue: (slot: CueSlot, name: string | null, color: CueColor) => Promise<void>;
   /** Rust reports a playback state change (e.g. the track reached its end). */
   onPlaybackState: (playing: boolean) => void;
   /** Re-reads the loaded track (after a job changed its analysis or stems). */
@@ -167,6 +169,17 @@ export const usePlayer = create<PlayerState>()((set, get) => {
         await refreshDetail();
       } catch (error) {
         notifyError(error, `Could not clear hot cue ${slot}`);
+      }
+    },
+
+    updateHotCue: async (slot, name, color) => {
+      const detail = get().detail;
+      if (!detail) return;
+      try {
+        await api().hotcueUpdate(detail.track.id, slot, name, color);
+        await refreshDetail();
+      } catch (error) {
+        notifyError(error, `Could not change hot cue ${slot}`);
       }
     },
 

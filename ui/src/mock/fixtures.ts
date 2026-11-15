@@ -144,7 +144,7 @@ function makeWaveform(rand: () => number, columns: number): Waveform {
   return { peaks, rms };
 }
 
-function makeTrack(id: number): TrackDetail {
+export function makeTrack(id: number): TrackDetail {
   const rand = rng(id * 7919);
   const pitch = Math.floor(rand() * 12);
   const minor = rand() < 0.65;

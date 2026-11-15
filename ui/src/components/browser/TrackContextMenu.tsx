@@ -17,6 +17,7 @@ import { useLibrary } from "@/stores/library";
 import { useMaster } from "@/stores/master";
 import { usePlayer } from "@/stores/player";
 import { useSetList } from "@/stores/setlist";
+import { useUi } from "@/stores/ui";
 
 interface TrackContextMenuProps {
   /** The row that was right-clicked. */
@@ -44,6 +45,7 @@ export function TrackContextMenu({
   const load = usePlayer((s) => s.load);
   const addToSetList = useSetList((s) => s.add);
   const setReference = useMaster((s) => s.setReference);
+  const openExport = useUi((s) => s.openExport);
   const rows = useLibrary((s) => s.rows);
   const targets =
     trackId !== null && selectedIds.includes(trackId)
@@ -98,6 +100,12 @@ export function TrackContextMenu({
           }}
         >
           Use as mastering reference
+        </ContextMenuItem>
+        <ContextMenuItem
+          disabled={targets.length === 0}
+          onClick={() => openExport(targets)}
+        >
+          Export to VirtualDJ{plural}...
         </ContextMenuItem>
         <ContextMenuSub>
           <ContextMenuSubTrigger disabled={targets.length === 0}>

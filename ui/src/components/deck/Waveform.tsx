@@ -14,6 +14,7 @@ import {
   xToTime,
   type WaveformColors,
 } from "@/canvas/waveform";
+import { CueEditDialog } from "@/components/deck/CueEditDialog";
 import { CUE_BG } from "@/components/deck/cueColors";
 import { usePlaybackPositionRef } from "@/hooks/usePlaybackRefs";
 import { formatTime } from "@/lib/format";
@@ -44,6 +45,8 @@ export function Waveform({ detail }: WaveformProps): JSX.Element {
   const seek = usePlayer((s) => s.seek);
   const setHotCue = usePlayer((s) => s.setHotCue);
   const clearHotCue = usePlayer((s) => s.clearHotCue);
+  // The cue being edited, tied to its track so a track change never edits the wrong cue.
+  const [editing, setEditing] = useState<{ trackId: number; cue: Cue } | null>(null);
   const sliderRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const { track, waveform, cues, analysis } = detail;
@@ -173,9 +176,15 @@ export function Waveform({ detail }: WaveformProps): JSX.Element {
             onJump={() => void seek(cue.positionSec)}
             onMove={(sec) => void setHotCue(cue.slot, sec)}
             onClear={() => void clearHotCue(cue.slot)}
+            onEdit={() => setEditing({ trackId: track.id, cue })}
           />
         ))}
       </fieldset>
+      <CueEditDialog
+        cue={editing?.trackId === track.id ? editing.cue : null}
+        returnFocus={sliderRef}
+        onClose={() => setEditing(null)}
+      />
     </div>
   );
 }
@@ -191,9 +200,18 @@ interface CueFlagProps {
   onJump: () => void;
   onMove: (sec: number) => void;
   onClear: () => void;
+  /** Right-click (or the context menu key): rename, recolour, delete. */
+  onEdit: () => void;
 }
 
-function CueFlag({ cue, duration, onJump, onMove, onClear }: CueFlagProps): JSX.Element {
+function CueFlag({
+  cue,
+  duration,
+  onJump,
+  onMove,
+  onClear,
+  onEdit,
+}: CueFlagProps): JSX.Element {
   const [dragSec, setDragSec] = useState<number | null>(null);
   /** Pointer x at press, and how far it was from the cue line (so the flag does not jump). */
   const press = useRef<{ x: number; offset: number } | null>(null);
@@ -209,9 +227,16 @@ function CueFlag({ cue, duration, onJump, onMove, onClear }: CueFlagProps): JSX.
   return (
     <button
       type="button"
-      aria-label={`Hot cue ${cue.slot} at ${formatTime(cue.positionSec)}${cue.name ? `, ${cue.name}` : ""}. Delete to clear`}
+      aria-label={`Hot cue ${cue.slot} at ${formatTime(cue.positionSec)}${cue.name ? `, ${cue.name}` : ""}. Delete to clear, Shift+Enter to edit`}
+      aria-keyshortcuts="Delete Shift+Enter F2"
+      onContextMenu={(e) => {
+        e.preventDefault();
+        onEdit();
+      }}
       onPointerDown={(e) => {
         e.stopPropagation();
+        // Only the primary button drags; a right-click opens the editor without moving the cue.
+        if (e.button !== 0) return;
         const rect = lane(e);
         const lineX =
           rect && duration > 0
@@ -244,6 +269,16 @@ function CueFlag({ cue, duration, onJump, onMove, onClear }: CueFlagProps): JSX.
         if (!moved.current) onJump();
       }}
       onKeyDown={(e) => {
+        // Mac keyboards have no context menu key, so Shift+Enter and F2 open the editor too.
+        if (
+          (e.key === "Enter" && e.shiftKey) ||
+          e.key === "F2" ||
+          e.key === "ContextMenu"
+        ) {
+          e.preventDefault();
+          onEdit();
+          return;
+        }
         if (e.key === "Delete" || e.key === "Backspace") {
           e.preventDefault();
           onClear();

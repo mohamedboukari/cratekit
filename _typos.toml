@@ -5,7 +5,6 @@
 extend-exclude = [
   "bun.lock",
   "Cargo.lock",
-  "docs/ui-preview.html",
   "graphify-out/",
   "temp/",
   "src-tauri/gen/",

@@ -1,9 +1,13 @@
 import { cn } from "cn";
+import { Settings } from "lucide-react";
 import type { JSX } from "react";
 
 import { CUE_BG } from "@/components/deck/cueColors";
+import { Button } from "@/components/ui/button";
+import { formatShortcut, isMacPlatform, SHORTCUTS } from "@/lib/shortcuts";
 import { useDevices } from "@/stores/devices";
 import { useLibrary } from "@/stores/library";
+import { useUi } from "@/stores/ui";
 
 /** Library counts, crates and the connected controller. */
 export function Sidebar(): JSX.Element {
@@ -12,6 +16,9 @@ export function Sidebar(): JSX.Element {
   const crateId = useLibrary((s) => s.query.crateId);
   const selectCrate = useLibrary((s) => s.selectCrate);
   const controller = useDevices((s) => s.midi.find((d) => d.connected) ?? null);
+  const openSettings = useUi((s) => s.openSettings);
+  const shortcut = SHORTCUTS.find((s) => s.id === "open-settings");
+  const settingsShortcut = shortcut ? formatShortcut(shortcut, isMacPlatform()) : null;
 
   return (
     <nav
@@ -76,6 +83,17 @@ export function Sidebar(): JSX.Element {
             </span>
           )}
         </div>
+        <Button
+          variant="ghost"
+          size="sm"
+          className="mx-1 mt-2 justify-start text-muted-foreground"
+          onClick={openSettings}
+          title={settingsShortcut ? `Settings (${settingsShortcut})` : "Settings"}
+          aria-keyshortcuts={isMacPlatform() ? "Meta+Comma" : "Control+Comma"}
+        >
+          <Settings aria-hidden="true" data-icon="inline-start" />
+          Settings
+        </Button>
       </section>
     </nav>
   );

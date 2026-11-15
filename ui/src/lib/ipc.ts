@@ -23,6 +23,7 @@ import type {
   CueColor,
   CueSlot,
   ExportPlan,
+  FileDrop,
   JobDone,
   JobFailed,
   JobId,
@@ -58,6 +59,12 @@ export type Listener<T> = (payload: T) => void;
 export interface CratekitApi {
   // App
   appVersion(): Promise<string>;
+  /** Opens the Settings window (or focuses it). The native menu does the same with Cmd/Ctrl+,. */
+  appOpenSettings(): Promise<void>;
+  /** Native file picker for audio files; empty when cancelled. */
+  dialogOpenFiles(): Promise<string[]>;
+  /** Native folder picker; null when cancelled. */
+  dialogOpenFolder(): Promise<string | null>;
 
   // Library and crates
   libraryAddPaths(paths: string[]): Promise<TrackId[]>;
@@ -108,6 +115,13 @@ export interface CratekitApi {
   // Cues
   hotcueSet(id: TrackId, slot: CueSlot, sec: number): Promise<void>;
   hotcueClear(id: TrackId, slot: CueSlot): Promise<void>;
+  /** Renames or recolours a hot cue (right-click a cue flag). */
+  hotcueUpdate(
+    id: TrackId,
+    slot: CueSlot,
+    name: string | null,
+    color: CueColor,
+  ): Promise<void>;
 
   // MIDI
   midiListDevices(): Promise<MidiDevice[]>;
@@ -147,6 +161,10 @@ export interface CratekitApi {
   onMidiLearned(listener: Listener<MidiLearned>): Promise<Unlisten>;
   onControlEvent(listener: Listener<ControlEvent>): Promise<Unlisten>;
   onAudioDeviceChanged(listener: Listener<AudioDeviceChanged>): Promise<Unlisten>;
+  /** Files dragged from the OS onto the window. */
+  onFilesDropped(listener: Listener<FileDrop>): Promise<Unlisten>;
+  /** Settings changed in any window (the Settings window is a separate page). */
+  onSettingsChanged(listener: Listener<Settings>): Promise<Unlisten>;
 }
 
 /** True when the fake-data implementation is in use (browser and demo). */

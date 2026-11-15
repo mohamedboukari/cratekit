@@ -16,11 +16,11 @@ v0.1 in about 8 weeks of part-time work. Each phase ends with a gate: the test D
 - [ ] User-level plugins (impeccable, playground, Trail of Bits)
 - [x] Open source: fresh public repo (history kept in a private archive), SECURITY.md, CONTRIBUTING.md, CODE_OF_CONDUCT.md, issue templates, Dependabot, CodeQL, gitleaks, zizmor, dependency review, secret scanning, ruleset (PR + green CI)
 - [x] GitHub issues and milestones for every ROADMAP task (#1 to #52)
-- [ ] Redesign `docs/ui-preview.html` and `docs/UI.md` (laptop-first panes, missing v0.1 screens, SPEC parity, accessibility, native titlebar, Tailwind v4 + shadcn tokens) (#1)
+- [x] UI redesign as the real React app with a mock API and a GitHub Pages demo; `docs/UI.md` rewritten, the HTML mockup retired (#1)
 
 ## Phase 0b: Validate (week 1)
 
-- [ ] Send `docs/ui-preview.html` to the test DJ (#2)
+- [ ] Send the UI to the test DJ (first the HTML mockup, now the Pages demo) (#2)
 - [ ] Get answers: DJ software, what he pays for, biggest annoyance, mastering habits, how he gets acapellas, laptop specs (OS, RAM, GPU) (#3)
 - [ ] Get a copy of his VirtualDJ database file and 10 tracks he owns, for testing (keep them in `test-data/`, out of git) (#4)
 - [ ] Decide the first module after analysis (mastering or stems) (#5)
@@ -31,7 +31,7 @@ v0.1 in about 8 weeks of part-time work. Each phase ends with a gate: the test D
 
 - [x] Cargo workspace: `cratekit-core`, `cratekit-audio`, `src-tauri` (edition 2024, pinned toolchain, workspace lints)
 - [x] UI scaffold in `ui/`: React 19 + TypeScript 7 + Vite 8 with bun; Vitest; Tailwind v4 + shadcn (Base UI); oxlint, Prettier, knip; husky + lint-staged + commitlint
-- [ ] Choose (license check, ask first): state library (if any), table virtualization (#6). State library chosen: Zustand (PR for #1); virtualization comes with the track browser
+- [x] Choose (license check, ask first): state library and table virtualization: Zustand, TanStack Table + Virtual (#6)
 - [x] `deny.toml` (license allow-list, see the `license-check` skill)
 - [x] CI: fmt, clippy, tests, `cargo deny check`, UI type-check + Vitest, run natively on macOS arm64 + x86_64, Windows x86_64 + ARM64, Linux x86_64 + arm64 (GitHub Actions; every PR on all six targets)
 - [ ] Confirm minimum OS versions (Tauri 2, ONNX Runtime) and that every native dependency has builds for all six targets (#7)
@@ -43,8 +43,8 @@ v0.1 in about 8 weeks of part-time work. Each phase ends with a gate: the test D
 - [ ] Waveform columns (#13)
 - [ ] SQLite (rusqlite, WAL, single writer) schema + migrations; add files/folders; tag reading (#14)
 - [ ] Background analysis queue with progress events (#15)
-- [ ] UI: typed IPC layer (`ui/src/lib/ipc.ts`) (#16)
-- [ ] UI: window layout from `ui-preview.html` (sidebar, deck, tabs, track browser, status bar) (#17)
+- [x] UI: typed IPC layer (`ui/src/lib/ipc.ts`) (#16)
+- [x] UI: window layout (sidebar, deck, tabs, track browser, status bar) (#17)
 - [ ] UI: Analyze tab (key, chroma bars, mixes-well-with chips) (#18)
 - [ ] Set builder: side list to stage tracks and build a set (#55)
 - [ ] DJ filter knob on the deck (#56)

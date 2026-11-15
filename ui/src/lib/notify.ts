@@ -9,3 +9,9 @@ export function notifyError(error: unknown, context?: string): AppError {
   toast.error(context ?? "Something went wrong", { description: appError.message });
   return appError;
 }
+
+/** Tells the user how an import went (picker or drop), including when nothing was new. */
+export function announceImport(added: number): void {
+  if (added > 0) toast.success(`Added ${added} ${added === 1 ? "track" : "tracks"}`);
+  else toast.info("No new audio files found");
+}

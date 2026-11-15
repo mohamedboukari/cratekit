@@ -281,6 +281,12 @@ export interface Transition {
   bpmJump: boolean;
 }
 
+/** Files dragged from the OS onto the window (paths only on `enter` and `drop`). */
+export interface FileDrop {
+  kind: "enter" | "over" | "leave" | "drop";
+  paths: string[];
+}
+
 /** Saved pane sizes, per panel group id: panel id to percentage. */
 export type PaneLayouts = Record<string, Record<string, number>>;
 

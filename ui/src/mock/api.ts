@@ -9,6 +9,7 @@ import type { CratekitApi, Listener, Unlisten } from "@/lib/ipc";
 import type {
   AudioDeviceChanged,
   ControlEvent,
+  FileDrop,
   JobDone,
   JobFailed,
   JobKind,
@@ -32,6 +33,7 @@ import {
   STEM_NAMES,
   makeCrates,
   makeLibrary,
+  makeTrack,
   makeInstrumentalWaveform,
   makeStemWaveforms,
 } from "@/mock/fixtures";
@@ -73,6 +75,53 @@ function loadSettings(): Settings {
   return structuredClone(DEMO_SETTINGS);
 }
 
+/** True for a drag of files from the OS (not an in-app drag of tracks). */
+function hasFiles(e: DragEvent): boolean {
+  return e.dataTransfer?.types.includes("Files") ?? false;
+}
+
+/**
+ * Browser stand-in for Tauri's drag and drop event: files dragged from the OS
+ * (never in-app drags of tracks). A browser has no file paths, so the mock
+ * makes up paths from the file names.
+ */
+function listenForFileDrops(listener: Listener<FileDrop>): Unlisten {
+  if (typeof window === "undefined") return () => undefined;
+  let depth = 0;
+  const onEnter = (e: DragEvent): void => {
+    if (!hasFiles(e)) return;
+    depth += 1;
+    if (depth === 1) listener({ kind: "enter", paths: [] });
+  };
+  const onOver = (e: DragEvent): void => {
+    if (!hasFiles(e)) return;
+    e.preventDefault();
+    listener({ kind: "over", paths: [] });
+  };
+  const onLeave = (e: DragEvent): void => {
+    if (!hasFiles(e)) return;
+    depth = Math.max(0, depth - 1);
+    if (depth === 0) listener({ kind: "leave", paths: [] });
+  };
+  const onDrop = (e: DragEvent): void => {
+    if (!hasFiles(e)) return;
+    e.preventDefault();
+    depth = 0;
+    const names = Array.from(e.dataTransfer?.files ?? [], (f) => `~/Downloads/${f.name}`);
+    listener({ kind: "drop", paths: names });
+  };
+  window.addEventListener("dragenter", onEnter);
+  window.addEventListener("dragover", onOver);
+  window.addEventListener("dragleave", onLeave);
+  window.addEventListener("drop", onDrop);
+  return () => {
+    window.removeEventListener("dragenter", onEnter);
+    window.removeEventListener("dragover", onOver);
+    window.removeEventListener("dragleave", onLeave);
+    window.removeEventListener("drop", onDrop);
+  };
+}
+
 function saveSettings(settings: Settings): void {
   try {
     globalThis.localStorage?.setItem(SETTINGS_KEY, JSON.stringify(settings));
@@ -102,6 +151,7 @@ export function createMockApi(): CratekitApi {
     midiLearned: new Channel<MidiLearned>(),
     control: new Channel<ControlEvent>(),
     audioDevice: new Channel<AudioDeviceChanged>(),
+    settings: new Channel<Settings>(),
   };
 
   // Playback simulation
@@ -144,18 +194,20 @@ export function createMockApi(): CratekitApi {
   /** Runs a fake job: emits progress, applies `onStep`, then done. */
   function runJob(
     kind: JobKind,
-    label: string,
+    label: string | ((done: number) => string),
     trackIds: TrackId[],
     total: number,
     stepMs: number,
     onStep?: (i: number) => void,
   ): string {
     const jobId = `mock-${nextJob++}`;
+    const labelAt = (step: number): string =>
+      typeof label === "string" ? label : label(step);
     let done = 0;
     const timer: ReturnType<typeof setInterval> = setInterval(() => {
       onStep?.(done);
       done += 1;
-      ch.progress.emit({ jobId, kind, label, trackIds, done, total });
+      ch.progress.emit({ jobId, kind, label: labelAt(done), trackIds, done, total });
       if (done >= total) {
         clearInterval(timer);
         jobTimers.delete(jobId);
@@ -163,14 +215,56 @@ export function createMockApi(): CratekitApi {
       }
     }, stepMs);
     jobTimers.set(jobId, timer);
-    ch.progress.emit({ jobId, kind, label, trackIds, done: 0, total });
+    ch.progress.emit({ jobId, kind, label: labelAt(0), trackIds, done: 0, total });
     return jobId;
   }
 
   return {
     appVersion: () => resolve("0.1.0-demo"),
+    // No native windows in a browser: the UI shows Settings as an in-page window instead.
+    appOpenSettings: () => resolve(undefined),
+    dialogOpenFiles: () =>
+      resolve([
+        "~/Music/Incoming/Late Night Demo.mp3",
+        "~/Music/Incoming/Sunrise Edit.flac",
+      ]),
+    dialogOpenFolder: () => resolve("~/Music/Incoming"),
 
-    libraryAddPaths: () => resolve([]),
+    libraryAddPaths: (paths) => {
+      // Stands in for Rust's import: one new (not yet analyzed) track per file.
+      const ids = paths.map((path) => {
+        const id = Math.max(0, ...byId.keys()) + 1;
+        const base = makeTrack(id);
+        const name =
+          path
+            .split("/")
+            .pop()
+            ?.replace(/\.[^.]+$/, "") ?? `Track ${id}`;
+        const detail: TrackDetail = {
+          ...base,
+          track: {
+            ...base.track,
+            title: name,
+            artist: "Imported",
+            analyzed: false,
+            bpm: null,
+            camelot: null,
+            keyName: null,
+            energy: null,
+            lufs: null,
+            hasStems: false,
+            mastered: false,
+          },
+          analysis: null,
+          cues: [],
+          waveform: null,
+        };
+        library.push(detail);
+        byId.set(id, detail);
+        return id;
+      });
+      return resolve(ids);
+    },
     libraryList: (q) => {
       const crateIds = q.crateId === null ? null : new Set(members.get(q.crateId) ?? []);
       const needle = q.search.trim().toLowerCase();
@@ -366,6 +460,14 @@ export function createMockApi(): CratekitApi {
       }
       return resolve(undefined);
     },
+    hotcueUpdate: (id, slot, name, color) => {
+      const cue = byId.get(id)?.cues.find((c) => c.slot === slot);
+      if (cue) {
+        cue.name = name;
+        cue.color = color;
+      }
+      return resolve(undefined);
+    },
     hotcueClear: (id, slot) => {
       const t = byId.get(id);
       if (t) t.cues = t.cues.filter((c) => c.slot !== slot);
@@ -429,10 +531,18 @@ export function createMockApi(): CratekitApi {
     modelsStatus: () => resolve(structuredClone(models)),
     modelsDownload: (name) =>
       resolve(
-        runJob("model-download", `Downloading ${name}`, [], 25, 200, (i) => {
-          const m = models.find((x) => x.name === name);
-          if (m && i === 24) m.downloaded = true;
-        }),
+        runJob(
+          "model-download",
+          // Rust checks the SHA-256 after the download; the label says so.
+          (done) => (done >= 23 ? `Verifying ${name} checksum` : `Downloading ${name}`),
+          [],
+          25,
+          200,
+          (i) => {
+            const m = models.find((x) => x.name === name);
+            if (m && i === 24) m.downloaded = true;
+          },
+        ),
       ),
     modelsDelete: (name) => {
       const m = models.find((x) => x.name === name);
@@ -444,12 +554,14 @@ export function createMockApi(): CratekitApi {
     audioSetDevice: (id) => {
       settings.audioDeviceId = id;
       saveSettings(settings);
+      ch.settings.emit(structuredClone(settings));
       ch.audioDevice.emit({ id, reason: "selected" });
       return resolve(undefined);
     },
     audioSetBufferSize: (frames) => {
       settings.bufferSize = frames;
       saveSettings(settings);
+      ch.settings.emit(structuredClone(settings));
       return resolve(undefined);
     },
 
@@ -457,6 +569,7 @@ export function createMockApi(): CratekitApi {
     settingsSet: (key, value) => {
       settings[key] = value;
       saveSettings(settings);
+      ch.settings.emit(structuredClone(settings));
       return resolve(undefined);
     },
 
@@ -470,5 +583,7 @@ export function createMockApi(): CratekitApi {
     onMidiLearned: (l) => ch.midiLearned.subscribe(l),
     onControlEvent: (l) => ch.control.subscribe(l),
     onAudioDeviceChanged: (l) => ch.audioDevice.subscribe(l),
+    onFilesDropped: (l) => resolve(listenForFileDrops(l)),
+    onSettingsChanged: (l) => ch.settings.subscribe(l),
   };
 }
