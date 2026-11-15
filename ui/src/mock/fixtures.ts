@@ -11,10 +11,14 @@ import type {
   Cue,
   CueColor,
   CueSlot,
+  ControlTarget,
+  MasterPreset,
+  MidiBinding,
   MidiDevice,
   MidiMapping,
   ModelStatus,
   Settings,
+  StemName,
   TrackDetail,
   TrackRow,
   Waveform,
@@ -34,6 +38,9 @@ function rng(seed: number): () => number {
 }
 
 const NOTES = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"] as const;
+/** Scale steps above the tonic (what Rust's key detector reports as "in key"). */
+const MAJOR_SCALE = [0, 2, 4, 5, 7, 9, 11];
+const MINOR_SCALE = [0, 2, 3, 5, 7, 8, 10];
 
 /** docs/SPEC.md Camelot table: pitch class to [major, minor]. */
 const CAMELOT: ReadonlyArray<readonly [string, string]> = [
@@ -183,6 +190,9 @@ function makeTrack(id: number): TrackDetail {
         truePeakDb: Number((-0.2 - rand() * 1.5).toFixed(1)),
         firstBeatSec: Number((rand() * 0.5).toFixed(3)),
         chroma,
+        chromaInKey: NOTES.map((_, i) =>
+          (minor ? MINOR_SCALE : MAJOR_SCALE).includes((i - pitch + 12) % 12),
+        ),
         mixesWellWith: mixesWellWith(camelot),
         dropSec: Math.round(durationSec * 0.38),
         mixOutSec: Math.round(durationSec * 0.84),
@@ -237,43 +247,64 @@ export const MIDI_DEVICES: MidiDevice[] = [
   { id: "ddj-flx4", name: "Pioneer DDJ-FLX4", connected: true },
 ];
 
-export const MIDI_MAPPINGS: MidiMapping[] = [
+/** Default DDJ-FLX4 bindings in the demo; every other target starts unmapped. */
+const DEMO_BINDINGS: Partial<Record<ControlTarget, MidiBinding>> = {
+  play: { kind: "note", channel: 0, number: 11 },
+  cue: { kind: "note", channel: 0, number: 12 },
+  "hotcue-1": { kind: "note", channel: 7, number: 0 },
+  "hotcue-2": { kind: "note", channel: 7, number: 1 },
+  "hotcue-3": { kind: "note", channel: 7, number: 2 },
+  "hotcue-4": { kind: "note", channel: 7, number: 3 },
+  "mute-vocals": { kind: "note", channel: 7, number: 4 },
+  filter: { kind: "cc", channel: 6, number: 23 },
+};
+
+/** Every control target, in the order Rust lists them. */
+const CONTROL_TARGETS: ControlTarget[] = [
+  "play",
+  "cue",
+  "hotcue-1",
+  "hotcue-2",
+  "hotcue-3",
+  "hotcue-4",
+  "hotcue-5",
+  "hotcue-6",
+  "hotcue-7",
+  "hotcue-8",
+  "pad-page",
+  "mute-vocals",
+  "mute-drums",
+  "mute-bass",
+  "mute-other",
+  "filter",
+  "tempo",
+  "volume",
+  "ab-toggle",
+];
+
+export const MIDI_MAPPINGS: MidiMapping[] = CONTROL_TARGETS.map((target) => ({
+  deviceId: "ddj-flx4",
+  target,
+  binding: DEMO_BINDINGS[target] ?? null,
+}));
+
+/** Stands in for Rust's preset table (docs/ARCHITECTURE.md, Presets). */
+export const MASTER_PRESETS: MasterPreset[] = [
   {
-    deviceId: "ddj-flx4",
-    target: "play",
-    binding: { kind: "note", channel: 0, number: 11 },
+    name: "club",
+    label: "Club",
+    targetLufs: -8,
+    description: "Punchy low end, bright top",
   },
   {
-    deviceId: "ddj-flx4",
-    target: "cue",
-    binding: { kind: "note", channel: 0, number: 12 },
+    name: "hip-hop",
+    label: "Hip-hop",
+    targetLufs: -9,
+    description: "Heavy sub, smooth mids",
   },
-  {
-    deviceId: "ddj-flx4",
-    target: "hotcue-1",
-    binding: { kind: "note", channel: 7, number: 0 },
-  },
-  {
-    deviceId: "ddj-flx4",
-    target: "hotcue-2",
-    binding: { kind: "note", channel: 7, number: 1 },
-  },
-  {
-    deviceId: "ddj-flx4",
-    target: "hotcue-3",
-    binding: { kind: "note", channel: 7, number: 2 },
-  },
-  {
-    deviceId: "ddj-flx4",
-    target: "hotcue-4",
-    binding: { kind: "note", channel: 7, number: 3 },
-  },
-  {
-    deviceId: "ddj-flx4",
-    target: "mute-vocals",
-    binding: { kind: "note", channel: 7, number: 4 },
-  },
-  { deviceId: "ddj-flx4", target: "tempo", binding: null },
+  { name: "pop", label: "Pop", targetLufs: -9, description: "Present vocals, airy top" },
+  { name: "lo-fi", label: "Lo-fi", targetLufs: -12, description: "Warm, soft top end" },
+  { name: "chill", label: "Chill", targetLufs: -12, description: "Gentle and open" },
 ];
 
 export const MODELS: ModelStatus[] = [
@@ -289,3 +320,44 @@ export const DEMO_SETTINGS: Settings = {
   outputFolder: "~/Music/Cratekit",
   setList: [2, 8, 14, 20, 26],
 };
+
+export const STEM_NAMES: StemName[] = ["vocals", "drums", "bass", "other"];
+
+/** Shape of each stem relative to the full mix, for believable demo waveforms. */
+const STEM_SHAPES: Record<StemName, (i: number, v: number) => number> = {
+  vocals: (i, v) => (Math.floor(i / 40) % 3 === 0 ? v * 0.15 : v * 0.75),
+  drums: (i, v) => (i % 8 < 2 ? v : v * 0.35),
+  bass: (i, v) => v * (0.55 + 0.25 * Math.sin(i / 6)),
+  other: (i, v) => v * (0.4 + 0.3 * Math.cos(i / 11)),
+};
+
+/** Per-stem waveforms derived from the track's own waveform (deterministic). */
+export function makeStemWaveforms(mix: Waveform): Record<StemName, Waveform> {
+  const shape = (stem: StemName): Waveform => ({
+    peaks: mix.peaks.map((v, i) => Number(STEM_SHAPES[stem](i, v).toFixed(3))),
+    rms: mix.rms.map((v, i) => Number(STEM_SHAPES[stem](i, v).toFixed(3))),
+  });
+  return {
+    vocals: shape("vocals"),
+    drums: shape("drums"),
+    bass: shape("bass"),
+    other: shape("other"),
+  };
+}
+
+/** Drums + bass + other summed and clamped, standing in for Rust's 2-stem waveform. */
+export function makeInstrumentalWaveform(mix: Waveform): Waveform {
+  const stems = makeStemWaveforms(mix);
+  const sum = (key: "peaks" | "rms"): number[] =>
+    mix[key].map((_, i) =>
+      Number(
+        Math.min(
+          1,
+          (stems.drums[key][i] ?? 0) +
+            (stems.bass[key][i] ?? 0) +
+            (stems.other[key][i] ?? 0),
+        ).toFixed(3),
+      ),
+    );
+  return { peaks: sum("peaks"), rms: sum("rms") };
+}

@@ -14,6 +14,7 @@ import { api } from "@/lib/ipc";
 import { notifyError } from "@/lib/notify";
 import type { TrackId } from "@/lib/types";
 import { useLibrary } from "@/stores/library";
+import { useMaster } from "@/stores/master";
 import { usePlayer } from "@/stores/player";
 import { useSetList } from "@/stores/setlist";
 
@@ -42,6 +43,8 @@ export function TrackContextMenu({
   const refreshRows = useLibrary((s) => s.refreshRows);
   const load = usePlayer((s) => s.load);
   const addToSetList = useSetList((s) => s.add);
+  const setReference = useMaster((s) => s.setReference);
+  const rows = useLibrary((s) => s.rows);
   const targets =
     trackId !== null && selectedIds.includes(trackId)
       ? selectedIds
@@ -86,6 +89,15 @@ export function TrackContextMenu({
           }, "Could not split stems")}
         >
           Split stems
+        </ContextMenuItem>
+        <ContextMenuItem
+          disabled={targets.length !== 1}
+          onClick={() => {
+            const row = rows.find((r) => r.id === targets[0]);
+            if (row) setReference({ id: row.id, title: row.title });
+          }}
+        >
+          Use as mastering reference
         </ContextMenuItem>
         <ContextMenuSub>
           <ContextMenuSubTrigger disabled={targets.length === 0}>

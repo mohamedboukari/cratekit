@@ -1,7 +1,18 @@
 import { cn } from "cn";
 import type { JSX, KeyboardEvent } from "react";
 
+import { AnalyzePanel } from "@/components/tools/AnalyzePanel";
+import { ControllerPanel } from "@/components/tools/ControllerPanel";
+import { MasterPanel } from "@/components/tools/MasterPanel";
+import { StemsPanel } from "@/components/tools/StemsPanel";
 import { type ToolTab, useUi } from "@/stores/ui";
+
+const PANELS: Record<ToolTab, () => JSX.Element> = {
+  analyze: AnalyzePanel,
+  master: MasterPanel,
+  stems: StemsPanel,
+  controller: ControllerPanel,
+};
 
 const TABS: ReadonlyArray<{ id: ToolTab; label: string }> = [
   { id: "analyze", label: "Analyze" },
@@ -11,12 +22,13 @@ const TABS: ReadonlyArray<{ id: ToolTab; label: string }> = [
 ];
 
 /**
- * Right-hand tool panel with the four tabs. Foundation version: the tab bar is
- * complete (roving tabindex, arrow keys); the panels are filled in PR C.
+ * Right-hand tool panel with the four tabs (roving tabindex, arrow keys).
+ * Switching tabs also switches what you hear (hooks/useHearing.ts).
  */
 export function ToolPanel(): JSX.Element {
   const active = useUi((s) => s.activeTool);
   const setActive = useUi((s) => s.setActiveTool);
+  const Panel = PANELS[active];
 
   const onKeyDown = (event: KeyboardEvent<HTMLButtonElement>): void => {
     const index = TABS.findIndex((t) => t.id === active);
@@ -40,7 +52,7 @@ export function ToolPanel(): JSX.Element {
       <div
         role="tablist"
         aria-label="Tools"
-        className="flex gap-0.5 border-b border-border px-3"
+        className="flex gap-0.5 border-b border-border px-1"
       >
         {TABS.map((t) => (
           <button
@@ -54,7 +66,7 @@ export function ToolPanel(): JSX.Element {
             onClick={() => setActive(t.id)}
             onKeyDown={onKeyDown}
             className={cn(
-              "border-b-2 border-transparent px-3.5 py-2.5 font-semibold text-muted-foreground",
+              "min-w-0 flex-1 truncate border-b-2 border-transparent px-1.5 py-2.5 text-center font-semibold text-muted-foreground",
               active === t.id && "border-primary text-foreground",
             )}
           >
@@ -67,9 +79,9 @@ export function ToolPanel(): JSX.Element {
         id="tool-panel"
         tabIndex={0}
         aria-labelledby={`tool-tab-${active}`}
-        className="grid flex-1 place-items-center p-4 text-muted-foreground"
+        className="min-h-0 flex-1 overflow-y-auto -outline-offset-2"
       >
-        {TABS.find((t) => t.id === active)?.label} tools arrive in the next step.
+        <Panel />
       </div>
     </aside>
   );

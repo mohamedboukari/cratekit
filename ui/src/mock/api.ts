@@ -14,6 +14,7 @@ import type {
   JobKind,
   JobProgress,
   MeterReading,
+  MidiBinding,
   PlaybackState,
   MidiDevice,
   MidiLearned,
@@ -25,10 +26,14 @@ import {
   AUDIO_DEVICES,
   DEMO_SETTINGS,
   MIDI_DEVICES,
+  MASTER_PRESETS,
   MIDI_MAPPINGS,
   MODELS,
+  STEM_NAMES,
   makeCrates,
   makeLibrary,
+  makeInstrumentalWaveform,
+  makeStemWaveforms,
 } from "@/mock/fixtures";
 
 const SETTINGS_KEY = "cratekit-mock-settings";
@@ -81,6 +86,8 @@ export function createMockApi(): CratekitApi {
   const byId = new Map<TrackId, TrackDetail>(library.map((t) => [t.track.id, t]));
   const { crates, members } = makeCrates(library);
   const models = structuredClone(MODELS);
+  const mappings = structuredClone(MIDI_MAPPINGS);
+  let learnCount = 0;
   const settings = loadSettings();
   let nextJob = 1;
 
@@ -128,10 +135,17 @@ export function createMockApi(): CratekitApi {
 
   const jobTimers = new Map<string, ReturnType<typeof setInterval>>();
 
+  let learnTimer: ReturnType<typeof setTimeout> | null = null;
+  function cancelLearn(): void {
+    if (learnTimer !== null) clearTimeout(learnTimer);
+    learnTimer = null;
+  }
+
   /** Runs a fake job: emits progress, applies `onStep`, then done. */
   function runJob(
     kind: JobKind,
     label: string,
+    trackIds: TrackId[],
     total: number,
     stepMs: number,
     onStep?: (i: number) => void,
@@ -141,7 +155,7 @@ export function createMockApi(): CratekitApi {
     const timer: ReturnType<typeof setInterval> = setInterval(() => {
       onStep?.(done);
       done += 1;
-      ch.progress.emit({ jobId, kind, label, done, total });
+      ch.progress.emit({ jobId, kind, label, trackIds, done, total });
       if (done >= total) {
         clearInterval(timer);
         jobTimers.delete(jobId);
@@ -149,7 +163,7 @@ export function createMockApi(): CratekitApi {
       }
     }, stepMs);
     jobTimers.set(jobId, timer);
-    ch.progress.emit({ jobId, kind, label, done: 0, total });
+    ch.progress.emit({ jobId, kind, label, trackIds, done: 0, total });
     return jobId;
   }
 
@@ -246,10 +260,17 @@ export function createMockApi(): CratekitApi {
     },
     analyzeTracks: (ids) =>
       resolve(
-        runJob("analysis", `Analyzing ${ids.length} tracks`, ids.length, 400, (i) => {
-          const t = byId.get(ids[i] ?? -1);
-          if (t) t.track.analyzed = true;
-        }),
+        runJob(
+          "analysis",
+          `Analyzing ${ids.length} tracks`,
+          ids,
+          ids.length,
+          400,
+          (i) => {
+            const t = byId.get(ids[i] ?? -1);
+            if (t) t.track.analyzed = true;
+          },
+        ),
       ),
     jobCancel: (id) => {
       clearInterval(jobTimers.get(id));
@@ -290,21 +311,52 @@ export function createMockApi(): CratekitApi {
     },
     playbackSetMode: () => resolve(undefined),
     playbackSetFilter: () => resolve(undefined),
+    playbackSetLevelMatch: () => resolve(undefined),
 
-    stemsSplit: (id) =>
-      resolve(
-        runJob("stems", "Splitting stems", 20, 300, (i) => {
+    stemsSplit: (id) => {
+      // Same rule as Rust: the model must be downloaded first.
+      if (!models.find((m) => m.name === "htdemucs")?.downloaded)
+        return Promise.reject({
+          code: "model_missing",
+          message: "Stems model not downloaded",
+        });
+      return resolve(
+        runJob("stems", "Splitting stems", [id], 20, 300, (i) => {
           const t = byId.get(id);
           if (t && i === 19) t.track.hasStems = true;
         }),
-      ),
+      );
+    },
     stemsSetGain: () => resolve(undefined),
     stemsSetMute: () => resolve(undefined),
+    stemsSetSolo: () => resolve(undefined),
     stemsBackendStatus: () => resolve({ active: "coreml", reason: null }),
+    stemsInfo: (id) => {
+      const t = byId.get(id);
+      if (!t?.track.hasStems || !t.waveform) return resolve(null);
+      return resolve({
+        splitSec: Number((t.track.durationSec / 9).toFixed(1)),
+        waveforms: makeStemWaveforms(t.waveform),
+        instrumental: makeInstrumentalWaveform(t.waveform),
+      });
+    },
+    stemsExport: (id) => {
+      const title = byId.get(id)?.track.title ?? `track-${id}`;
+      return resolve(
+        STEM_NAMES.map((stem) => `${settings.outputFolder}/${title} (${stem}).wav`),
+      );
+    },
 
+    masterPresets: () => resolve(structuredClone(MASTER_PRESETS)),
     masterPreview: () => resolve(undefined),
-    masterExport: (_id, s, path) =>
-      resolve({ path, lufs: s.targetLufs + 0.2, truePeakDb: -1.1 }),
+    masterExport: (id, s) => {
+      const title = byId.get(id)?.track.title ?? `track-${id}`;
+      return resolve({
+        path: `${settings.outputFolder}/${title} (master ${s.preset}).wav`,
+        lufs: s.targetLufs + 0.2,
+        truePeakDb: -1.1,
+      });
+    },
 
     hotcueSet: (id, slot, sec) => {
       const t = byId.get(id);
@@ -322,19 +374,35 @@ export function createMockApi(): CratekitApi {
 
     midiListDevices: () => resolve(structuredClone(MIDI_DEVICES)),
     midiLearnStart: (target) => {
-      setTimeout(
-        () =>
-          ch.midiLearned.emit({
-            target,
-            binding: { kind: "cc", channel: 0, number: 33 },
-          }),
-        1200,
-      );
+      cancelLearn();
+      learnCount += 1;
+      // Every third learn reuses the Play button, to show how Rust reports a moved binding.
+      const reuse = learnCount % 3 === 0 && target !== "play";
+      const binding: MidiBinding = reuse
+        ? { kind: "note", channel: 0, number: 11 }
+        : { kind: "cc", channel: 0, number: 40 + learnCount };
+      learnTimer = setTimeout(() => {
+        learnTimer = null;
+        const previous = mappings.find(
+          (m) =>
+            m.target !== target &&
+            m.binding?.kind === binding.kind &&
+            m.binding.channel === binding.channel &&
+            m.binding.number === binding.number,
+        );
+        if (previous) previous.binding = null;
+        const row = mappings.find((m) => m.target === target);
+        if (row) row.binding = binding;
+        ch.midiLearned.emit({ target, binding, replaced: previous?.target ?? null });
+      }, 1200);
       return resolve(undefined);
     },
-    midiLearnCancel: () => resolve(undefined),
+    midiLearnCancel: () => {
+      cancelLearn();
+      return resolve(undefined);
+    },
     midiMappings: (deviceId) =>
-      resolve(MIDI_MAPPINGS.filter((m) => m.deviceId === deviceId)),
+      resolve(structuredClone(mappings.filter((m) => m.deviceId === deviceId))),
 
     exportVirtualdj: (ids, dryRun) =>
       resolve({
@@ -361,7 +429,7 @@ export function createMockApi(): CratekitApi {
     modelsStatus: () => resolve(structuredClone(models)),
     modelsDownload: (name) =>
       resolve(
-        runJob("model-download", `Downloading ${name}`, 25, 200, (i) => {
+        runJob("model-download", `Downloading ${name}`, [], 25, 200, (i) => {
           const m = models.find((x) => x.name === name);
           if (m && i === 24) m.downloaded = true;
         }),

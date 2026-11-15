@@ -117,9 +117,9 @@ ui/
       focus.ts         focus helpers (buttons give focus back after a mouse click)
     mock/              fake-data CratekitApi + fixtures (browser dev server, Pages demo, tests);
                        only loaded when DEV or VITE_MOCK=1, so production Tauri builds never contain it
-    stores/            Zustand stores per domain: library, player, jobs, settings, ui, devices, setlist
+    stores/            Zustand stores per domain: library, player, jobs, settings, ui, devices, setlist, master, stems, controller
     components/        one component per file, PascalCase .tsx (see docs/UI.md); controls/ holds shared widgets (Knob)
-    hooks/             useIpcEvents (Rust events into stores), usePlaybackRefs (30 Hz refs), useShortcuts, usePaneLayout (saved pane sizes)
+    hooks/             useIpcEvents (Rust events into stores), usePlaybackRefs (30 Hz refs), useShortcuts, usePaneLayout (saved pane sizes), useHearing (what you hear follows the tool tab)
     canvas/            waveform, overview bar, meters: imperative drawing code
     components/ui/     shadcn components (style base-mira, Base UI primitives), added with `bunx --bun shadcn@latest add`
     index.css          Tailwind v4 + design tokens (`ck-*`) mapped onto shadcn's semantic colours; fonts via fontsource
@@ -150,17 +150,19 @@ Rules:
 | `playback_load(id) / playback_play / playback_pause / playback_seek(sec) / playback_set_rate(r)` | Deck |
 | `playback_set_mode(mode)` | Original / Mastered / Stems |
 | `playback_set_filter(value)` | DJ filter knob: -1 full low-pass, 0 off, +1 full high-pass (#56) |
-| `stems_split(id)` / `stems_set_gain(stem, gain)` / `stems_set_mute(stem, bool)` | Stems |
-| `master_preview(id, settings)` / `master_export(id, settings, path)` | Mastering |
+| `playback_set_level_match(enabled)` | Master A/B compare at equal loudness (default on) |
+| `stems_split(id)` / `stems_set_gain(stem, gain)` / `stems_set_mute(stem, bool)` / `stems_set_solo(stem, bool)` | Stems; `stems_split` rejects with `model_missing` until the model is downloaded |
+| `stems_info(id)` / `stems_export(id)` | Split time, per-stem waveforms and the summed instrumental waveform (null when not split); one WAV per stem into the output folder, returns the paths |
+| `master_presets` / `master_preview(id, settings)` / `master_export(id, settings)` | Mastering: presets with label, default target and a one-line description; B-side render for A/B; export into the output folder, returns path, LUFS and true peak |
 | `hotcue_set(id, slot, sec)` / `hotcue_clear(id, slot)` | Cues |
-| `midi_list_devices / midi_learn_start(target) / midi_learn_cancel / midi_mappings` | Controller |
+| `midi_list_devices / midi_learn_start(target) / midi_learn_cancel / midi_mappings(device_id)` | Controller; `midi_mappings` returns one row per control target (`binding` null when unmapped) |
 | `export_virtualdj(ids, dry_run)` | Export |
 | `models_status / models_download(name) / models_delete(name)` | ML models |
 | `audio_list_devices / audio_set_device(id) / audio_set_buffer_size(frames)` | Audio output |
 | `settings_get / settings_set(key, value)` | Settings (watched folders, output folder, processing backend, pane layouts, the set list order, ...) |
 | `stems_backend_status` | Active stems backend (CoreML / DirectML / CPU) and why |
 
-**Events (Rust → UI)**: `job_progress {jobId, kind, label, done, total}`, `job_done {jobId, kind}`, `job_failed {jobId, kind, error}`, `playback_position {sec}` (30 Hz), `meter {peakDb, rmsDb}` (30 Hz), `playback_state {playing}` (start, pause, end of track), `midi_device_changed`, `midi_learned {target, binding}`, `control_event {target, value}`, `audio_device_changed {id, reason}`.
+**Events (Rust → UI)**: `job_progress {jobId, kind, label, trackIds, done, total}` (`trackIds`: the tracks the job works on, empty for a model download), `job_done {jobId, kind}`, `job_failed {jobId, kind, error}`, `playback_position {sec}` (30 Hz), `meter {peakDb, rmsDb}` (30 Hz), `playback_state {playing}` (start, pause, end of track), `midi_device_changed`, `midi_learned {target, binding, replaced}` (`replaced`: the target that lost this control, or null), `control_event {target, value}` (Rust runs engine actions such as play, cue, hot cues, filter and tempo itself; the UI runs the UI-owned targets `mute-*`, `ab-toggle` and `pad-page` from this event), `audio_device_changed {id, reason}`.
 
 **Naming convention:** command and event names are snake_case; payload fields are camelCase, so Rust payload structs use `#[serde(rename_all = "camelCase")]`. The TypeScript side of this contract is `ui/src/lib/types.ts` and `CratekitApi` in `ui/src/lib/ipc.ts`; keep the three in sync.
 

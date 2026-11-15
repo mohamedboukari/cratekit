@@ -27,10 +27,15 @@ const MEMBERS: ReadonlyArray<keyof CratekitApi> = [
   "playbackSetRate",
   "playbackSetMode",
   "playbackSetFilter",
+  "playbackSetLevelMatch",
   "stemsSplit",
   "stemsSetGain",
   "stemsSetMute",
+  "stemsSetSolo",
   "stemsBackendStatus",
+  "stemsInfo",
+  "stemsExport",
+  "masterPresets",
   "masterPreview",
   "masterExport",
   "hotcueSet",
@@ -109,5 +114,20 @@ describe("mock CratekitApi", () => {
     await mock.playbackPause();
     expect(positions.length).toBeGreaterThanOrEqual(29);
     expect(positions.at(-1)).toBeCloseTo(1, 0);
+  });
+});
+
+describe("mock rules that stand in for Rust", () => {
+  it("refuses to split stems before the model is downloaded", async () => {
+    const mock = createMockApi();
+    await expect(mock.stemsSplit(3)).rejects.toMatchObject({ code: "model_missing" });
+  });
+
+  it("marks the key's scale in the chroma and reports unknown keys as null", async () => {
+    const mock = createMockApi();
+    const detail = await mock.trackDetail(1);
+    expect(detail.analysis?.chromaInKey.filter(Boolean)).toHaveLength(7);
+    const unanalyzed = await mock.setlistTransitions([9, 1]);
+    expect(unanalyzed[0]?.keyCompatible).toBeNull();
   });
 });

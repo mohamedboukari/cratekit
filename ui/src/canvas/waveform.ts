@@ -143,3 +143,34 @@ export function drawWaveform(ctx: Paint, f: WaveformFrame, colors: WaveformColor
     );
   }
 }
+
+/**
+ * A small static waveform (one stem in the Stems tab): mirrored columns in one
+ * colour, peaks at full strength and RMS on top. Sizes are device pixels.
+ */
+export function drawMiniWaveform(
+  ctx: Paint,
+  width: number,
+  height: number,
+  waveform: Waveform,
+  colors: { background: string; peak: string; rms: string },
+): void {
+  ctx.fillStyle = colors.background;
+  ctx.fillRect(0, 0, width, height);
+  const columns = waveform.peaks.length;
+  if (columns === 0 || width <= 0) return;
+  const mid = height / 2;
+  const step = width / columns;
+  const columnWidth = Math.max(1, Math.floor(step) - 1);
+  for (let i = 0; i < columns; i++) {
+    const x = Math.floor(i * step);
+    const peak = Math.max(1, (waveform.peaks[i] ?? 0) * mid);
+    ctx.fillStyle = colors.peak;
+    ctx.fillRect(x, mid - peak, columnWidth, peak * 2);
+    const rms = (waveform.rms[i] ?? 0) * mid;
+    if (rms > 0) {
+      ctx.fillStyle = colors.rms;
+      ctx.fillRect(x, mid - rms, columnWidth, rms * 2);
+    }
+  }
+}

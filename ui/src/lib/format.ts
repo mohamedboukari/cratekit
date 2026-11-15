@@ -20,3 +20,10 @@ export function filterText(value: number): string {
   if (pct < 2) return "Off";
   return value < 0 ? `Low-pass ${pct}%` : `High-pass ${pct}%`;
 }
+
+/** Status text for the stems backend Rust reports. */
+export const BACKEND_LABEL = {
+  coreml: "GPU: CoreML",
+  directml: "GPU: DirectML",
+  cpu: "CPU",
+} as const;

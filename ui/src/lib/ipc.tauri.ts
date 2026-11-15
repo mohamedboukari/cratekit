@@ -38,14 +38,19 @@ export function createTauriApi(): CratekitApi {
     playbackSetRate: (rate) => invoke("playback_set_rate", { rate }),
     playbackSetMode: (mode) => invoke("playback_set_mode", { mode }),
     playbackSetFilter: (value) => invoke("playback_set_filter", { value }),
+    playbackSetLevelMatch: (enabled) => invoke("playback_set_level_match", { enabled }),
 
     stemsSplit: (id) => invoke("stems_split", { id }),
     stemsSetGain: (stem, gain) => invoke("stems_set_gain", { stem, gain }),
     stemsSetMute: (stem, muted) => invoke("stems_set_mute", { stem, muted }),
+    stemsSetSolo: (stem, soloed) => invoke("stems_set_solo", { stem, soloed }),
     stemsBackendStatus: () => invoke("stems_backend_status"),
+    stemsInfo: (id) => invoke("stems_info", { id }),
+    stemsExport: (id) => invoke("stems_export", { id }),
 
+    masterPresets: () => invoke("master_presets"),
     masterPreview: (id, settings) => invoke("master_preview", { id, settings }),
-    masterExport: (id, settings, path) => invoke("master_export", { id, settings, path }),
+    masterExport: (id, settings) => invoke("master_export", { id, settings }),
 
     hotcueSet: (id, slot, sec) => invoke("hotcue_set", { id, slot, sec }),
     hotcueClear: (id, slot) => invoke("hotcue_clear", { id, slot }),

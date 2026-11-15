@@ -8,6 +8,7 @@ import { Sidebar } from "@/components/layout/Sidebar";
 import { StatusBar } from "@/components/layout/StatusBar";
 import { ToolPanel } from "@/components/tools/ToolPanel";
 import { Toaster } from "@/components/ui/sonner";
+import { useHearingFollowsTab } from "@/hooks/useHearing";
 import { useIpcEvents } from "@/hooks/useIpcEvents";
 import { usePlaybackPositionRef } from "@/hooks/usePlaybackRefs";
 import { useShortcuts } from "@/hooks/useShortcuts";
@@ -15,9 +16,12 @@ import { isMockMode } from "@/lib/ipc";
 import type { CueSlot } from "@/lib/types";
 import { useDevices } from "@/stores/devices";
 import { useLibrary } from "@/stores/library";
+import { useMaster } from "@/stores/master";
 import { usePlayer } from "@/stores/player";
 import { useSetList } from "@/stores/setlist";
 import { useSettings } from "@/stores/settings";
+import { useStems } from "@/stores/stems";
+import { useUi } from "@/stores/ui";
 
 /** Build-time flag: false in production Tauri builds, so the banner is not even bundled. */
 const SHOW_DEMO_BANNER = import.meta.env.DEV || import.meta.env.VITE_MOCK === "1";
@@ -32,9 +36,14 @@ export function App(): JSX.Element {
   const triggerHotCue = usePlayer((s) => s.triggerHotCue);
   const loadDevices = useDevices((s) => s.load);
   const loadSetList = useSetList((s) => s.load);
+  const loadPresets = useMaster((s) => s.loadPresets);
+  const toggleSide = useMaster((s) => s.toggleSide);
+  const toggleMute = useStems((s) => s.toggleMute);
+  const loadCount = usePlayer((s) => s.loadCount);
   const position = usePlaybackPositionRef();
 
   useIpcEvents();
+  useHearingFollowsTab();
   const hotCue = (slot: CueSlot) => () => void triggerHotCue(slot, position.current);
   useShortcuts({
     "play-pause": () => void togglePlay(),
@@ -47,13 +56,28 @@ export function App(): JSX.Element {
     "hotcue-6": hotCue(6),
     "hotcue-7": hotCue(7),
     "hotcue-8": hotCue(8),
+    "mute-vocals": () => void toggleMute(["vocals"]),
+    "mute-drums": () => void toggleMute(["drums"]),
+    "mute-bass": () => void toggleMute(["bass"]),
+    "mute-other": () => void toggleMute(["other"]),
+    // A/B lives in the Master tab (SPEC, Module 5); elsewhere B would flip a side you cannot hear.
+    "ab-toggle": () => {
+      if (useUi.getState().activeTool === "master") toggleSide();
+    },
   });
+
+  // Every load starts with a neutral stem mix, in Rust and here.
+  useEffect(() => {
+    if (loadCount > 0)
+      useStems.getState().trackChanged(usePlayer.getState().detail?.track.id ?? null);
+  }, [loadCount]);
 
   useEffect(() => {
     void loadSettings().then(() => loadSetList());
     void loadLibrary();
     void loadDevices();
-  }, [loadSettings, loadLibrary, loadDevices, loadSetList]);
+    void loadPresets();
+  }, [loadSettings, loadLibrary, loadDevices, loadSetList, loadPresets]);
 
   return (
     <>
