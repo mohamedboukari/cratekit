@@ -27,6 +27,9 @@
   --color-ck-blue: #4cc9f0;
   --color-ck-pink: #f72585;
   --color-ck-purple: #9b5de5;
+  --color-ck-yellow: #ffd60a;
+  --color-ck-red: #ff4d6d;
+  --color-ck-teal: #2ec4b6;
 }
 
 /* shadcn semantic tokens, resolved from the variables in :root. */

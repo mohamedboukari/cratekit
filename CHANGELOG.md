@@ -18,6 +18,7 @@ All notable changes to Cratekit are documented here. The format follows [Keep a 
 - Open source release: SECURITY.md (private vulnerability reporting), CONTRIBUTING.md, CODE_OF_CONDUCT.md (Contributor Covenant 2.1), issue templates, Dependabot (cargo, bun, GitHub Actions), CodeQL (Rust, TypeScript), gitleaks, zizmor and dependency review workflows; CI runs all six targets on every pull request.
 - Doc tests in the gates; pre-push skips delete-only pushes.
 - GitHub issues and milestones for every ROADMAP task; each ROADMAP line links to its issue.
+- UI foundation for the redesign (#1): typed `CratekitApi` with a Tauri implementation and a fake-data mock (never in production builds), Zustand stores, laptop-first resizable shell (sidebar, deck, track browser, tool panel, status bar), keyboard shortcut map, toasts, and a GitHub Pages demo in mock mode.
 
 ### Changed
 
