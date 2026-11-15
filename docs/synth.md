@@ -16,6 +16,7 @@ Release builds never contain it. Output is mono `f32` at the requested sample ra
 | `sine(freq_hz, level_db, seconds, rate)` | A pure tone peaking at `level_db` dBFS |
 | `kick(bpm, seconds, rate)` | A kick on every beat from sample 0: a sine dropping from 120 to 50 Hz with a fast fade (and a short tail fade, so no click), so energy jumps exactly every `60 / bpm` seconds |
 | `chords(key, bpm, seconds, rate)` | I, IV, V, I in the key (i, iv, v, i in minor), one chord per bar of 4 beats (changes on bar lines), from middle C up; all 7 scale notes and only those (uses `Key::scale()` from `analysis::key`) |
+| `hats(bpm, per_beat, offset_beats, level_db, seconds, rate)` | Short noise bursts (hi-hat or snare-like), `per_beat` per beat, from a fixed pseudo-random generator so every run is identical |
 | `bass(key, bpm, seconds, rate)` | The key's root two octaves below middle C on every off-beat |
 | `test_loop(bpm, key, seconds, rate)` | The SPEC acceptance loop (Module 2): kick, bass and chords mixed and normalized to a -1 dBFS peak |
 
