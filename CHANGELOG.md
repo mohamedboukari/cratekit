@@ -6,6 +6,7 @@ All notable changes to Cratekit are documented here. The format follows [Keep a 
 
 ### Added
 
+- Camelot wheel in `cratekit-core` (#11): `Key`, `PitchClass`, `Mode` and `Camelot` types; key to Camelot mapping and back for all 24 keys (checked against the SPEC table); `matches()` (same code, ±1 on the wheel, relative major or minor) and `mixes_well_with()` (the three partners, in the order the UI shows them); module doc in `docs/analysis.md`; parsing `"8A"` with typed errors; scale flags for the chroma display.
 - Project docs: product spec, architecture, roadmap, UI design system and clickable mockup.
 - Dev tooling for Claude Code: project skills (`ship`, `realtime-audio`, `license-check`, graphify), permissions allowlist, no-em-dash hook, context7 MCP, rust-analyzer and TypeScript LSP plugins (Vercel plugins disabled for this project), graphify knowledge graph with git hooks.
 - `CHANGELOG.md`, PR template, `.gitignore` that keeps test audio and VirtualDJ files out of git.
