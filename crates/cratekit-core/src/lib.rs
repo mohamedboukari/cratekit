@@ -3,8 +3,9 @@
 //! This crate must build and test without Tauri (`cargo test -p cratekit-core`).
 //! Modules from `docs/ARCHITECTURE.md` (audio, analysis, mastering, stems,
 //! library, export) are added here task by task. So far: [`analysis::key`]
-//! (musical keys and the Camelot wheel), and `synth` (synthetic test audio,
-//! compiled for tests or with the `test-helpers` feature).
+//! (musical keys and the Camelot wheel), [`analysis::tempo`] and
+//! [`analysis::key_detect`] (tempo and key detection), and `synth` (synthetic
+//! test audio, compiled for tests or with the `test-helpers` feature).
 
 pub mod analysis;
 mod error;

@@ -48,8 +48,9 @@ src/
   audio/               decode (symphonia), resample (rubato), AudioBuffer, write WAV (hound)
   analysis/
     mod.rs             analyze_track() -> TrackAnalysis
-    tempo.rs           trait TempoDetector; impl via stratum-dsp + our fallback
-    key.rs             Key, PitchClass, Camelot (mapping, matches(), mixes_well_with(), parsing), scale flags; trait KeyDetector (#10)
+    tempo.rs           trait TempoDetector; OnsetTempo (ours); stratum-dsp impl next (#10)
+    key.rs             Key, PitchClass, Camelot (mapping, matches(), mixes_well_with(), parsing), scale flags
+    key_detect.rs      trait KeyDetector; ProfileKey (ours: chroma + Krumhansl-Kessler); stratum-dsp impl next (#10)
     loudness.rs        integrated LUFS, true peak
     energy.rs          1 to 10 score
     waveform.rs        min/max/RMS columns for the UI
@@ -261,7 +262,7 @@ Intensity `k` (0 to 1): EQ gain × k, ratio = 1 + (ratio − 1) × k, makeup int
 ## Analysis notes
 
 - Prefer `stratum-dsp` for BPM, key and beat grid. Wrap it behind `TempoDetector` / `KeyDetector` traits.
-- Keep a simple fallback implementation (onset-energy autocorrelation for BPM; chroma + Krumhansl-Kessler profiles for key, using power not magnitude so bass overtones do not bias the mode). A JS prototype of both passed tests on synthetic loops at 92/124/128/140 BPM.
+- Keep a simple fallback implementation (onset-energy autocorrelation for BPM; chroma + Krumhansl-Kessler profiles for key, using power not magnitude so bass overtones do not bias the mode). Ours is in place (`OnsetTempo`, `ProfileKey`): on the synthetic loops at 92/124/128/140 BPM it meets the SPEC targets, and in release it analyzes 90 s of audio in about 0.35 s. See `docs/analysis.md`.
 - Analyze the middle 60 to 90 s of the track for speed; full track for loudness and waveform.
 
 ## Stems notes

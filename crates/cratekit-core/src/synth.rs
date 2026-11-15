@@ -142,6 +142,55 @@ pub fn kick(bpm: f32, seconds: f32, sample_rate: u32) -> Vec<f32> {
     out
 }
 
+/// Short noise bursts (hi-hat or snare-like), `per_beat` of them per beat at
+/// `bpm`, starting `offset_beats` into each beat, each peaking at about
+/// `level_db` dBFS and fading out within 40 ms.
+///
+/// The noise comes from a fixed simple generator, so it is the same on every
+/// run.
+#[must_use]
+pub fn hats(
+    bpm: f32,
+    per_beat: u32,
+    offset_beats: f32,
+    level_db: f32,
+    seconds: f32,
+    sample_rate: u32,
+) -> Vec<f32> {
+    let total = sample_count(seconds, sample_rate);
+    let mut out = vec![0.0; total];
+    if per_beat == 0 {
+        return out;
+    }
+    let step = 1.0 / f64::from(per_beat);
+    let starts = beat_starts(
+        bpm * per_beat as f32,
+        f64::from(offset_beats) / step,
+        1.0,
+        total,
+        sample_rate,
+    );
+    let burst = sample_count(0.04, sample_rate);
+    let amplitude = db_to_amplitude(level_db);
+    let rate = f64::from(sample_rate);
+    let mut state: u32 = 0x9E37_79B9;
+    for start in starts {
+        for n in 0..burst {
+            let Some(slot) = out.get_mut(start + n) else {
+                break;
+            };
+            // xorshift: a tiny, fixed pseudo-random sequence.
+            state ^= state << 13;
+            state ^= state >> 17;
+            state ^= state << 5;
+            let noise = (f64::from(state) / f64::from(u32::MAX)) * 2.0 - 1.0;
+            let envelope = (-(n as f64 / rate) / 0.008).exp();
+            *slot += (noise * envelope) as f32 * amplitude;
+        }
+    }
+    out
+}
+
 /// The 7 notes of `key` as semitones above its tonic, lowest first.
 fn scale_offsets(key: Key) -> Vec<u8> {
     let in_key = key.scale();
