@@ -15,6 +15,9 @@ import { activeJobs, useJobs } from "@/stores/jobs";
 import { useLibrary } from "@/stores/library";
 import { usePlayer } from "@/stores/player";
 
+/** Shown for a value the analysis did not find (no beat, no notes, silence). */
+const NO_VALUE = "--";
+
 /** Pitch class names for the chroma bars (display labels only). */
 const NOTE_NAMES = [
   "C",
@@ -101,8 +104,10 @@ function AnalysisView({
         }
       >
         <div className="flex items-baseline gap-3">
-          <span className="font-mono text-4xl font-bold text-primary">{a.camelot}</span>
-          <span className="text-base">{a.keyName}</span>
+          <span className="font-mono text-4xl font-bold text-primary">
+            {a.camelot ?? NO_VALUE}
+          </span>
+          <span className="text-base">{a.keyName ?? t("tools.analyze.noKey")}</span>
         </div>
         <figure className="mt-3">
           <figcaption className="sr-only">
@@ -160,17 +165,20 @@ function AnalysisView({
         }
       >
         <dl>
-          <Stat label="BPM" value={a.bpm.toFixed(1)} />
+          <Stat label="BPM" value={a.bpm === null ? NO_VALUE : a.bpm.toFixed(1)} />
           <Stat
             label={t("tools.analyze.firstDownbeat")}
-            value={`${a.firstBeatSec.toFixed(3)} s`}
+            value={a.firstBeatSec === null ? NO_VALUE : `${a.firstBeatSec.toFixed(3)} s`}
           />
-          <Stat label={t("tools.analyze.energy")} value={`${a.energy} / 10`} />
+          <Stat
+            label={t("tools.analyze.energy")}
+            value={a.energy === null ? NO_VALUE : `${a.energy} / 10`}
+          />
           <Stat
             label={t("tools.analyze.drop")}
             value={
               a.dropSec === null ? (
-                "--"
+                NO_VALUE
               ) : (
                 <CueLink
                   sec={a.dropSec}
@@ -184,7 +192,7 @@ function AnalysisView({
             label={t("tools.analyze.mixOut")}
             value={
               a.mixOutSec === null ? (
-                "--"
+                NO_VALUE
               ) : (
                 <CueLink
                   sec={a.mixOutSec}
@@ -203,11 +211,11 @@ function AnalysisView({
         <dl>
           <Stat
             label={t("tools.analyze.integrated")}
-            value={`${a.lufs.toFixed(1)} LUFS`}
+            value={a.lufs === null ? NO_VALUE : `${a.lufs.toFixed(1)} LUFS`}
           />
           <Stat
             label={t("tools.analyze.truePeak")}
-            value={`${a.truePeakDb.toFixed(1)} dBTP`}
+            value={a.truePeakDb === null ? NO_VALUE : `${a.truePeakDb.toFixed(1)} dBTP`}
           />
         </dl>
       </ToolCard>

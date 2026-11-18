@@ -7,7 +7,9 @@
 //! ranges and weights are first guesses checked on synthetic audio; they get
 //! re-tuned on real DJ tracks (ROADMAP #22).
 
-use crate::analysis::tempo::{HOP_SECONDS, MIN_SECONDS, WINDOW_SECONDS, onset_envelope};
+use crate::analysis::tempo::{
+    HOP_SECONDS, MIN_SECONDS, WINDOW_SECONDS, onset_envelope, onset_envelope_of,
+};
 
 /// Integrated loudness that maps to 0 (quiet ambient, an unmastered demo).
 const QUIET_LUFS: f64 = -30.0;
@@ -124,9 +126,19 @@ fn brightness(samples: &[f32], sample_rate: u32) -> Option<f64> {
 /// a sustained bass and chord bed barely changes the total energy, but it
 /// doubles the energy of the difference, so the second pass sees it.
 fn onset_count(samples: &[f32], sample_rate: u32) -> usize {
-    let change: Vec<f32> = samples.windows(2).map(|pair| pair[1] - pair[0]).collect();
-    let mut frames = onset_frames(samples, sample_rate);
-    frames.extend(onset_frames(&change, sample_rate));
+    let rate = f64::from(sample_rate);
+    let hop = (rate * HOP_SECONDS).round().max(1.0) as usize;
+    let window = (rate * WINDOW_SECONDS).round().max(1.0) as usize;
+    let mut frames = onset_frames(&onset_envelope(samples, hop, window));
+    // The difference is computed as it is read, not stored: no second copy
+    // of the track.
+    let change = onset_envelope_of(
+        samples.len().saturating_sub(1),
+        |n| (f64::from(samples[n + 1]) - f64::from(samples[n])).powi(2),
+        hop,
+        window,
+    );
+    frames.extend(onset_frames(&change));
     frames.sort_unstable();
     let gap = frame_count(MIN_GAP_SECONDS);
     let mut count = 0;
@@ -145,15 +157,11 @@ fn frame_count(seconds: f64) -> usize {
     (seconds / HOP_SECONDS).round().max(1.0) as usize
 }
 
-/// The frames where a new sound starts in `samples`: peaks of the onset
-/// envelope (shared with the tempo detector) where the energy rises by at
+/// The frames where a new sound starts: peaks of an onset envelope (from the
+/// tempo detector's `onset_envelope`) where the energy rises by at
 /// least `MIN_RISE` within `RISE_SECONDS`, the largest within
 /// `MIN_GAP_SECONDS` either side.
-fn onset_frames(samples: &[f32], sample_rate: u32) -> Vec<usize> {
-    let rate = f64::from(sample_rate);
-    let hop = (rate * HOP_SECONDS).round().max(1.0) as usize;
-    let window = (rate * WINDOW_SECONDS).round().max(1.0) as usize;
-    let envelope = onset_envelope(samples, hop, window);
+fn onset_frames(envelope: &[f64]) -> Vec<usize> {
     let span = frame_count(RISE_SECONDS);
     let gap = frame_count(MIN_GAP_SECONDS);
 

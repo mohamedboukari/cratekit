@@ -72,6 +72,10 @@ pub enum CoreError {
         known: i64,
     },
 
+    /// The task was cancelled (see `progress::CancellationToken`).
+    #[error("cancelled")]
+    Cancelled,
+
     /// A track, crate or other item asked for by id does not exist.
     #[error("no {what} with id {id}")]
     NotFound {

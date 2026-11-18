@@ -55,17 +55,22 @@ export interface Cue {
 }
 
 export interface Analysis {
-  bpm: number;
+  /** Null for a track with no steady beat. */
+  bpm: number | null;
   /** 0 to 1. */
   bpmConfidence: number;
-  keyName: string;
-  camelot: string;
+  /** Null for a track with no notes. */
+  keyName: string | null;
+  camelot: string | null;
   /** 0 to 1. */
   keyConfidence: number;
-  energy: number;
-  lufs: number;
-  truePeakDb: number;
-  firstBeatSec: number;
+  /** 1 to 10; null for silence. */
+  energy: number | null;
+  /** Null for silence. */
+  lufs: number | null;
+  truePeakDb: number | null;
+  /** The first beat (with `bpm`, the beat grid); null without a beat. */
+  firstBeatSec: number | null;
   /** 12 values, C to B, 0 to 1. */
   chroma: number[];
   /** 12 flags, C to B: the pitch classes of the detected key's scale (computed in Rust). */
@@ -144,8 +149,11 @@ export interface JobProgress {
   stage: JobStage | null;
   /** Tracks this job works on (empty for jobs such as a model download). */
   trackIds: TrackId[];
+  /** Progress steps, not tracks (Rust's analysis counts 100 per track). */
   done: number;
   total: number;
+  /** Waiting for an earlier job or a resume; not started yet. */
+  queued: boolean;
 }
 
 export interface JobDone {

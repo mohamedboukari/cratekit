@@ -36,6 +36,8 @@ Decodes the whole file at its own sample rate and channel count. The file is ope
 - **Errors:** `ReadFile` (cannot open or read; carries the path), `UnsupportedFormat` (not audio, or a codec we do not read), `NoAudio` (no audio track or no samples), `Decode` (see above). The Tauri layer maps them to the codes `io`, `unsupported_format`, `no_audio` and `decode`, which the UI translates; `InvalidAudio` and `Resample` map to `audio_processing`.
 - **Memory:** the whole track is held in memory as `f32`: about 21 MB per stereo minute at 44.1 kHz (about 127 MB for a 6 minute track). The length the header announces is reserved up front, at most one hour's worth, so a damaged header cannot make it reserve a huge buffer.
 
+`decode_file_with(path, progress, cancel)` is the same with progress (0 to 1, every 64 packets, when the file announces its length) and cancellation (`CoreError::Cancelled`); the analysis uses it.
+
 ## `resample(buffer, target_rate) -> Result<AudioBuffer, CoreError>`
 
 rubato's FFT resampler (fixed ratio, Blackman-Harris anti-aliasing filter), run over the whole clip with its startup delay trimmed, so output sample positions line up with the input. The output length is exact: input frames times the rate ratio, rounded up, computed in integers. Takes the buffer by value: a buffer already at the target rate (or empty) comes back without a copy. Errors: `InvalidAudio` for a zero target rate, `Resample` if rubato rejects the rates.

@@ -15,6 +15,7 @@ pub mod analysis;
 pub mod audio;
 mod error;
 pub mod library;
+pub mod progress;
 #[cfg(any(test, feature = "test-helpers"))]
 pub mod synth;
 #[cfg(test)]

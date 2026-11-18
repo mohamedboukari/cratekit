@@ -15,6 +15,9 @@
 
 use ebur128::{EbuR128, Mode};
 
+use crate::CoreError;
+use crate::progress::{CancellationToken, NoProgress, ProgressSink};
+
 /// Integrated loudness and true peak of a whole track.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Loudness {
@@ -40,17 +43,65 @@ pub struct Loudness {
 /// that stays below the -70 LUFS silence gate.
 #[must_use]
 pub fn measure_loudness(channels: &[&[f32]], sample_rate: u32) -> Option<Loudness> {
-    let first = channels.first()?;
-    if channels.iter().any(|ch| ch.len() != first.len()) {
-        return None;
-    }
-    if channels.iter().any(|ch| ch.iter().any(|s| !s.is_finite())) {
-        return None;
-    }
-    let count = u32::try_from(channels.len()).ok()?;
-    let mut meter = EbuR128::new(count, sample_rate, Mode::I | Mode::TRUE_PEAK).ok()?;
-    meter.add_frames_planar_f32(channels).ok()?;
+    // A fresh token is never cancelled, so this cannot be an error.
+    measure_loudness_with(
+        channels,
+        sample_rate,
+        &NoProgress,
+        &CancellationToken::new(),
+    )
+    .ok()
+    .flatten()
+}
 
+/// [`measure_loudness`] that reports progress (0 to 1) and stops with
+/// [`CoreError::Cancelled`] soon after `cancel` is cancelled. The meter is
+/// fed `CHUNK_SECONDS` at a time, which gives the same result as one call.
+///
+/// # Errors
+///
+/// [`CoreError::Cancelled`] only; unusable audio is `Ok(None)`.
+pub fn measure_loudness_with(
+    channels: &[&[f32]],
+    sample_rate: u32,
+    progress: &dyn ProgressSink,
+    cancel: &CancellationToken,
+) -> Result<Option<Loudness>, CoreError> {
+    let Some(first) = channels.first() else {
+        return Ok(None);
+    };
+    if channels.iter().any(|ch| ch.len() != first.len())
+        || channels.iter().any(|ch| ch.iter().any(|s| !s.is_finite()))
+    {
+        return Ok(None);
+    }
+    let Ok(count) = u32::try_from(channels.len()) else {
+        return Ok(None);
+    };
+    let Ok(mut meter) = EbuR128::new(count, sample_rate, Mode::I | Mode::TRUE_PEAK) else {
+        return Ok(None);
+    };
+    let chunk = (CHUNK_SECONDS * sample_rate as usize).max(1);
+    let length = first.len();
+    let mut start = 0;
+    while start < length {
+        cancel.check()?;
+        let end = (start + chunk).min(length);
+        let part: Vec<&[f32]> = channels.iter().map(|ch| &ch[start..end]).collect();
+        if meter.add_frames_planar_f32(&part).is_err() {
+            return Ok(None);
+        }
+        start = end;
+        progress.progress(start as f32 / length as f32);
+    }
+    Ok(finish(&meter, count))
+}
+
+/// How much audio the meter takes at a time.
+const CHUNK_SECONDS: usize = 10;
+
+/// The integrated loudness and the highest true peak, or `None` for silence.
+fn finish(meter: &EbuR128, count: u32) -> Option<Loudness> {
     // Fully gated audio (silence) reads as negative infinity.
     let integrated = meter.loudness_global().ok()?;
     if !integrated.is_finite() {
@@ -169,6 +220,35 @@ mod tests {
         let right = tone(-3.0, 10.0);
         let loudness = measure_loudness(&[&left, &right], RATE).expect("tones have a loudness");
         assert_close(loudness.true_peak_dbtp, -3.0, 0.1);
+    }
+
+    #[test]
+    fn feeding_in_chunks_gives_the_same_result_and_reports_progress() {
+        // 25 s: two full 10 s chunks and a partial one.
+        let samples = tone(-18.0, 25.0);
+        let whole = {
+            let mut meter = EbuR128::new(2, RATE, Mode::I | Mode::TRUE_PEAK).expect("a meter");
+            meter
+                .add_frames_planar_f32(&[&samples, &samples])
+                .expect("one call");
+            finish(&meter, 2)
+        };
+        let seen = std::sync::Mutex::new(Vec::new());
+        let sink = |fraction: f32| seen.lock().expect("lock").push(fraction);
+        let chunked = measure_loudness_with(
+            &[&samples, &samples],
+            RATE,
+            &sink,
+            &CancellationToken::new(),
+        )
+        .expect("not cancelled");
+        assert_eq!(chunked, whole);
+        assert_eq!(seen.into_inner().expect("lock").len(), 3);
+
+        let cancel = CancellationToken::new();
+        cancel.cancel();
+        let result = measure_loudness_with(&[&samples], RATE, &NoProgress, &cancel);
+        assert!(matches!(result, Err(CoreError::Cancelled)));
     }
 
     #[test]

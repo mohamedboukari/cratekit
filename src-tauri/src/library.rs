@@ -10,7 +10,7 @@ use std::sync::{Mutex, PoisonError};
 
 use cratekit_core::CoreError;
 use cratekit_core::library::{
-    Crate, Cue, Library, LibraryCounts, LibraryQuery, TrackId, TrackRow, prepare_add,
+    Analysis, Crate, Cue, Library, LibraryCounts, LibraryQuery, TrackId, TrackRow, prepare_add,
 };
 use serde::Serialize;
 use tauri::{AppHandle, Manager, Runtime};
@@ -35,6 +35,11 @@ impl LibraryState {
             });
         Self(opened.map(Mutex::new))
     }
+
+    /// The library, or why it could not be opened.
+    pub(crate) fn library(&self) -> Result<&Mutex<Library>, AppError> {
+        self.0.as_ref().map_err(Clone::clone)
+    }
 }
 
 /// Runs `work` on the library on a blocking worker thread.
@@ -45,7 +50,7 @@ where
 {
     tauri::async_runtime::spawn_blocking(move || {
         let state = app.state::<LibraryState>();
-        let library = state.0.as_ref().map_err(Clone::clone)?;
+        let library = state.library()?;
         // A poisoned lock still holds a usable connection: SQLite rolled back
         // any transaction the panicking thread had open.
         let mut library = library.lock().unwrap_or_else(PoisonError::into_inner);
@@ -81,12 +86,11 @@ impl From<TrackRow> for TrackRowDto {
     }
 }
 
-/// One track as the UI's `TrackDetail`. The analysis and waveform arrive
-/// with the analysis task (#15).
+/// One track as the UI's `TrackDetail`. The waveform arrives with #13.
 #[derive(Serialize)]
 pub(crate) struct TrackDetailDto {
     track: TrackRowDto,
-    analysis: Option<()>,
+    analysis: Option<Analysis>,
     cues: Vec<Cue>,
     waveform: Option<()>,
 }
@@ -149,7 +153,7 @@ pub(crate) async fn track_detail(app: AppHandle, id: TrackId) -> Result<TrackDet
     with_library(app, move |library| {
         library.track(id).map(|detail| TrackDetailDto {
             track: detail.track.into(),
-            analysis: None,
+            analysis: detail.analysis,
             cues: detail.cues,
             waveform: None,
         })

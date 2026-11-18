@@ -3,6 +3,10 @@
 use std::time::Instant;
 
 use super::*;
+use crate::analysis::key::{Key, Mode, PitchClass};
+use crate::analysis::key_detect::KeyEstimate;
+use crate::analysis::loudness::Loudness;
+use crate::analysis::tempo::TempoEstimate;
 use crate::testing::{Scratch, fixture, read_fixture};
 
 fn library() -> Library {
@@ -382,4 +386,133 @@ fn five_hundred_tracks_are_listed_within_five_seconds() {
     let elapsed = start.elapsed();
     assert_eq!((result.added.len(), rows.len()), (500, 500));
     assert!(elapsed.as_secs_f64() < 5.0, "took {elapsed:?}");
+}
+
+fn found_analysis() -> TrackAnalysis {
+    let mut chroma = [0.1_f32; 12];
+    chroma[9] = 1.0;
+    TrackAnalysis {
+        duration_sec: 361.5,
+        sample_rate: 48_000,
+        channels: 2,
+        tempo: Some(TempoEstimate {
+            bpm: 124.0,
+            confidence: 0.8,
+            first_beat_sec: Some(0.25),
+        }),
+        key: Some(KeyEstimate {
+            key: Key {
+                tonic: PitchClass::A,
+                mode: Mode::Minor,
+            },
+            confidence: 0.6,
+            chroma,
+        }),
+        loudness: Some(Loudness {
+            integrated_lufs: -8.5,
+            true_peak_dbtp: -0.4,
+        }),
+        energy: Some(8),
+    }
+}
+
+#[test]
+fn a_stored_analysis_comes_back_with_everything_the_analyze_tab_shows() {
+    let mut library = library();
+    let id = library
+        .add_paths(&[fixture("tagged.mp3")])
+        .expect("add")
+        .added[0];
+    assert_eq!(library.track(id).expect("detail").analysis, None);
+    library
+        .store_analysis(id, &found_analysis())
+        .expect("store");
+    let detail = library.track(id).expect("detail");
+    let analysis = detail.analysis.expect("an analysis");
+    assert_eq!(analysis.bpm, Some(124.0));
+    assert!((analysis.bpm_confidence - 0.8).abs() < 1e-6);
+    assert_eq!(analysis.key_name.as_deref(), Some("A minor"));
+    assert_eq!(analysis.camelot.as_deref(), Some("8A"));
+    assert_eq!(analysis.mixes_well_with, ["8B", "7A", "9A"]);
+    assert_eq!(analysis.chroma_in_key.iter().filter(|&&n| n).count(), 7);
+    assert_eq!(analysis.chroma.len(), 12);
+    assert!((analysis.chroma[9] - 1.0).abs() < f32::EPSILON);
+    assert_eq!(analysis.energy, Some(8));
+    assert_eq!(analysis.first_beat_sec, Some(0.25));
+    assert!(analysis.lufs.is_some_and(|lufs| (lufs - -8.5).abs() < 1e-6));
+    assert!(
+        (detail.track.duration_sec - 361.5).abs() < 1e-9,
+        "decoded length"
+    );
+    assert!(detail.track.analyzed);
+    assert_eq!(detail.track.camelot.as_deref(), Some("8A"));
+    assert_eq!(library.counts().expect("counts").needs_analysis, 0);
+
+    // A track with no beat, no key and no sound stores empty fields.
+    let silent = TrackAnalysis {
+        tempo: None,
+        key: None,
+        loudness: None,
+        energy: None,
+        ..found_analysis()
+    };
+    library.store_analysis(id, &silent).expect("store again");
+    let analysis = library
+        .track(id)
+        .expect("detail")
+        .analysis
+        .expect("an analysis");
+    assert_eq!(
+        (analysis.bpm, analysis.key_name, analysis.lufs),
+        (None, None, None)
+    );
+    assert_eq!(analysis.chroma, vec![0.0; 12]);
+    assert!(analysis.mixes_well_with.is_empty());
+}
+
+#[test]
+fn storing_the_analysis_of_a_removed_track_says_so() {
+    let mut library = library();
+    let result = library.store_analysis(42, &found_analysis());
+    assert!(
+        matches!(
+            result,
+            Err(CoreError::NotFound {
+                what: "track",
+                id: 42
+            })
+        ),
+        "{result:?}"
+    );
+}
+
+#[test]
+fn a_version_1_library_is_upgraded_and_keeps_its_tracks() {
+    let scratch = Scratch::new("library-upgrade");
+    let path = scratch.path().join("cratekit.db");
+    let connection = Connection::open(&path).expect("create a file");
+    connection
+        .execute_batch(schema::MIGRATIONS[0])
+        .expect("schema 1");
+    connection
+        .execute(
+            "INSERT INTO tracks (path, file_hash, title) VALUES ('/music/a.mp3', 'x', 'Old')",
+            [],
+        )
+        .expect("a track");
+    connection
+        .pragma_update(None, "user_version", 1)
+        .expect("version 1");
+    drop(connection);
+    let mut library = Library::open(&path).expect("upgrade");
+    let version: i64 = library
+        .connection()
+        .pragma_query_value(None, "user_version", |row| row.get(0))
+        .expect("read the version");
+    assert_eq!(version, schema::latest_version());
+    let rows = library.list(&LibraryQuery::default()).expect("list");
+    assert_eq!(rows[0].title, "Old");
+    library
+        .store_analysis(rows[0].id, &found_analysis())
+        .expect("the new column works");
 }

@@ -14,6 +14,11 @@ pub struct TempoEstimate {
     pub bpm: f32,
     /// How clearly the audio has a steady beat, 0 to 1.
     pub confidence: f32,
+    /// When the first beat falls, in seconds from the start of the samples
+    /// given, within one beat period (`0 <= first_beat_sec < 60 / bpm`).
+    /// Together with `bpm` it places every beat (the beat grid). `None` when
+    /// the detector does not find beat positions.
+    pub first_beat_sec: Option<f32>,
 }
 
 /// Finds the tempo of mono audio.
@@ -60,6 +65,12 @@ const SMOOTH_FRAMES: usize = 7;
 const FINE_STEP_BPM: f64 = 0.01;
 /// Phase step of the fine search, in envelope frames.
 const PHASE_STEP: f64 = 0.5;
+/// How long before the end of an envelope frame's window a hit's rise peaks.
+/// Measured on full-level synthetic kicks at 92 to 140 BPM (first beats
+/// within 2 ms of the true one). Quieter hits, or hits over a sustained pad,
+/// rise less steeply and land up to about 12 ms late; re-check on the test
+/// DJ's tracks (#22).
+const ONSET_LATENCY_SECONDS: f64 = 0.006;
 /// Shortest audio worth analyzing, in seconds.
 pub(crate) const MIN_SECONDS: f64 = 3.0;
 
@@ -84,13 +95,15 @@ impl TempoDetector for OnsetTempo {
             return None;
         }
         let coarse_bpm = coarse_bpm(&envelope, frame_seconds)?;
-        let (bpm, strength, confidence) = refine_bpm(&envelope, frame_seconds, coarse_bpm);
-        if strength < MIN_ONSET_STRENGTH {
+        let fit = refine_bpm(&envelope, frame_seconds, coarse_bpm);
+        if fit.strength < MIN_ONSET_STRENGTH {
             return None;
         }
+        let bpm = fold_into_range(fit.bpm);
         Some(TempoEstimate {
-            bpm: fold_into_range(bpm) as f32,
-            confidence: confidence as f32,
+            bpm: bpm as f32,
+            confidence: fit.confidence as f32,
+            first_beat_sec: Some(first_beat(fit.phase_frames, frame_seconds, bpm) as f32),
         })
     }
 }
@@ -99,15 +112,24 @@ impl TempoDetector for OnsetTempo {
 /// rise in (compressed) energy from the previous frame, and zero when the
 /// energy falls.
 pub(crate) fn onset_envelope(samples: &[f32], hop: usize, window: usize) -> Vec<f64> {
-    // Running total of squared samples, so the energy of any stretch is one
-    // subtraction (the window is longer than the hop).
-    let mut running = Vec::with_capacity(samples.len() + 1);
-    running.push(0.0_f64);
-    let mut total = 0.0;
-    for &sample in samples {
-        total += f64::from(sample).powi(2);
-        running.push(total);
-    }
+    onset_envelope_of(
+        samples.len(),
+        |n| f64::from(samples[n]).powi(2),
+        hop,
+        window,
+    )
+}
+
+/// [`onset_envelope`] of any signal given as its power at each sample
+/// (`power(n)` for `n` in `0..len`), so callers can derive a signal on the
+/// fly (the energy score uses the sample-to-sample difference) without a
+/// full-length copy.
+pub(crate) fn onset_envelope_of(
+    len: usize,
+    power: impl Fn(usize) -> f64,
+    hop: usize,
+    window: usize,
+) -> Vec<f64> {
     // Two box averages in a row make a triangle-shaped window twice as long
     // (about 40 ms). A steady tone's energy pulses at twice its frequency; a
     // single box barely smooths that, two boxes leave less than 5% of it for
@@ -115,13 +137,23 @@ pub(crate) fn onset_envelope(samples: &[f32], hop: usize, window: usize) -> Vec<
     // The first box is sampled every millisecond (`fine`), then the second
     // averages those over the same length, ending at each hop.
     let fine = (hop / 5).max(1);
-    let first: Vec<f64> = (fine..=samples.len())
-        .step_by(fine)
-        .map(|end| {
-            let start = end.saturating_sub(window);
-            (running[end] - running[start]) / (end - start) as f64
-        })
-        .collect();
+    // The first box as a sliding sum: samples are added as they enter the
+    // window and subtracted as they leave, so nothing track-length is stored.
+    let mut first = Vec::with_capacity(len / fine);
+    let (mut sum, mut entered, mut left) = (0.0_f64, 0, 0);
+    for end in (fine..=len).step_by(fine) {
+        while entered < end {
+            sum += power(entered);
+            entered += 1;
+        }
+        let start = end.saturating_sub(window);
+        while left < start {
+            sum -= power(left);
+            left += 1;
+        }
+        // Rounding can leave a hair below zero after a loud passage.
+        first.push(sum.max(0.0) / (end - start) as f64);
+    }
     let mut first_running = Vec::with_capacity(first.len() + 1);
     first_running.push(0.0_f64);
     let mut sum = 0.0;
@@ -132,7 +164,7 @@ pub(crate) fn onset_envelope(samples: &[f32], hop: usize, window: usize) -> Vec<
     let span = (window / fine).max(1);
     // log(1 + 1000 * energy) puts loud and quiet hits on a similar scale and
     // stays near zero for near silence.
-    let loudness: Vec<f64> = (hop..=samples.len())
+    let loudness: Vec<f64> = (hop..=len)
         .step_by(hop)
         .map(|end| {
             let last = (end / fine).min(first.len());
@@ -250,12 +282,14 @@ fn envelope_at(envelope: &[f64], position: f64) -> f64 {
 }
 
 /// How well a beat grid at `bpm` lines up with the onsets: the best average
-/// envelope value at the grid's beats over every starting phase, and the
-/// average over all phases (what a grid in a random place scores).
-fn grid_score(envelope: &[f64], frame_seconds: f64, bpm: f64) -> (f64, f64) {
+/// envelope value at the grid's beats over every starting phase, the average
+/// over all phases (what a grid in a random place scores), and the best
+/// phase (in envelope frames).
+fn grid_score(envelope: &[f64], frame_seconds: f64, bpm: f64) -> GridScore {
     let period = 60.0 / bpm / frame_seconds;
     let length = envelope.len() as f64;
     let mut best = 0.0_f64;
+    let mut best_phase = 0.0;
     let (mut all_phases, mut phases) = (0.0, 0_u32);
     let mut phase = 0.0;
     while phase < period {
@@ -268,13 +302,52 @@ fn grid_score(envelope: &[f64], frame_seconds: f64, bpm: f64) -> (f64, f64) {
         }
         if beats > 0 {
             let score = sum / f64::from(beats);
-            best = best.max(score);
+            if score > best {
+                best = score;
+                best_phase = phase;
+            }
             all_phases += score;
             phases += 1;
         }
         phase += PHASE_STEP;
     }
-    (best, all_phases / f64::from(phases.max(1)))
+    GridScore {
+        best,
+        typical: all_phases / f64::from(phases.max(1)),
+        phase: best_phase,
+    }
+}
+
+/// What [`grid_score`] found for one tempo.
+#[derive(Debug, Clone, Copy)]
+struct GridScore {
+    best: f64,
+    typical: f64,
+    phase: f64,
+}
+
+/// The winning beat grid of [`refine_bpm`].
+#[derive(Debug, Clone, Copy)]
+struct GridFit {
+    bpm: f64,
+    /// Average rise in log energy at the grid's beats.
+    strength: f64,
+    confidence: f64,
+    /// The first beat, in envelope frames.
+    phase_frames: f64,
+}
+
+/// The time of the first beat from the grid's phase, in seconds, within one
+/// period of `bpm` (the folded tempo).
+///
+/// Envelope frame `k` measures the energy rise in the 40 ms window ending at
+/// `(k + 1)` frames. Because the energy is compressed with a logarithm, a
+/// hit's rise peaks early in that window: `ONSET_LATENCY_SECONDS` before its
+/// end.
+fn first_beat(phase_frames: f64, frame_seconds: f64, bpm: f64) -> f64 {
+    let period = 60.0 / bpm;
+    let time = (phase_frames + 1.0) * frame_seconds - ONSET_LATENCY_SECONDS;
+    time.rem_euclid(period)
 }
 
 /// Refines the tempo near `coarse` by trying grids every 0.01 BPM within 3%.
@@ -285,22 +358,34 @@ fn grid_score(envelope: &[f64], frame_seconds: f64, bpm: f64) -> (f64, f64) {
 /// at the grid), and a confidence: how far the best placement of the winning
 /// grid scores above an average placement. That compares beats with the
 /// space between them, so it does not depend on how long the clip is.
-fn refine_bpm(envelope: &[f64], frame_seconds: f64, coarse: f64) -> (f64, f64, f64) {
+fn refine_bpm(envelope: &[f64], frame_seconds: f64, coarse: f64) -> GridFit {
     let low = coarse * (1.0 - FINE_SPAN);
     let steps = ((coarse * 2.0 * FINE_SPAN) / FINE_STEP_BPM).round() as u32;
-    let (bpm, (best, typical)) = (0..=steps)
+    let (bpm, score) = (0..=steps)
         .map(|i| {
             let bpm = low + f64::from(i) * FINE_STEP_BPM;
             (bpm, grid_score(envelope, frame_seconds, bpm))
         })
-        .max_by(|a, b| a.1.0.total_cmp(&b.1.0))
-        .unwrap_or((coarse, (0.0, 0.0)));
-    let confidence = if best > 0.0 {
-        (1.0 - typical / best).clamp(0.0, 1.0)
+        .max_by(|a, b| a.1.best.total_cmp(&b.1.best))
+        .unwrap_or((
+            coarse,
+            GridScore {
+                best: 0.0,
+                typical: 0.0,
+                phase: 0.0,
+            },
+        ));
+    let confidence = if score.best > 0.0 {
+        (1.0 - score.typical / score.best).clamp(0.0, 1.0)
     } else {
         0.0
     };
-    (bpm, best, confidence)
+    GridFit {
+        bpm,
+        strength: score.best,
+        confidence,
+        phase_frames: score.phase,
+    }
 }
 
 /// Halves or doubles `bpm` until it is inside [`BPM_RANGE`].
@@ -326,6 +411,60 @@ mod tests {
 
     fn detect(samples: &[f32]) -> Option<TempoEstimate> {
         OnsetTempo.detect_tempo(samples, RATE)
+    }
+
+    #[test]
+    fn places_the_first_beat() {
+        // Kicks starting `offset` seconds in: the first beat is at `offset`
+        // (or a whole beat later, folded into one period).
+        for bpm in TEMPOS {
+            let period = 60.0 / bpm;
+            for offset in [0.0_f32, 0.017, 0.05, 0.123, 0.211, 0.3] {
+                let mut samples = vec![0.0; (offset * RATE as f32) as usize];
+                samples.extend(synth::kick(bpm, 10.0, RATE));
+                let found = detect(&samples).unwrap();
+                let first = found.first_beat_sec.unwrap();
+                assert!((0.0..period).contains(&first), "{bpm}/{offset}: {first}");
+                let expected = offset.rem_euclid(period);
+                let error = (first - expected)
+                    .abs()
+                    .min(period - (first - expected).abs());
+                assert!(
+                    error <= 0.005,
+                    "{bpm} BPM, offset {offset}: first beat {first}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn places_the_first_beat_of_quieter_kicks_and_kicks_over_a_pad_a_little_later() {
+        // The latency is calibrated on full-level kicks; quieter hits, or hits
+        // over a sustained pad, rise less steeply and land up to about 12 ms
+        // late (re-check on real tracks, #22).
+        for (gain, pad) in [(0.25_f32, false), (0.1, false), (1.0, true)] {
+            for bpm in TEMPOS {
+                let period = 60.0 / bpm;
+                for offset in [0.0_f32, 0.123, 0.3] {
+                    let mut samples = vec![0.0; (offset * RATE as f32) as usize];
+                    samples.extend(synth::kick(bpm, 10.0, RATE).iter().map(|s| s * gain));
+                    if pad {
+                        let seconds = samples.len() as f32 / RATE as f32;
+                        let bed = synth::sine(220.0, -10.0, seconds, RATE);
+                        samples = synth::mix(&[&samples, &bed]);
+                    }
+                    let first = detect(&samples).unwrap().first_beat_sec.unwrap();
+                    let expected = offset.rem_euclid(period);
+                    let error = (first - expected)
+                        .abs()
+                        .min(period - (first - expected).abs());
+                    assert!(
+                        error <= 0.012,
+                        "gain {gain}, pad {pad}, {bpm} BPM, offset {offset}: {first}"
+                    );
+                }
+            }
+        }
     }
 
     #[test]

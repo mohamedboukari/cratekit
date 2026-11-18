@@ -4,6 +4,7 @@ import { i18n } from "@/i18n";
 import { jobLabel } from "@/lib/format";
 import { api } from "@/lib/ipc";
 import { notifyError } from "@/lib/notify";
+import { refreshAfterAnalysis } from "@/stores/refresh";
 import type { Job, JobDone, JobFailed, JobId, JobProgress, JobState } from "@/lib/types";
 
 /** Finished jobs stay visible this long in the queue before they are dropped. */
@@ -52,7 +53,7 @@ export const useJobs = create<JobsState>()((set, get) => ({
           trackIds: p.trackIds,
           done: p.done,
           total: p.total,
-          state: s.paused ? "paused" : "running",
+          state: p.queued ? "queued" : s.paused ? "paused" : "running",
         },
       },
     }));
@@ -87,12 +88,15 @@ export const useJobs = create<JobsState>()((set, get) => ({
 
   cancel: async (id) => {
     try {
+      const kind = get().jobs[id]?.kind;
       await api().jobCancel(id);
       cancelled.add(id);
       set((s) => {
         const { [id]: _cancelled, ...rest } = s.jobs;
         return { jobs: rest };
       });
+      // Tracks analyzed before the cancel are stored: show them.
+      if (kind === "analysis") refreshAfterAnalysis();
     } catch (error) {
       notifyError(error, i18n.t("errors.jobs.cancel"));
     }

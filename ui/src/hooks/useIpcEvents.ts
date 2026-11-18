@@ -7,10 +7,9 @@ import type { ControlTarget, StemName } from "@/lib/types";
 import { useController } from "@/stores/controller";
 import { useDevices } from "@/stores/devices";
 import { useJobs } from "@/stores/jobs";
-import { useLibrary } from "@/stores/library";
 import { useMaster } from "@/stores/master";
+import { refreshAfterAnalysis } from "@/stores/refresh";
 import { usePlayer } from "@/stores/player";
-import { useSetList } from "@/stores/setlist";
 import { useSettings } from "@/stores/settings";
 import { useStems } from "@/stores/stems";
 import { useUi } from "@/stores/ui";
@@ -34,11 +33,7 @@ export function useIpcEvents(): void {
       api().onJobProgress((p) => useJobs.getState().onProgress(p)),
       api().onJobDone((d) => {
         useJobs.getState().onDone(d);
-        if (d.kind === "analysis" || d.kind === "stems") {
-          void useLibrary.getState().refreshRows();
-          void useSetList.getState().refresh();
-          void usePlayer.getState().refresh();
-        }
+        if (d.kind === "analysis" || d.kind === "stems") refreshAfterAnalysis();
         if (d.kind === "model-download")
           toast.success(i18n.t("common.events.modelReady"));
         // New stems or a freshly downloaded model change what the Stems tab can show.
@@ -46,7 +41,11 @@ export function useIpcEvents(): void {
         if ((d.kind === "stems" || d.kind === "model-download") && stemsTrack !== null)
           void useStems.getState().load(stemsTrack);
       }),
-      api().onJobFailed((f) => useJobs.getState().onFailed(f)),
+      api().onJobFailed((f) => {
+        useJobs.getState().onFailed(f);
+        // A failed analysis still stored the tracks that worked.
+        if (f.kind === "analysis") refreshAfterAnalysis();
+      }),
       api().onPlaybackState((s) => usePlayer.getState().onPlaybackState(s.playing)),
       api().onMidiDeviceChanged((devices) => useDevices.getState().setMidi(devices)),
       api().onMidiLearned((learned) => useController.getState().onLearned(learned)),
