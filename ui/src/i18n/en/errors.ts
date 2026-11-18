@@ -13,6 +13,8 @@ export const errors = {
     database: "The library database could not be read or written.",
     database_too_new:
       "This library was made by a newer Cratekit. Update the app to open it.",
+    no_audio_device: "No audio output was found. Connect speakers or headphones.",
+    audio_device: "The audio output could not be used.",
   },
   controller: {
     load: "Could not load the controller mapping",

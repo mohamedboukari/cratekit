@@ -16,7 +16,7 @@ Tauri 2 desktop app: a Rust backend (Cargo workspace) and a React 19 + TypeScrip
 | --- | --- |
 | Rust | [rustup](https://rustup.rs). The repo pins the toolchain in `rust-toolchain.toml`, so rustup installs the right version on first build |
 | bun | [bun.sh](https://bun.sh) |
-| System libraries | macOS: Xcode Command Line Tools (`xcode-select --install`). Windows: WebView2 (preinstalled on Windows 11) and the MSVC build tools. Linux: see [Tauri prerequisites](https://v2.tauri.app/start/prerequisites/) (`libwebkit2gtk-4.1-dev` and friends) |
+| System libraries | macOS: Xcode Command Line Tools (`xcode-select --install`). Windows: WebView2 (preinstalled on Windows 11) and the MSVC build tools. Linux: see [Tauri prerequisites](https://v2.tauri.app/start/prerequisites/) (`libwebkit2gtk-4.1-dev` and friends), plus the ALSA headers for audio output (`libasound2-dev` on Debian and Ubuntu, `alsa-lib-devel` on Fedora, `alsa-lib` on Arch) |
 | Dev tools (for the checks) | `cargo-nextest`, `cargo-deny`, `cargo-shear`, `typos-cli`, `taplo`. With Homebrew: `brew install cargo-nextest cargo-deny cargo-shear typos-cli taplo` |
 
 ## Getting started

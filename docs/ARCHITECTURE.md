@@ -31,7 +31,10 @@
 | --- | --- | --- |
 | Main / Tauri | Window, IPC | Never does heavy work |
 | Audio (cpal callback) | Output buffer | No alloc, no locks, no I/O. Reads commands from an `rtrb` ring buffer; publishes position through an `AtomicU64` |
-| Decoder | Streams decoded PCM for the playing track into a ring buffer | Prefills 2 s ahead |
+| Decoder | Decodes the track to load, off the audio thread | Today the whole track is decoded and resampled before it reaches the callback (about 21 MB per stereo minute); streaming 2 s ahead can replace it if memory matters |
+| Audio cleanup | Frees tracks the callback replaced (they arrive over a second rtrb queue) | Never on the audio thread |
+| Audio stream owner | Holds the cpal stream (on some systems it cannot move between threads) | Dropping the `Engine` closes it |
+| Playback poller | Reads `Engine::status` every 33 ms and sends `playback_position`, `meter`, `playback_state` | Never touches the audio thread except through atomics |
 | MIDI (midir callback) | Incoming messages | Translates to `ControlEvent`, pushes to a channel; never touches audio directly |
 | Job workers (tokio + rayon) | Analysis, stems, mastering, export | Report progress via `ProgressSink`, support cancellation |
 | DB writer | The single write connection to SQLite | All writes go through it; reads use their own connections (WAL mode) |
@@ -80,11 +83,13 @@ src/
 
 ```
 src/
-  engine.rs      AudioEngine: start/stop, load track, play/pause/seek, rate
-  mixer.rs       modes: Original | Mastered(preview chain) | Stems(4 gains + mute/solo)
-  commands.rs    enum EngineCommand (sent over rtrb)
-  filter.rs      DJ filter (one knob: LP below centre, HP above)
-  meter.rs       peak/RMS meter published via atomics
+  engine.rs      Engine: opens the default output (cpal stream on its own thread), load (stereo, resampled
+                 to the device rate), play / pause / seek, status (position, playing, ends, peak, rms); a
+                 cleanup thread frees replaced tracks. Done (#19); see docs/playback.md
+  renderer.rs    Renderer::render (the audio callback), Command (sent over rtrb), Track, Shared (atomics).
+                 Done (#19)
+  mixer.rs       modes: Original | Mastered(preview chain) | Stems(4 gains + mute/solo) (planned)
+  filter.rs      DJ filter (one knob: LP below centre, HP above) (planned)
 ```
 
 A/B and mode switches use a 10 ms crossfade to stay click-free.
@@ -98,7 +103,9 @@ src/
   main.rs        builder, state, plugins
   state.rs       AppState { db, engine, jobs, midi }
   library.rs     library commands and LibraryState (done: library_add_paths, library_list, library_counts, track_detail, crates_list)
-  commands/      analysis.rs, mastering.rs, stems.rs, playback.rs, midi.rs, export.rs (planned)
+  playback.rs    PlayerState (engine started on first load), playback_load / play / pause / seek, the 30 Hz poller
+                 (playback_position, meter, playback_state at the end of a track). Done (#19)
+  commands/      mastering.rs, stems.rs, midi.rs, export.rs (planned)
   midi/          device watch, MIDI learn, mapping store, LED feedback
   jobs.rs        job queue (one worker thread; analysis jobs), job_progress / job_done / job_failed events; done: analyze_tracks, job_cancel, jobs_set_paused
 ```
@@ -172,7 +179,7 @@ Rules:
 | `settings_get / settings_set(key, value)` | Settings (UI `language`, `"en"` by default for every user; watched folders, output folder, processing backend, pane layouts, the set list order, ...) |
 | `stems_backend_status` | Active stems backend (CoreML / DirectML / CPU) and why, as a code (`no_gpu`, `cpu_chosen`, `gpu_check_failed`) the UI words |
 
-**Events (Rust → UI)**: `job_progress {jobId, kind, label, stage, trackIds, done, total, queued}` (`done` and `total` are progress steps, not tracks: analysis counts 100 per track; `queued`: sent once when the job is queued, before it starts, so a waiting job can be seen and cancelled; `trackIds`: the tracks the job works on, empty for a model download; `stage`: `download` or `verify` for the model download, else null; `label` is an English fallback, the UI names jobs from `kind`, `stage` and the track count), `job_done {jobId, kind}`, `job_failed {jobId, kind, error}` (an analysis job skips tracks that fail and ends with `job_failed` saying how many; a cancelled job sends nothing more), `playback_position {sec}` (30 Hz), `meter {peakDb, rmsDb}` (30 Hz), `playback_state {playing}` (start, pause, end of track), `midi_device_changed`, `midi_learned {target, binding, replaced}` (`replaced`: the target that lost this control, or null), `control_event {target, value}` (Rust runs engine actions such as play, cue, hot cues, filter and tempo itself; the UI runs the UI-owned targets `mute-*`, `ab-toggle` and `pad-page` from this event), `audio_device_changed {id, reason}`, `settings_changed` (the full settings, after any change, so both windows stay in sync). Files dropped on a window arrive through Tauri's drag and drop event (`onFilesDropped` in `CratekitApi`).
+**Events (Rust → UI)**: `job_progress {jobId, kind, label, stage, trackIds, done, total, queued}` (`done` and `total` are progress steps, not tracks: analysis counts 100 per track; `queued`: sent once when the job is queued, before it starts, so a waiting job can be seen and cancelled; `trackIds`: the tracks the job works on, empty for a model download; `stage`: `download` or `verify` for the model download, else null; `label` is an English fallback, the UI names jobs from `kind`, `stage` and the track count), `job_done {jobId, kind}`, `job_failed {jobId, kind, error}` (an analysis job skips tracks that fail and ends with `job_failed` saying how many; a cancelled job sends nothing more), `playback_position {sec}` (about 30 Hz, while playing or after a seek), `meter {peakDb, rmsDb}` (about 30 Hz, while there is sound), `playback_state {playing}` (today only `playing: false` when a track plays to its end: the UI sets the state itself after `playback_play` and `playback_pause`; play and pause that Rust starts itself, such as from MIDI, will send it too), `midi_device_changed`, `midi_learned {target, binding, replaced}` (`replaced`: the target that lost this control, or null), `control_event {target, value}` (Rust runs engine actions such as play, cue, hot cues, filter and tempo itself; the UI runs the UI-owned targets `mute-*`, `ab-toggle` and `pad-page` from this event), `audio_device_changed {id, reason}`, `settings_changed` (the full settings, after any change, so both windows stay in sync). Files dropped on a window arrive through Tauri's drag and drop event (`onFilesDropped` in `CratekitApi`).
 
 **Naming convention:** command and event names are snake_case; payload fields are camelCase, so Rust payload structs use `#[serde(rename_all = "camelCase")]`. The TypeScript side of this contract is `ui/src/lib/types.ts` and `CratekitApi` in `ui/src/lib/ipc.ts`; keep the three in sync.
 

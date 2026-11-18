@@ -5,6 +5,7 @@
 
 mod jobs;
 mod library;
+mod playback;
 
 use std::sync::{Mutex, PoisonError};
 
@@ -125,6 +126,15 @@ pub struct AppError {
 
 impl From<cratekit_core::CoreError> for AppError {
     fn from(err: cratekit_core::CoreError) -> Self {
+        let message = err.to_string();
+        Self::from_core(&err, message)
+    }
+}
+
+impl AppError {
+    /// The error for a core failure, with the code the UI translates and
+    /// `message` (usually the error's own text).
+    fn from_core(err: &cratekit_core::CoreError, message: String) -> Self {
         let code = match err {
             cratekit_core::CoreError::Io(_) | cratekit_core::CoreError::ReadFile { .. } => "io",
             cratekit_core::CoreError::UnsupportedFormat { .. } => "unsupported_format",
@@ -138,10 +148,7 @@ impl From<cratekit_core::CoreError> for AppError {
             cratekit_core::CoreError::NotFound { .. } => "not_found",
             cratekit_core::CoreError::Cancelled => "cancelled",
         };
-        Self {
-            code,
-            message: err.to_string(),
-        }
+        Self { code, message }
     }
 }
 
@@ -261,6 +268,8 @@ pub fn run() -> anyhow::Result<()> {
         .setup(|app| {
             let state = library::LibraryState::open(app.handle());
             app.manage(state);
+            app.manage(playback::PlayerState::default());
+            playback::start_poller(app.handle().clone());
             let jobs = jobs::Jobs::default();
             jobs.start(app.handle().clone());
             app.manage(jobs);
@@ -293,7 +302,11 @@ pub fn run() -> anyhow::Result<()> {
             library::crates_list,
             jobs::analyze_tracks,
             jobs::job_cancel,
-            jobs::jobs_set_paused
+            jobs::jobs_set_paused,
+            playback::playback_load,
+            playback::playback_play,
+            playback::playback_pause,
+            playback::playback_seek
         ])
         .run(tauri::generate_context!())?;
     Ok(())

@@ -27,6 +27,10 @@ function codeDetail(code: string): string | null {
       return i18n.t("errors.codes.database");
     case "database_too_new":
       return i18n.t("errors.codes.database_too_new");
+    case "no_audio_device":
+      return i18n.t("errors.codes.no_audio_device");
+    case "audio_device":
+      return i18n.t("errors.codes.audio_device");
     default:
       return null;
   }
