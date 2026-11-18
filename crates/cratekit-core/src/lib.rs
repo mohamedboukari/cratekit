@@ -4,8 +4,10 @@
 //! Modules from `docs/ARCHITECTURE.md` (audio, analysis, mastering, stems,
 //! library, export) are added here task by task. So far: [`analysis::key`]
 //! (musical keys and the Camelot wheel), [`analysis::tempo`] and
-//! [`analysis::key_detect`] (tempo and key detection), and `synth` (synthetic
-//! test audio, compiled for tests or with the `test-helpers` feature).
+//! [`analysis::key_detect`] (tempo and key detection), [`analysis::loudness`]
+//! (integrated LUFS and true peak), [`analysis::energy`] (the 1 to 10 energy
+//! score), and `synth` (synthetic test audio, compiled for tests or with the
+//! `test-helpers` feature).
 
 pub mod analysis;
 mod error;

@@ -63,7 +63,7 @@ The maintainer stays in the loop and in control at every step. Never bypass the 
 | Resampling | `rubato` |
 | Playback | `cpal` + `rtrb` |
 | Analysis | Our own detectors in `cratekit-core::analysis` (default: more accurate and faster on our tests); `stratum-dsp` behind the same traits with the `stratum` cargo feature (off) |
-| Loudness | `ebur128` crate (or our own BS.1770 implementation) |
+| Loudness | `ebur128` crate (chosen, behind `analysis::loudness`) |
 | Stems | `stem-splitter-core` (htdemucs via ONNX Runtime); fallback: `ort` directly with the htdemucs ONNX model |
 | Mastering | Our own DSP chain (no library exists in Rust) |
 | MIDI | `midir` |

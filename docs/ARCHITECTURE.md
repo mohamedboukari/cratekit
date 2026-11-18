@@ -52,8 +52,8 @@ src/
     key.rs             Key, PitchClass, Camelot (mapping, matches(), mixes_well_with(), parsing), scale flags
     key_detect.rs      trait KeyDetector; ProfileKey (ours, the default: chroma + Krumhansl-Kessler)
     stratum.rs         StratumTempo, StratumKey: stratum-dsp behind the same traits (`stratum` feature, off)
-    loudness.rs        integrated LUFS, true peak
-    energy.rs          1 to 10 score
+    loudness.rs        integrated LUFS, true peak (ebur128 crate)
+    energy.rs          1 to 10 score (loudness, onset density, brightness)
     waveform.rs        min/max/RMS columns for the UI
   mastering/
     mod.rs             master() -> MasterResult

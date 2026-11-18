@@ -9,6 +9,7 @@ repository.workspace = true
 publish.workspace = true
 
 [dependencies]
+ebur128 = { workspace = true }
 stratum-dsp = { workspace = true, optional = true }
 thiserror = { workspace = true }
 
