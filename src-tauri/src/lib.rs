@@ -3,6 +3,8 @@
 //! Commands here stay thin: they validate input, call `cratekit-core` or
 //! `cratekit-audio`, and map errors to [`AppError`]. No domain logic lives here.
 
+mod library;
+
 use std::sync::{Mutex, PoisonError};
 
 use serde::{Deserialize, Serialize};
@@ -112,7 +114,7 @@ fn current_labels<R: Runtime>(app: &AppHandle<R>) -> MenuLabels {
 }
 
 /// The error every Tauri command returns, serialized to the UI as `{ code, message }`.
-#[derive(Debug, Serialize)]
+#[derive(Debug, Clone, Serialize)]
 pub struct AppError {
     /// Stable machine-readable code the UI can switch on, e.g. `"io"`.
     pub code: &'static str,
@@ -130,6 +132,9 @@ impl From<cratekit_core::CoreError> for AppError {
             cratekit_core::CoreError::InvalidAudio(_) | cratekit_core::CoreError::Resample(_) => {
                 "audio_processing"
             }
+            cratekit_core::CoreError::Database(_) => "database",
+            cratekit_core::CoreError::DatabaseTooNew { .. } => "database_too_new",
+            cratekit_core::CoreError::NotFound { .. } => "not_found",
         };
         Self {
             code,
@@ -251,6 +256,11 @@ pub fn run() -> anyhow::Result<()> {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .manage(MenuLabelsState::default())
+        .setup(|app| {
+            let state = library::LibraryState::open(app.handle());
+            app.manage(state);
+            Ok(())
+        })
         .menu(|app| build_menu(app, &MenuLabels::default()))
         .on_menu_event(|app, event| {
             if event.id() == SETTINGS_MENU_ID {
@@ -270,7 +280,12 @@ pub fn run() -> anyhow::Result<()> {
         .invoke_handler(tauri::generate_handler![
             app_version,
             open_settings_window,
-            app_set_menu_labels
+            app_set_menu_labels,
+            library::library_add_paths,
+            library::library_list,
+            library::library_counts,
+            library::track_detail,
+            library::crates_list
         ])
         .run(tauri::generate_context!())?;
     Ok(())

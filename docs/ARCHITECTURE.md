@@ -45,7 +45,7 @@ src/
   lib.rs
   error.rs             CoreError (thiserror)
   synth.rs             synthetic test audio (kick, chords, bass, sine, SPEC loop); tests or `test-helpers` feature only
-  audio/               AudioBuffer, decode_file (symphonia), resample (rubato); write WAV (hound) later; see docs/audio.md
+  audio/               AudioBuffer, decode_file (symphonia), resample (rubato), probe_file (tags and stream properties); write WAV (hound) later; see docs/audio.md
   analysis/
     mod.rs             analyze_track() -> TrackAnalysis
     tempo.rs           trait TempoDetector; OnsetTempo (ours, the default)
@@ -67,8 +67,9 @@ src/
     htdemucs.rs        impl using stem-splitter-core (or ort directly)
     models.rs          download + checksum + cache path
   library/
-    db.rs              rusqlite connection setup (WAL), schema + migrations
-    scan.rs            folder scan, tag reading (lofty crate, check license)
+    mod.rs             Library: open (WAL, foreign keys), add_paths, list, counts, track, remove_tracks; see docs/library.md
+    schema.rs          the schema as numbered migrations (PRAGMA user_version)
+    scan.rs            folder scan, audio extensions, file fingerprint (tags come from audio::probe_file)
   export/
     virtualdj.rs       read/write VirtualDJ database (format TBD, see ROADMAP research task)
   progress.rs          ProgressSink trait, CancellationToken
@@ -95,7 +96,8 @@ A/B and mode switches use a 10 ms crossfade to stay click-free.
 src/
   main.rs        builder, state, plugins
   state.rs       AppState { db, engine, jobs, midi }
-  commands/      library.rs, analysis.rs, mastering.rs, stems.rs, playback.rs, midi.rs, export.rs
+  library.rs     library commands and LibraryState (done: library_add_paths, library_list, library_counts, track_detail, crates_list)
+  commands/      analysis.rs, mastering.rs, stems.rs, playback.rs, midi.rs, export.rs (planned)
   midi/          device watch, MIDI learn, mapping store, LED feedback
   jobs.rs        job queue, progress events
 ```
@@ -177,8 +179,8 @@ Rules:
 
 - **One file**, `cratekit.db`, in the app data folder. `rusqlite` with the `bundled` feature compiles SQLite into the binary, so there is nothing to install.
 - **WAL mode** (`PRAGMA journal_mode=WAL`) and `PRAGMA foreign_keys=ON` on every connection. WAL lets the UI read the library while a job writes results.
-- **One writer.** All writes go through a single connection owned by the DB writer thread (jobs send it results). Reads open their own connections.
-- **Migrations** are numbered SQL steps applied at startup, tracked with `PRAGMA user_version`. A small migrations crate (e.g. `rusqlite_migration`) is chosen in Phase 1 after a license check.
+- **One writer.** All writes go through a single connection: the app keeps one `Library` behind a lock, and commands use it on a blocking worker thread (jobs will send it results). Reads share that connection for now; adding reads the files without holding it. Separate read connections can come later if reads ever wait too long.
+- **Migrations** are numbered SQL steps in `library/schema.rs`, applied at startup in a transaction each and tracked with `PRAGMA user_version`; a database from a newer Cratekit is refused (`database_too_new`). Our own small runner, no migrations crate.
 - `rusqlite` is synchronous on purpose: jobs already run on worker threads, and sync code is simpler to write and test in `cratekit-core`.
 
 ```sql
@@ -188,7 +190,7 @@ CREATE TABLE tracks (
   file_hash TEXT NOT NULL,          -- detect moved/changed files
   title TEXT, artist TEXT, album TEXT,
   duration_sec REAL, sample_rate INTEGER, channels INTEGER,
-  added_at TEXT NOT NULL
+  added_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ', 'now'))
 );
 CREATE TABLE analysis (
   track_id INTEGER PRIMARY KEY REFERENCES tracks(id) ON DELETE CASCADE,
@@ -221,6 +223,8 @@ CREATE TABLE crate_tracks (crate_id INTEGER REFERENCES crates(id) ON DELETE CASC
 CREATE TABLE midi_mappings (device TEXT, target TEXT, kind TEXT, channel INTEGER, number INTEGER,
   PRIMARY KEY (device, target));
 CREATE TABLE settings (key TEXT PRIMARY KEY, value TEXT);
+CREATE INDEX masters_track ON masters(track_id);
+CREATE INDEX crate_tracks_track ON crate_tracks(track_id);
 ```
 
 Bump `analyzer_version` when analysis code changes, so old results are recomputed lazily.

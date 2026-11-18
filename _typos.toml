@@ -29,3 +29,5 @@ extend-exclude = [
 [default.extend-words]
 # symphonia's TimeBase field for the numerator.
 numer = "numer"
+# ID3v2 frame name for the lead artist (TPE1).
+TPE = "TPE"

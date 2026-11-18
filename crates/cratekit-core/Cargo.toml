@@ -11,6 +11,8 @@ publish.workspace = true
 [dependencies]
 ebur128 = { workspace = true }
 rubato = { workspace = true }
+rusqlite = { workspace = true }
+serde = { workspace = true }
 stratum-dsp = { workspace = true, optional = true }
 symphonia = { workspace = true }
 thiserror = { workspace = true }
