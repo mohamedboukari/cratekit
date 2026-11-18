@@ -47,7 +47,8 @@ src/
   synth.rs             synthetic test audio (kick, chords, bass, sine, SPEC loop); tests or `test-helpers` feature only
   audio/               AudioBuffer, decode_file (symphonia), resample (rubato), probe_file (tags and stream properties); write WAV (hound) later; see docs/audio.md
   analysis/
-    mod.rs             analyze_track() -> TrackAnalysis
+    mod.rs             ANALYZER_VERSION
+    track.rs           analyze_file() -> TrackAnalysis (progress, cancellation)
     tempo.rs           trait TempoDetector; OnsetTempo (ours, the default)
     key.rs             Key, PitchClass, Camelot (mapping, matches(), mixes_well_with(), parsing), scale flags
     key_detect.rs      trait KeyDetector; ProfileKey (ours, the default: chroma + Krumhansl-Kessler)
@@ -72,7 +73,7 @@ src/
     scan.rs            folder scan, audio extensions, file fingerprint (tags come from audio::probe_file)
   export/
     virtualdj.rs       read/write VirtualDJ database (format TBD, see ROADMAP research task)
-  progress.rs          ProgressSink trait, CancellationToken
+  progress.rs          ProgressSink trait (any Fn(f32)), NoProgress, CancellationToken
 ```
 
 ### `crates/cratekit-audio`
@@ -99,7 +100,7 @@ src/
   library.rs     library commands and LibraryState (done: library_add_paths, library_list, library_counts, track_detail, crates_list)
   commands/      analysis.rs, mastering.rs, stems.rs, playback.rs, midi.rs, export.rs (planned)
   midi/          device watch, MIDI learn, mapping store, LED feedback
-  jobs.rs        job queue, progress events
+  jobs.rs        job queue (one worker thread; analysis jobs), job_progress / job_done / job_failed events; done: analyze_tracks, job_cancel, jobs_set_paused
 ```
 
 ## UI (`ui/`, React 19 + Vite + TypeScript, bun)
@@ -171,7 +172,7 @@ Rules:
 | `settings_get / settings_set(key, value)` | Settings (UI `language`, `"en"` by default for every user; watched folders, output folder, processing backend, pane layouts, the set list order, ...) |
 | `stems_backend_status` | Active stems backend (CoreML / DirectML / CPU) and why, as a code (`no_gpu`, `cpu_chosen`, `gpu_check_failed`) the UI words |
 
-**Events (Rust → UI)**: `job_progress {jobId, kind, label, stage, trackIds, done, total}` (`trackIds`: the tracks the job works on, empty for a model download; `stage`: `download` or `verify` for the model download, else null; `label` is an English fallback, the UI names jobs from `kind`, `stage` and the track count), `job_done {jobId, kind}`, `job_failed {jobId, kind, error}`, `playback_position {sec}` (30 Hz), `meter {peakDb, rmsDb}` (30 Hz), `playback_state {playing}` (start, pause, end of track), `midi_device_changed`, `midi_learned {target, binding, replaced}` (`replaced`: the target that lost this control, or null), `control_event {target, value}` (Rust runs engine actions such as play, cue, hot cues, filter and tempo itself; the UI runs the UI-owned targets `mute-*`, `ab-toggle` and `pad-page` from this event), `audio_device_changed {id, reason}`, `settings_changed` (the full settings, after any change, so both windows stay in sync). Files dropped on a window arrive through Tauri's drag and drop event (`onFilesDropped` in `CratekitApi`).
+**Events (Rust → UI)**: `job_progress {jobId, kind, label, stage, trackIds, done, total, queued}` (`done` and `total` are progress steps, not tracks: analysis counts 100 per track; `queued`: sent once when the job is queued, before it starts, so a waiting job can be seen and cancelled; `trackIds`: the tracks the job works on, empty for a model download; `stage`: `download` or `verify` for the model download, else null; `label` is an English fallback, the UI names jobs from `kind`, `stage` and the track count), `job_done {jobId, kind}`, `job_failed {jobId, kind, error}` (an analysis job skips tracks that fail and ends with `job_failed` saying how many; a cancelled job sends nothing more), `playback_position {sec}` (30 Hz), `meter {peakDb, rmsDb}` (30 Hz), `playback_state {playing}` (start, pause, end of track), `midi_device_changed`, `midi_learned {target, binding, replaced}` (`replaced`: the target that lost this control, or null), `control_event {target, value}` (Rust runs engine actions such as play, cue, hot cues, filter and tempo itself; the UI runs the UI-owned targets `mute-*`, `ab-toggle` and `pad-page` from this event), `audio_device_changed {id, reason}`, `settings_changed` (the full settings, after any change, so both windows stay in sync). Files dropped on a window arrive through Tauri's drag and drop event (`onFilesDropped` in `CratekitApi`).
 
 **Naming convention:** command and event names are snake_case; payload fields are camelCase, so Rust payload structs use `#[serde(rename_all = "camelCase")]`. The TypeScript side of this contract is `ui/src/lib/types.ts` and `CratekitApi` in `ui/src/lib/ipc.ts`; keep the three in sync.
 
@@ -179,7 +180,7 @@ Rules:
 
 - **One file**, `cratekit.db`, in the app data folder. `rusqlite` with the `bundled` feature compiles SQLite into the binary, so there is nothing to install.
 - **WAL mode** (`PRAGMA journal_mode=WAL`) and `PRAGMA foreign_keys=ON` on every connection. WAL lets the UI read the library while a job writes results.
-- **One writer.** All writes go through a single connection: the app keeps one `Library` behind a lock, and commands use it on a blocking worker thread (jobs will send it results). Reads share that connection for now; adding reads the files without holding it. Separate read connections can come later if reads ever wait too long.
+- **One writer.** All writes go through a single connection: the app keeps one `Library` behind a lock, and commands use it on a blocking worker thread (the analysis job worker takes the same lock briefly to read a track's path and to store its result, never while decoding). Reads share that connection for now; adding reads the files without holding it. Separate read connections can come later if reads ever wait too long.
 - **Migrations** are numbered SQL steps in `library/schema.rs`, applied at startup in a transaction each and tracked with `PRAGMA user_version`; a database from a newer Cratekit is refused (`database_too_new`). Our own small runner, no migrations crate.
 - `rusqlite` is synchronous on purpose: jobs already run on worker threads, and sync code is simpler to write and test in `cratekit-core`.
 
@@ -200,7 +201,8 @@ CREATE TABLE analysis (
   first_beat_sec REAL,
   waveform BLOB,                     -- compressed columns
   analyzer_version INTEGER NOT NULL,
-  analyzed_at TEXT NOT NULL
+  analyzed_at TEXT NOT NULL,
+  chroma BLOB                        -- migration 2: 12 little-endian f32, C to B
 );
 CREATE TABLE cues (
   track_id INTEGER REFERENCES tracks(id) ON DELETE CASCADE,
@@ -270,7 +272,7 @@ Intensity `k` (0 to 1): EQ gain × k, ratio = 1 + (ratio − 1) × k, makeup int
 
 - `stratum-dsp` is wrapped behind the `TempoDetector` / `KeyDetector` traits (`StratumTempo`, `StratumKey`, `stratum` cargo feature, off by default). Measured on 16 synthetic loops of 30 s (release): ours 16/16 tempo and 16/16 key in 1.9 s, stratum-dsp 12/16 and 11/16 in 10.4 s; it also doubled a 75 BPM groove and reported a tempo for a steady drone. So our detectors are the default; re-measure on the test DJ's real tracks (#22) before deciding again. Its beat grid is not used yet.
 - Our detectors are the default: `OnsetTempo` (onset-energy autocorrelation, refined by a beat-grid fit) and `ProfileKey` (chroma + Krumhansl-Kessler profiles, using power not magnitude so bass overtones do not bias the mode). On the synthetic loops at 92/124/128/140 BPM they meet the SPEC targets, and in release they analyze 90 s of audio in about 0.35 s. See `docs/analysis.md`.
-- Analyze the middle 60 to 90 s of the track for speed; full track for loudness and waveform.
+- `analyze_file` measures tempo and key on the middle 90 s of the track (faster, and intros and outros are often beatless); loudness and energy use the whole track. Analysis jobs run one at a time on the job worker; a 6 minute track takes about 1 s in release.
 
 ## Stems notes
 

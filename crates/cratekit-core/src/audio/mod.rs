@@ -9,6 +9,6 @@ mod probe;
 mod resample;
 
 pub use buffer::AudioBuffer;
-pub use decode::decode_file;
+pub use decode::{decode_file, decode_file_with};
 pub use probe::{FileInfo, probe_file};
 pub use resample::resample;

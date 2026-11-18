@@ -15,6 +15,7 @@ use symphonia::core::units::TimeBase;
 
 use crate::CoreError;
 use crate::audio::AudioBuffer;
+use crate::progress::{CancellationToken, NoProgress, ProgressSink};
 
 /// The longest stretch of missing audio (damaged packets) filled with
 /// silence. A longer jump in the timestamps means the file is broken.
@@ -28,6 +29,8 @@ const MAX_RESERVE_SECONDS: u64 = 3600;
 const DAMAGED_SHARE_DIVISOR: usize = 20;
 /// See `DAMAGED_SHARE_DIVISOR`.
 const MIN_DAMAGED_TO_FAIL: usize = 8;
+/// How often decoding checks for a cancel, in packets.
+const CANCEL_CHECK_PACKETS: usize = 64;
 
 /// Decodes a whole audio file to planar `f32` at its own sample rate and
 /// channel count. The file is only read, never changed.
@@ -57,6 +60,21 @@ const MIN_DAMAGED_TO_FAIL: usize = 8;
 ///   damaged, a gap over 10 s, or a sample rate or channel count that changes
 ///   mid-file.
 pub fn decode_file(path: &Path) -> Result<AudioBuffer, CoreError> {
+    decode_file_with(path, &NoProgress, &CancellationToken::new())
+}
+
+/// [`decode_file`] that reports progress (0 to 1, when the file announces its
+/// length) and stops with [`CoreError::Cancelled`] soon after `cancel` is
+/// cancelled. Both happen every 64 packets, a second or so of audio.
+///
+/// # Errors
+///
+/// The same as [`decode_file`], plus [`CoreError::Cancelled`].
+pub fn decode_file_with(
+    path: &Path,
+    progress: &dyn ProgressSink,
+    cancel: &CancellationToken,
+) -> Result<AudioBuffer, CoreError> {
     let read_error = |source| CoreError::ReadFile {
         path: path.to_path_buf(),
         source,
@@ -106,6 +124,13 @@ pub fn decode_file(path: &Path) -> Result<AudioBuffer, CoreError> {
             continue;
         }
         packets += 1;
+        if packets % CANCEL_CHECK_PACKETS == 0 {
+            cancel.check()?;
+            if let Some(total) = announced_frames.filter(|&total| total > 0) {
+                let filled = timeline.channels.first().map_or(0, Vec::len) as f64;
+                progress.progress((filled / total as f64).min(1.0) as f32);
+            }
+        }
         let decoded = match decoder.decode(&packet) {
             Ok(decoded) => decoded,
             // Damaged data. The AAC decoder reports some damage as an

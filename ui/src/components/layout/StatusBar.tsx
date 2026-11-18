@@ -75,9 +75,7 @@ export function StatusBar(): JSX.Element {
                 value={percent(first)}
                 className="h-1 w-20 appearance-none overflow-hidden rounded-full [&::-moz-progress-bar]:bg-primary [&::-webkit-progress-bar]:bg-secondary [&::-webkit-progress-value]:bg-primary"
               />
-              <span className="font-mono tabular-nums">
-                {first.done} / {first.total}
-              </span>
+              <span className="font-mono tabular-nums">{percent(first)}%</span>
               {running.length > 1 && (
                 <span>{t("layout.statusBar.more", { count: running.length - 1 })}</span>
               )}

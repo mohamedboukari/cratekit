@@ -1,6 +1,6 @@
 # Cratekit: analysis module
 
-`crates/cratekit-core/src/analysis/`: track analysis (SPEC, Module 2). Pure Rust, no Tauri; tested with `cargo nextest run -p cratekit-core --all-features` (the `stratum` wrappers need the feature). Detectors arrive task by task: key and Camelot (#11), tempo and key detection (#10), loudness and energy (#12) now; waveform columns (#13) and `analyze_track()` later.
+`crates/cratekit-core/src/analysis/`: track analysis (SPEC, Module 2). Pure Rust, no Tauri; tested with `cargo nextest run -p cratekit-core --all-features` (the `stratum` wrappers need the feature). Detectors arrive task by task: key and Camelot (#11), tempo and key detection (#10), loudness and energy (#12) and the whole-track analysis `analyze_file` (#15) now; waveform columns (#13) later.
 
 ## Layout
 
@@ -12,6 +12,7 @@
 | `key_detect.rs` | `KeyDetector` trait and `ProfileKey`, our key detector (#10) |
 | `loudness.rs` | `measure_loudness`: integrated LUFS and true peak, through the `ebur128` crate (#12) |
 | `energy.rs` | `energy_score`: the 1 to 10 energy score (#12) |
+| `track.rs` | `analyze_file` / `analyze_buffer`: a whole track, with progress and cancellation (#15) |
 | `stratum.rs` | `StratumTempo` and `StratumKey`: `stratum-dsp` behind the same traits, `stratum` cargo feature (off by default) (#10) |
 
 ## `key.rs`: keys and the Camelot wheel
@@ -42,12 +43,12 @@
 
 ## Detectors (`tempo.rs`, `key_detect.rs`)
 
-Both detectors take mono `f32` samples and a sample rate, and analyze whatever they are given (picking the middle 60 to 90 s of a track is `analyze_track()`'s job). They return `None` when there is nothing to go on: silence, too short, a zero sample rate, or non-finite samples. The traits let implementations be swapped without changing callers: ours are the default, `stratum-dsp` is the second one.
+Both detectors take mono `f32` samples and a sample rate, and analyze whatever they are given (picking the middle of a track is `analyze_file`'s job). They return `None` when there is nothing to go on: silence, too short, a zero sample rate, or non-finite samples. The traits let implementations be swapped without changing callers: ours are the default, `stratum-dsp` is the second one.
 
 | Item | What it is |
 | --- | --- |
-| `TempoDetector::detect_tempo(samples, rate)` | `Option<TempoEstimate { bpm, confidence }>`: BPM folded into 70 to 180 (`BPM_RANGE`), confidence 0 to 1 (the UI's `bpm`, `bpmConfidence`) |
-| `OnsetTempo` | Ours. 1: onset envelope, the rise in log energy every 5 ms, smoothed by two 20 ms box averages (a 40 ms triangle, so steady tones and drones do not ripple it). 2: autocorrelation over 55 to 210 BPM, peaks refined with a parabola; the strongest peak is the beat unless a peak at a half, third or quarter of it scores at least 90% (then that is the beat), so off-beat hi-hats never halve or double the tempo. 3: a beat-grid fit every 0.01 BPM within 3%, scored over every onset in the clip, for sub-frame precision. 4: fold into the range. No estimate when the beats rise by less than 0.15 in log energy (about a 15% jump). Confidence: how far the best placement of the winning grid scores above an average placement (independent of clip length) |
+| `TempoDetector::detect_tempo(samples, rate)` | `Option<TempoEstimate { bpm, confidence, first_beat_sec }>`: BPM folded into 70 to 180 (`BPM_RANGE`), confidence 0 to 1, and the first beat within one beat of the start of the samples (`None` from `stratum-dsp`) (the UI's `bpm`, `bpmConfidence`, `firstBeatSec`) |
+| `OnsetTempo` | Ours. 1: onset envelope, the rise in log energy every 5 ms, smoothed by two 20 ms box averages (a 40 ms triangle, so steady tones and drones do not ripple it). 2: autocorrelation over 55 to 210 BPM, peaks refined with a parabola; the strongest peak is the beat unless a peak at a half, third or quarter of it scores at least 90% (then that is the beat), so off-beat hi-hats never halve or double the tempo. 3: a beat-grid fit every 0.01 BPM within 3%, scored over every onset in the clip, for sub-frame precision. 4: fold into the range. 5: the first beat from the winning grid's phase, minus a measured 6 ms latency of the log-energy rise (`ONSET_LATENCY_SECONDS`). On synthetic kicks at full level the first beat is within 2 ms at every tempo and start time; kicks 12 or 20 dB quieter, or over a sustained pad, land up to about 12 ms late. To re-check on real tracks in #22. No estimate when the beats rise by less than 0.15 in log energy (about a 15% jump). Confidence: how far the best placement of the winning grid scores above an average placement (independent of clip length) |
 | `KeyDetector::detect_key(samples, rate)` | `Option<KeyEstimate { key, confidence, chroma }>`: chroma C to B as loudness relative to the loudest note, 0 to 1 (the UI's `keyName`, `camelot` via `key.camelot()`, `keyConfidence`, `chroma`) |
 | `ProfileKey` | Ours. Chroma: Hann-windowed frames of 0.186 s, a Goertzel filter per note from C3 to B6, power summed per pitch class. Key: Pearson correlation with the 24 rotations of the Krumhansl-Kessler (1982) major and minor profiles. Confidence: lead over the runner-up relative to the lead over the average key |
 
@@ -97,3 +98,17 @@ On the synthetic audio: a quiet 80 Hz tone scores 1, kicks alone 3, the SPEC tes
 **Speed** (release, 90 s of stereo): loudness and energy together about 0.1 s.
 
 **Tests:** the score stays within 1 to 10; brightness reads the frequency of 100 Hz, 1 kHz and 4 kHz tones within 1% at 44.1, 48 and 96 kHz; one onset per kick at 90, 124 and 174 BPM and at most one (the tone starting) for steady tones from 40 to 440 Hz; 16th-note hats mixed under the full loop count as onsets; a calm tone scores lowest, then kicks alone, then the full loop; hats raise brightness and the score; faster kicks raise the density; a louder copy scores higher with the same brightness; no score for unusable input.
+
+## Whole track (`track.rs`)
+
+`analyze_file(path, progress, cancel) -> Result<TrackAnalysis, CoreError>` decodes the file (`audio::decode_file_with`) and runs `analyze_buffer`:
+
+1. Loudness (`measure_loudness`) on every channel of the whole track.
+2. Energy (`energy_score`) on the whole track in mono.
+3. Tempo (`OnsetTempo`) and key (`ProfileKey`) on the middle `SECTION_SECONDS` (90 s; the whole track when shorter): intros and outros are often beatless or in another key, and it is faster. The first beat found in the section is moved to track time (the same grid, within one beat of 0).
+
+`TrackAnalysis { duration_sec, sample_rate, channels, tempo, key, loudness, energy }`: a track with no beat, no notes or no sound is not an error, those fields are `None`. Progress goes 0 to 1: decoding is the first 40% (reported every 64 packets when the file announces its length), loudness the next 15% (fed to the meter 10 s at a time, `measure_loudness_with`). `cancel` is checked between steps, every 64 packets while decoding and every 10 s of audio while measuring loudness, and stops the task with `CoreError::Cancelled`. Memory: the decoded track plus a mono copy; the onset envelopes use sliding sums, so they add little (about 5 MB for 10 minutes). `progress::ProgressSink` is any `Fn(f32)` (or `NoProgress`); `progress::CancellationToken` is a shared flag.
+
+**Speed** (release): a 6 minute stereo track (the SPEC loop) in about 1 s, decoding excluded; the SPEC asks for under 5 s on a 2020 laptop CPU. The test runs a 6 minute track in release builds and a 1 minute one in debug builds (CI), which are many times slower.
+
+**Tests:** the SPEC loop gives its tempo, first beat, key, loudness and energy; the first beat of a track whose analyzed section starts 5 s in is still reported near the start; a tone has a key but no beat, silence has nothing; progress runs from 0 to 1 in order; a cancelled token stops the analysis.

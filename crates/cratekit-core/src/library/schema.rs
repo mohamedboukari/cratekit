@@ -9,7 +9,7 @@ use rusqlite::Connection;
 use crate::CoreError;
 
 /// The migrations, in order. `user_version` N means the first N have run.
-const MIGRATIONS: &[&str] = &[
+pub(super) const MIGRATIONS: &[&str] = &[
     // 1: the schema from docs/ARCHITECTURE.md (Database).
     r"
 CREATE TABLE tracks (
@@ -53,6 +53,10 @@ CREATE TABLE midi_mappings (device TEXT, target TEXT, kind TEXT, channel INTEGER
 CREATE TABLE settings (key TEXT PRIMARY KEY, value TEXT);
 CREATE INDEX masters_track ON masters(track_id);
 CREATE INDEX crate_tracks_track ON crate_tracks(track_id);
+",
+    // 2: the key's chroma (12 little-endian f32, C to B), for the Analyze tab.
+    r"
+ALTER TABLE analysis ADD COLUMN chroma BLOB;
 ",
 ];
 

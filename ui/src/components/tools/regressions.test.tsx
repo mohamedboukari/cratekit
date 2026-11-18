@@ -37,6 +37,7 @@ describe("tool tab regressions", () => {
       trackIds: [5],
       done: 4,
       total: 20,
+      queued: false,
     });
     render(<StemsPanel />);
     expect(await screen.findByRole("button", { name: "4 stems" })).toBeInTheDocument();

@@ -22,6 +22,7 @@ pub use scan::{AUDIO_EXTENSIONS, has_audio_extension};
 use crate::CoreError;
 use crate::analysis::ANALYZER_VERSION;
 use crate::analysis::key::{Camelot, Key, Mode, PitchClass};
+use crate::analysis::track::TrackAnalysis;
 use crate::audio::{FileInfo, probe_file};
 
 /// A track's id in the library.
@@ -151,14 +152,51 @@ pub struct Cue {
     pub name: Option<String>,
 }
 
-/// One track with everything stored about it. The analysis and waveform
-/// join with the analysis task (#15).
+/// A stored analysis as the Analyze tab shows it (the UI's `Analysis`).
+/// Everything derived (key name, Camelot code, scale, mixing partners) is
+/// computed here, not in the UI.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Analysis {
+    /// Tempo, or `None` for a track with no steady beat.
+    pub bpm: Option<f64>,
+    /// 0 to 1 (0 without a tempo).
+    pub bpm_confidence: f64,
+    /// Key name such as "A minor", or `None` without notes.
+    pub key_name: Option<String>,
+    /// Camelot code such as "8A".
+    pub camelot: Option<String>,
+    /// 0 to 1 (0 without a key).
+    pub key_confidence: f64,
+    /// Energy 1 to 10.
+    pub energy: Option<u8>,
+    /// Integrated loudness in LUFS.
+    pub lufs: Option<f64>,
+    /// True peak in dBTP.
+    pub true_peak_db: Option<f64>,
+    /// The first beat in seconds from the start of the track.
+    pub first_beat_sec: Option<f64>,
+    /// 12 values, C to B, 0 to 1 (all 0 without a key).
+    pub chroma: Vec<f32>,
+    /// 12 flags, C to B: the notes of the key's scale.
+    pub chroma_in_key: Vec<bool>,
+    /// Camelot codes that mix well with this track.
+    pub mixes_well_with: Vec<String>,
+    /// The drop, once auto cues exist (#48).
+    pub drop_sec: Option<f64>,
+    /// The mix-out point, once auto cues exist (#48).
+    pub mix_out_sec: Option<f64>,
+}
+
+/// One track with everything stored about it. The waveform joins with #13.
 #[derive(Debug, Clone, PartialEq)]
 pub struct TrackDetail {
     /// The browser row.
     pub track: TrackRow,
     /// The file on disk.
     pub path: PathBuf,
+    /// The stored analysis, if any.
+    pub analysis: Option<Analysis>,
     /// Hot cues, by slot.
     pub cues: Vec<Cue>,
 }
@@ -527,8 +565,99 @@ impl Library {
         Ok(TrackDetail {
             track,
             path: PathBuf::from(path),
+            analysis: self.analysis(id)?,
             cues,
         })
+    }
+
+    /// The stored analysis of a track, if any.
+    fn analysis(&self, id: TrackId) -> Result<Option<Analysis>, CoreError> {
+        let row = self
+            .connection
+            .query_row(
+                "SELECT bpm, bpm_confidence, key_tonic, key_mode, key_confidence, energy, lufs, \
+                 true_peak_db, first_beat_sec, chroma FROM analysis WHERE track_id = ?1",
+                [id],
+                |row| {
+                    let key = stored_key(row.get(2)?, row.get::<_, Option<String>>(3)?.as_deref());
+                    let chroma: Option<Vec<u8>> = row.get(9)?;
+                    Ok(Analysis {
+                        bpm: row.get(0)?,
+                        bpm_confidence: row.get::<_, Option<f64>>(1)?.unwrap_or(0.0),
+                        key_name: key.map(|key| key.to_string()),
+                        camelot: key.map(|key| key.camelot().to_string()),
+                        key_confidence: row.get::<_, Option<f64>>(4)?.unwrap_or(0.0),
+                        energy: row.get(5)?,
+                        lufs: row.get(6)?,
+                        true_peak_db: row.get(7)?,
+                        first_beat_sec: row.get(8)?,
+                        chroma: chroma
+                            .map_or_else(|| vec![0.0; 12], |bytes| chroma_from_bytes(&bytes)),
+                        chroma_in_key: key
+                            .map_or_else(|| vec![false; 12], |key| key.scale().to_vec()),
+                        mixes_well_with: key.map_or_else(Vec::new, |key| {
+                            key.camelot()
+                                .mixes_well_with()
+                                .iter()
+                                .map(ToString::to_string)
+                                .collect()
+                        }),
+                        drop_sec: None,
+                        mix_out_sec: None,
+                    })
+                },
+            )
+            .optional()?;
+        Ok(row)
+    }
+
+    /// Stores the analysis of a track (replacing an older one) and updates
+    /// its length, sample rate and channels from the decoded audio.
+    ///
+    /// # Errors
+    ///
+    /// [`CoreError::NotFound`] when the track is gone (removed while it was
+    /// analyzed), [`CoreError::Database`] if writing fails.
+    pub fn store_analysis(&mut self, id: TrackId, found: &TrackAnalysis) -> Result<(), CoreError> {
+        let transaction = self.connection.transaction()?;
+        let updated = transaction.execute(
+            "UPDATE tracks SET duration_sec = ?2, sample_rate = ?3, channels = ?4 WHERE id = ?1",
+            params![id, found.duration_sec, found.sample_rate, found.channels],
+        )?;
+        if updated == 0 {
+            return Err(CoreError::NotFound { what: "track", id });
+        }
+        let key = found.key.as_ref();
+        transaction.execute(
+            "INSERT OR REPLACE INTO analysis (track_id, bpm, bpm_confidence, key_tonic, key_mode, \
+             camelot, key_confidence, energy, lufs, true_peak_db, first_beat_sec, chroma, \
+             analyzer_version, analyzed_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, \
+             ?11, ?12, ?13, strftime('%Y-%m-%dT%H:%M:%SZ', 'now'))",
+            params![
+                id,
+                found.tempo.map(|tempo| f64::from(tempo.bpm)),
+                found.tempo.map(|tempo| f64::from(tempo.confidence)),
+                key.map(|key| key.key.tonic.index()),
+                key.map(|key| key.key.mode.to_string()),
+                key.map(|key| key.key.camelot().to_string()),
+                key.map(|key| f64::from(key.confidence)),
+                found.energy,
+                found
+                    .loudness
+                    .map(|loudness| f64::from(loudness.integrated_lufs)),
+                found
+                    .loudness
+                    .map(|loudness| f64::from(loudness.true_peak_dbtp)),
+                found
+                    .tempo
+                    .and_then(|tempo| tempo.first_beat_sec)
+                    .map(f64::from),
+                key.map(|key| chroma_to_bytes(&key.chroma)),
+                ANALYZER_VERSION,
+            ],
+        )?;
+        transaction.commit()?;
+        Ok(())
     }
 
     /// Removes tracks from the library: their rows, analysis, cues and crate
@@ -565,20 +694,42 @@ const ROW_SELECT: &str = "SELECT t.id, t.title, t.artist, t.duration_sec, a.bpm,
      EXISTS (SELECT 1 FROM masters m WHERE m.track_id = t.id), t.album, t.path \
      FROM tracks t LEFT JOIN analysis a ON a.track_id = t.id";
 
-fn track_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<TrackRow> {
-    let tonic: Option<u8> = row.get(5)?;
-    let mode: Option<String> = row.get(6)?;
-    let key = match (tonic, mode.as_deref()) {
-        (Some(tonic), Some("major")) => Some(Key {
-            tonic: PitchClass::from_index(tonic),
-            mode: Mode::Major,
-        }),
-        (Some(tonic), Some("minor")) => Some(Key {
-            tonic: PitchClass::from_index(tonic),
-            mode: Mode::Minor,
-        }),
-        _ => None,
+/// A key stored as a pitch class index (0 = C) and "major" or "minor".
+fn stored_key(tonic: Option<u8>, mode: Option<&str>) -> Option<Key> {
+    let mode = match mode? {
+        "major" => Mode::Major,
+        "minor" => Mode::Minor,
+        _ => return None,
     };
+    Some(Key {
+        tonic: PitchClass::from_index(tonic?),
+        mode,
+    })
+}
+
+/// Chroma as stored: 12 little-endian `f32`.
+fn chroma_to_bytes(chroma: &[f32; 12]) -> Vec<u8> {
+    chroma
+        .iter()
+        .flat_map(|value| value.to_le_bytes())
+        .collect()
+}
+
+/// Chroma from its stored bytes; zeros for anything malformed.
+fn chroma_from_bytes(bytes: &[u8]) -> Vec<f32> {
+    if bytes.len() != 48 {
+        return vec![0.0; 12];
+    }
+    bytes
+        .as_chunks::<4>()
+        .0
+        .iter()
+        .map(|chunk| f32::from_le_bytes(*chunk))
+        .collect()
+}
+
+fn track_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<TrackRow> {
+    let key = stored_key(row.get(5)?, row.get::<_, Option<String>>(6)?.as_deref());
     Ok(TrackRow {
         id: row.get(0)?,
         title: row.get::<_, Option<String>>(1)?.unwrap_or_default(),

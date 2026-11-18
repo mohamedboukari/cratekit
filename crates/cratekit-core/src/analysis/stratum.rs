@@ -55,6 +55,7 @@ impl TempoDetector for StratumTempo {
         Some(TempoEstimate {
             bpm: tempo::fold_into_range(f64::from(result.bpm)) as f32,
             confidence: result.bpm_confidence.clamp(0.0, 1.0),
+            first_beat_sec: None,
         })
     }
 }

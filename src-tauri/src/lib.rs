@@ -3,6 +3,7 @@
 //! Commands here stay thin: they validate input, call `cratekit-core` or
 //! `cratekit-audio`, and map errors to [`AppError`]. No domain logic lives here.
 
+mod jobs;
 mod library;
 
 use std::sync::{Mutex, PoisonError};
@@ -135,6 +136,7 @@ impl From<cratekit_core::CoreError> for AppError {
             cratekit_core::CoreError::Database(_) => "database",
             cratekit_core::CoreError::DatabaseTooNew { .. } => "database_too_new",
             cratekit_core::CoreError::NotFound { .. } => "not_found",
+            cratekit_core::CoreError::Cancelled => "cancelled",
         };
         Self {
             code,
@@ -259,6 +261,9 @@ pub fn run() -> anyhow::Result<()> {
         .setup(|app| {
             let state = library::LibraryState::open(app.handle());
             app.manage(state);
+            let jobs = jobs::Jobs::default();
+            jobs.start(app.handle().clone());
+            app.manage(jobs);
             Ok(())
         })
         .menu(|app| build_menu(app, &MenuLabels::default()))
@@ -285,7 +290,10 @@ pub fn run() -> anyhow::Result<()> {
             library::library_list,
             library::library_counts,
             library::track_detail,
-            library::crates_list
+            library::crates_list,
+            jobs::analyze_tracks,
+            jobs::job_cancel,
+            jobs::jobs_set_paused
         ])
         .run(tauri::generate_context!())?;
     Ok(())

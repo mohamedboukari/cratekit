@@ -219,6 +219,7 @@ export function createMockApi(): CratekitApi {
         trackIds,
         done,
         total,
+        queued: false,
       });
       if (done >= total) {
         clearInterval(timer);
@@ -235,6 +236,7 @@ export function createMockApi(): CratekitApi {
       trackIds,
       done: 0,
       total,
+      queued: false,
     });
     return jobId;
   }
