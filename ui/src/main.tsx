@@ -2,6 +2,8 @@ import { StrictMode, type JSX } from "react";
 import { createRoot } from "react-dom/client";
 
 import { App } from "@/App";
+// Loads the translations before anything renders (English by default).
+import "@/i18n";
 import { SettingsApp } from "@/components/settings/SettingsApp";
 import { initApi } from "@/lib/ipc";
 import "@/index.css";

@@ -1,9 +1,10 @@
 import { Pause, Play, X } from "lucide-react";
 import { useEffect, useState, type JSX } from "react";
+import { useTranslation } from "react-i18next";
 
 import { Button } from "@/components/ui/button";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import { BACKEND_LABEL } from "@/lib/format";
+import { backendLabel, jobLabel } from "@/lib/format";
 import { api } from "@/lib/ipc";
 import type { Job } from "@/lib/types";
 import { useDevices } from "@/stores/devices";
@@ -15,6 +16,7 @@ function percent(job: Job): number {
 
 /** Bottom bar: controller, background jobs (with the queue), backend, offline promise, version. */
 export function StatusBar(): JSX.Element {
+  const { t } = useTranslation();
   const jobs = useJobs((s) => s.jobs);
   const paused = useJobs((s) => s.paused);
   const cancel = useJobs((s) => s.cancel);
@@ -46,7 +48,7 @@ export function StatusBar(): JSX.Element {
               : "size-1.5 rounded-full bg-secondary"
           }
         />
-        {controller ? controller.name : "No controller"}
+        {controller ? controller.name : t("layout.statusBar.noController")}
       </span>
 
       {/* Always rendered, so focus has a home when the last job ends while the queue is open. */}
@@ -58,15 +60,15 @@ export function StatusBar(): JSX.Element {
               className="flex items-center gap-2 rounded-sm px-1 hover:text-foreground"
               aria-label={
                 first
-                  ? `Background jobs: ${running.length}. Show queue`
-                  : "No background jobs. Show queue"
+                  ? t("layout.statusBar.jobsLabel", { running: running.length })
+                  : t("layout.statusBar.noJobsLabel")
               }
             />
           }
         >
           {first ? (
             <>
-              {first.label}
+              {jobLabel(first)}
               <progress
                 aria-hidden="true"
                 max={100}
@@ -76,41 +78,45 @@ export function StatusBar(): JSX.Element {
               <span className="font-mono tabular-nums">
                 {first.done} / {first.total}
               </span>
-              {running.length > 1 && <span>+{running.length - 1} more</span>}
+              {running.length > 1 && (
+                <span>{t("layout.statusBar.more", { count: running.length - 1 })}</span>
+              )}
             </>
           ) : (
-            "No background jobs"
+            t("layout.statusBar.noJobs")
           )}
-          {paused && <span className="text-ck-orange">paused</span>}
+          {paused && (
+            <span className="text-ck-orange">{t("layout.statusBar.paused")}</span>
+          )}
         </PopoverTrigger>
         <PopoverContent side="top" align="start" className="w-80">
           <div className="mb-2 flex items-center justify-between">
-            <h3 className="text-xs font-semibold">Background jobs</h3>
+            <h3 className="text-xs font-semibold">{t("layout.statusBar.jobs")}</h3>
             <Button variant="ghost" size="sm" onClick={() => void setPaused(!paused)}>
               {paused ? (
                 <Play aria-hidden="true" data-icon="inline-start" />
               ) : (
                 <Pause aria-hidden="true" data-icon="inline-start" />
               )}
-              {paused ? "Resume" : "Pause"}
+              {paused ? t("layout.statusBar.resume") : t("layout.statusBar.pause")}
             </Button>
           </div>
           {running.length === 0 ? (
             <p className="text-xs text-muted-foreground">
-              Nothing running. Analysis, stems and exports show up here.
+              {t("layout.statusBar.nothingRunning")}
             </p>
           ) : (
             <ul className="flex flex-col gap-2">
               {running.map((job) => (
                 <li key={job.id} className="flex items-center gap-2 text-xs">
-                  <span className="min-w-0 flex-1 truncate">{job.label}</span>
+                  <span className="min-w-0 flex-1 truncate">{jobLabel(job)}</span>
                   <span className="font-mono text-muted-foreground tabular-nums">
                     {percent(job)}%
                   </span>
                   <Button
                     variant="ghost"
                     size="icon-xs"
-                    aria-label={`Cancel ${job.label}`}
+                    aria-label={t("layout.statusBar.cancelJob", { label: jobLabel(job) })}
                     onClick={() => void cancel(job.id)}
                   >
                     <X aria-hidden="true" />
@@ -126,9 +132,9 @@ export function StatusBar(): JSX.Element {
       </output>
 
       <span className="ml-auto">
-        {backend ? BACKEND_LABEL[backend.active] : "Backend: checking"}
+        {backend ? backendLabel(backend.active) : t("layout.statusBar.backendChecking")}
       </span>
-      <span>Offline · nothing uploaded</span>
+      <span>{t("layout.statusBar.offline")}</span>
       <span className="font-mono tabular-nums">{version ? `v${version}` : "v?"}</span>
     </footer>
   );

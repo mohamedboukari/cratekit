@@ -1,4 +1,5 @@
 import { useEffect, type JSX } from "react";
+import { useTranslation } from "react-i18next";
 
 import { BrowserArea } from "@/components/browser/BrowserArea";
 import { DropOverlay } from "@/components/dialogs/DropOverlay";
@@ -33,6 +34,7 @@ const IN_PAGE_SETTINGS = SHOW_DEMO_BANNER;
 
 /** Main window. Settings load first so saved pane sizes apply on the first paint. */
 export function App(): JSX.Element {
+  const { t } = useTranslation();
   const ready = useSettings((s) => s.status === "ready");
   const loadSettings = useSettings((s) => s.load);
   const loadLibrary = useLibrary((s) => s.load);
@@ -101,7 +103,7 @@ export function App(): JSX.Element {
           className="grid h-full place-items-center text-muted-foreground"
           aria-busy="true"
         >
-          Loading Cratekit...
+          {t("layout.app.loading")}
         </div>
       )}
       <DropOverlay />

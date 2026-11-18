@@ -1,5 +1,6 @@
 import { create } from "zustand";
 
+import { i18n } from "@/i18n";
 import { api, isMockMode } from "@/lib/ipc";
 import { notifyError } from "@/lib/notify";
 import type { TrackId } from "@/lib/types";
@@ -37,7 +38,7 @@ export const useUi = create<UiState>()((set) => ({
     else
       api()
         .appOpenSettings()
-        .catch((error: unknown) => notifyError(error, "Could not open Settings"));
+        .catch((error: unknown) => notifyError(error, i18n.t("errors.ui.openSettings")));
   },
   closeSettings: () => set({ settingsOpen: false }),
   openExport: (ids) => set({ exportIds: ids }),

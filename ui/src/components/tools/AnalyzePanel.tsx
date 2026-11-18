@@ -1,10 +1,12 @@
 import { cn } from "cn";
 import { RefreshCw } from "lucide-react";
 import type { JSX } from "react";
+import { useTranslation } from "react-i18next";
 
 import { Stat, ToolCard, ToolEmpty } from "@/components/tools/ToolCard";
 import { Button } from "@/components/ui/button";
 import { usePanelFocusFallback } from "@/hooks/usePanelFocusFallback";
+import { i18n } from "@/i18n";
 import { api } from "@/lib/ipc";
 import { formatTime } from "@/lib/format";
 import { notifyError } from "@/lib/notify";
@@ -29,14 +31,10 @@ const NOTE_NAMES = [
   "B",
 ] as const;
 
-function percent(value: number): string {
-  return `${Math.round(value * 100)}%`;
-}
-
 function analyze(detail: TrackDetail): void {
   api()
     .analyzeTracks([detail.track.id])
-    .catch((error: unknown) => notifyError(error, "Could not start the analysis"));
+    .catch((error: unknown) => notifyError(error, i18n.t("tools.analyze.startError")));
 }
 
 /**
@@ -45,27 +43,31 @@ function analyze(detail: TrackDetail): void {
  * value comes from Rust's analysis; nothing is computed here.
  */
 export function AnalyzePanel(): JSX.Element {
+  const { t } = useTranslation();
   const detail = usePlayer((s) => s.detail);
   const trackId = detail?.track.id ?? null;
-  // Progress of an analysis that includes the loaded track, as "n%", or null.
+  // Progress (0 to 100) of an analysis that includes the loaded track, or null.
   const running = useJobs((s) => {
     if (trackId === null) return null;
     const job = activeJobs(s.jobs).find(
       (j) => j.kind === "analysis" && j.trackIds.includes(trackId),
     );
     if (!job) return null;
-    return `${job.total > 0 ? Math.round((job.done / job.total) * 100) : 0}%`;
+    return job.total > 0 ? Math.round((job.done / job.total) * 100) : 0;
   });
   usePanelFocusFallback(!detail ? "empty" : detail.analysis ? "analyzed" : "unanalyzed");
 
-  if (!detail)
-    return <ToolEmpty>Load a track to see its key, tempo and loudness.</ToolEmpty>;
+  if (!detail) return <ToolEmpty>{t("tools.analyze.empty")}</ToolEmpty>;
   if (!detail.analysis) {
     return (
       <ToolEmpty>
-        <p>{detail.track.title} is not analyzed yet.</p>
+        <p>{t("tools.analyze.notAnalyzed", { title: detail.track.title })}</p>
         <Button disabled={running !== null} onClick={() => analyze(detail)}>
-          {running === null ? "Analyze now" : `Analyzing... ${running}`}
+          {running === null
+            ? t("tools.analyze.analyzeNow")
+            : t("tools.analyze.analyzing", {
+                progress: t("tools.percent", { value: running }),
+              })}
         </Button>
       </ToolEmpty>
     );
@@ -79,10 +81,11 @@ function AnalysisView({
   running,
 }: {
   detail: TrackDetail;
-  /** Progress of a re-analysis in flight, or null. */
-  running: string | null;
+  /** Progress (0 to 100) of a re-analysis in flight, or null. */
+  running: number | null;
   analysis: Analysis;
 }): JSX.Element {
+  const { t } = useTranslation();
   const seek = usePlayer((s) => s.seek);
   const setQuery = useLibrary((s) => s.setQuery);
   const strongest = Math.max(...a.chroma, 0.0001);
@@ -90,10 +93,10 @@ function AnalysisView({
   return (
     <div className="flex flex-col gap-3 p-3">
       <ToolCard
-        title="Key"
+        title={t("tools.analyze.key")}
         aside={
           <span className="text-[11px] text-muted-foreground">
-            {percent(a.keyConfidence)} sure
+            {t("tools.analyze.sure", { percent: Math.round(a.keyConfidence * 100) })}
           </span>
         }
       >
@@ -103,7 +106,9 @@ function AnalysisView({
         </div>
         <figure className="mt-3">
           <figcaption className="sr-only">
-            {`Pitch strength. Notes in the key: ${NOTE_NAMES.filter((_, i) => a.chromaInKey[i]).join(", ")}`}
+            {t("tools.analyze.pitchStrength", {
+              notes: NOTE_NAMES.filter((_, i) => a.chromaInKey[i]).join(", "),
+            })}
           </figcaption>
           <div aria-hidden="true" className="flex h-16 items-end gap-1">
             {a.chroma.map((value, i) => (
@@ -127,7 +132,7 @@ function AnalysisView({
         </figure>
         <div className="mt-3">
           <h4 className="mb-1.5 text-[11px] text-muted-foreground">
-            Mixes well with (click to filter the browser)
+            {t("tools.analyze.mixesWellWith")}
           </h4>
           <div className="flex flex-wrap gap-1.5">
             {a.mixesWellWith.map((code) => (
@@ -137,7 +142,7 @@ function AnalysisView({
                 size="sm"
                 className="rounded-full font-mono"
                 onClick={() => void setQuery({ matchCamelot: code })}
-                aria-label={`Show tracks that match ${code}`}
+                aria-label={t("tools.analyze.showMatching", { code })}
               >
                 {code}
               </Button>
@@ -147,44 +152,63 @@ function AnalysisView({
       </ToolCard>
 
       <ToolCard
-        title="Tempo and cues"
+        title={t("tools.analyze.tempoAndCues")}
         aside={
           <span className="text-[11px] text-muted-foreground">
-            {percent(a.bpmConfidence)} sure
+            {t("tools.analyze.sure", { percent: Math.round(a.bpmConfidence * 100) })}
           </span>
         }
       >
         <dl>
           <Stat label="BPM" value={a.bpm.toFixed(1)} />
-          <Stat label="First downbeat" value={`${a.firstBeatSec.toFixed(3)} s`} />
-          <Stat label="Energy" value={`${a.energy} / 10`} />
           <Stat
-            label="Drop"
+            label={t("tools.analyze.firstDownbeat")}
+            value={`${a.firstBeatSec.toFixed(3)} s`}
+          />
+          <Stat label={t("tools.analyze.energy")} value={`${a.energy} / 10`} />
+          <Stat
+            label={t("tools.analyze.drop")}
             value={
               a.dropSec === null ? (
                 "--"
               ) : (
-                <CueLink sec={a.dropSec} label="drop" onSeek={seek} />
+                <CueLink
+                  sec={a.dropSec}
+                  label={t("tools.analyze.jumpToDrop", { time: formatTime(a.dropSec) })}
+                  onSeek={seek}
+                />
               )
             }
           />
           <Stat
-            label="Mix out"
+            label={t("tools.analyze.mixOut")}
             value={
               a.mixOutSec === null ? (
                 "--"
               ) : (
-                <CueLink sec={a.mixOutSec} label="mix-out point" onSeek={seek} />
+                <CueLink
+                  sec={a.mixOutSec}
+                  label={t("tools.analyze.jumpToMixOut", {
+                    time: formatTime(a.mixOutSec),
+                  })}
+                  onSeek={seek}
+                />
               )
             }
           />
         </dl>
       </ToolCard>
 
-      <ToolCard title="Loudness">
+      <ToolCard title={t("tools.analyze.loudness")}>
         <dl>
-          <Stat label="Integrated" value={`${a.lufs.toFixed(1)} LUFS`} />
-          <Stat label="True peak" value={`${a.truePeakDb.toFixed(1)} dBTP`} />
+          <Stat
+            label={t("tools.analyze.integrated")}
+            value={`${a.lufs.toFixed(1)} LUFS`}
+          />
+          <Stat
+            label={t("tools.analyze.truePeak")}
+            value={`${a.truePeakDb.toFixed(1)} dBTP`}
+          />
         </dl>
       </ToolCard>
 
@@ -196,7 +220,11 @@ function AnalysisView({
         onClick={() => analyze(detail)}
       >
         <RefreshCw aria-hidden="true" data-icon="inline-start" />
-        {running === null ? "Re-analyze" : `Analyzing... ${running}`}
+        {running === null
+          ? t("tools.analyze.reanalyze")
+          : t("tools.analyze.analyzing", {
+              progress: t("tools.percent", { value: running }),
+            })}
       </Button>
     </div>
   );
@@ -208,6 +236,7 @@ function CueLink({
   onSeek,
 }: {
   sec: number;
+  /** Accessible name, e.g. "Jump to the drop at 1:02". */
   label: string;
   onSeek: (sec: number) => Promise<void>;
 }): JSX.Element {
@@ -215,7 +244,7 @@ function CueLink({
     <button
       type="button"
       onClick={() => void onSeek(sec)}
-      aria-label={`Jump to the ${label} at ${formatTime(sec)}`}
+      aria-label={label}
       className="rounded-sm text-primary underline-offset-2 hover:underline"
     >
       {formatTime(sec)}

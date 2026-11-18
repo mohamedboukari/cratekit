@@ -1,10 +1,12 @@
 import { Download, X } from "lucide-react";
 import { useId, type JSX } from "react";
+import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 
 import { Meter } from "@/components/tools/Meter";
 import { ToolCard, ToolEmpty } from "@/components/tools/ToolCard";
 import { Button } from "@/components/ui/button";
+import type { MasterPreset } from "@/lib/types";
 import { useMaster, type AbSide } from "@/stores/master";
 import { usePlayer } from "@/stores/player";
 
@@ -87,15 +89,25 @@ function Segmented<T extends string | number>({
   );
 }
 
-const AB_OPTIONS: ReadonlyArray<{ value: AbSide; label: string; title: string }> = [
-  { value: "a", label: "A: Original", title: "Hear the original (B)" },
-  { value: "b", label: "B: Mastered", title: "Hear the master (B)" },
-];
+/** A/B sides, with translation keys for the label and the tooltip. */
+const AB_OPTIONS = [
+  { value: "a", label: "tools.master.ab.a", title: "tools.master.ab.aTitle" },
+  { value: "b", label: "tools.master.ab.b", title: "tools.master.ab.bTitle" },
+] as const satisfies ReadonlyArray<{ value: AbSide; label: string; title: string }>;
 
-const BIT_DEPTHS: ReadonlyArray<{ value: 16 | 24; label: string; title: string }> = [
-  { value: 24, label: "24-bit", title: "WAV 24-bit" },
-  { value: 16, label: "16-bit", title: "WAV 16-bit with dither" },
-];
+/** Export bit depths, with translation keys for the label and the tooltip. */
+const BIT_DEPTHS = [
+  { value: 24, label: "tools.master.bits24", title: "tools.master.bits24Title" },
+  { value: 16, label: "tools.master.bits16", title: "tools.master.bits16Title" },
+] as const satisfies ReadonlyArray<{ value: 16 | 24; label: string; title: string }>;
+
+/** Presets the UI has translations for; Rust's English text covers any other. */
+const KNOWN_PRESETS = ["club", "hip-hop", "pop", "lo-fi", "chill"] as const;
+type KnownPreset = (typeof KNOWN_PRESETS)[number];
+
+function isKnownPreset(name: string): name is KnownPreset {
+  return KNOWN_PRESETS.some((known) => known === name);
+}
 
 /**
  * Master tab (#28, UI side): preset, intensity, loudness target, optional
@@ -103,6 +115,7 @@ const BIT_DEPTHS: ReadonlyArray<{ value: 16 | 24; label: string; title: string }
  * the B side and the export; the UI only sends settings.
  */
 export function MasterPanel(): JSX.Element {
+  const { t } = useTranslation();
   const detail = usePlayer((s) => s.detail);
   const presets = useMaster((s) => s.presets);
   const presetsStatus = useMaster((s) => s.presetsStatus);
@@ -122,42 +135,50 @@ export function MasterPanel(): JSX.Element {
   const setLevelMatch = useMaster((s) => s.setLevelMatch);
   const exportMaster = useMaster((s) => s.exportMaster);
 
-  if (!detail) return <ToolEmpty>Load a track to master it.</ToolEmpty>;
+  if (!detail) return <ToolEmpty>{t("tools.master.empty")}</ToolEmpty>;
 
   const trackId = detail.track.id;
   const preset = presets.find((p) => p.name === settings.preset);
   const lastExport = result?.trackId === trackId ? result.master : null;
+  const presetLabel = (p: MasterPreset): string =>
+    isKnownPreset(p.name) ? t(`tools.master.presets.${p.name}.label`) : p.label;
+  const presetDescription = (p: MasterPreset): string =>
+    isKnownPreset(p.name)
+      ? t(`tools.master.presets.${p.name}.description`)
+      : p.description;
 
   const onExport = async (): Promise<void> => {
     const master = await exportMaster(trackId);
-    if (master) toast.success("Master exported", { description: master.path });
+    if (master) toast.success(t("tools.master.exported"), { description: master.path });
   };
 
   return (
     <div className="flex flex-col gap-3 p-3">
-      <ToolCard title="Sound">
+      <ToolCard title={t("tools.master.sound")}>
         {presetsStatus === "ready" ? (
           <Segmented
-            legend="Preset"
-            options={presets.map((p) => ({ value: p.name, label: p.label }))}
+            legend={t("tools.master.preset")}
+            options={presets.map((p) => ({ value: p.name, label: presetLabel(p) }))}
             value={settings.preset}
             onChange={setPreset}
           />
         ) : presetsStatus === "loading" ? (
-          <p className="text-muted-foreground">Loading presets...</p>
+          <p className="text-muted-foreground">{t("tools.master.loadingPresets")}</p>
         ) : (
           <p className="flex items-center gap-2 text-muted-foreground">
-            Could not load the presets.
+            {t("tools.master.presetsError")}
             <Button variant="outline" size="sm" onClick={() => void loadPresets()}>
-              Retry
+              {t("tools.master.retry")}
             </Button>
           </p>
         )}
-        {preset && <p className="mt-1.5 text-muted-foreground">{preset.description}</p>}
+        {preset && (
+          <p className="mt-1.5 text-muted-foreground">{presetDescription(preset)}</p>
+        )}
 
         <RangeField
-          label="Intensity"
-          valueText={`${Math.round(settings.intensity * 100)}%`}
+          label={t("tools.master.intensity")}
+          valueText={t("tools.percent", { value: Math.round(settings.intensity * 100) })}
           min={0}
           max={100}
           step={1}
@@ -165,7 +186,7 @@ export function MasterPanel(): JSX.Element {
           onChange={(v) => setIntensity(v / 100)}
         />
         <RangeField
-          label="Loudness target"
+          label={t("tools.master.loudnessTarget")}
           valueText={`${settings.targetLufs.toFixed(1)} LUFS`}
           min={LUFS_MIN}
           max={LUFS_MAX}
@@ -175,7 +196,7 @@ export function MasterPanel(): JSX.Element {
         />
 
         <div className="mt-3 flex items-center gap-2">
-          <span className="text-muted-foreground">Reference</span>
+          <span className="text-muted-foreground">{t("tools.master.reference")}</span>
           {referenceTitle ? (
             <>
               <span className="min-w-0 flex-1 truncate" title={referenceTitle}>
@@ -184,7 +205,7 @@ export function MasterPanel(): JSX.Element {
               <Button
                 variant="ghost"
                 size="icon-xs"
-                aria-label="Clear the reference track"
+                aria-label={t("tools.master.clearReference")}
                 onClick={() => setReference(null)}
               >
                 <X aria-hidden="true" />
@@ -192,14 +213,14 @@ export function MasterPanel(): JSX.Element {
             </>
           ) : (
             <span className="text-[11px] text-muted-foreground">
-              None. Right-click a track and choose Use as mastering reference.
+              {t("tools.master.noReference")}
             </span>
           )}
         </div>
       </ToolCard>
 
       <ToolCard
-        title="Compare"
+        title={t("tools.master.compare")}
         aside={
           <label className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
             <input
@@ -208,13 +229,17 @@ export function MasterPanel(): JSX.Element {
               onChange={(e) => void setLevelMatch(e.target.checked)}
               className="accent-primary"
             />
-            Level-matched
+            {t("tools.master.levelMatched")}
           </label>
         }
       >
         <Segmented
-          legend="A/B compare"
-          options={AB_OPTIONS}
+          legend={t("tools.master.abCompare")}
+          options={AB_OPTIONS.map((o) => ({
+            value: o.value,
+            label: t(o.label),
+            title: t(o.title),
+          }))}
           value={side}
           onChange={setSide}
         />
@@ -223,13 +248,16 @@ export function MasterPanel(): JSX.Element {
         </div>
       </ToolCard>
 
-      <ToolCard title="Export">
+      <ToolCard title={t("tools.master.export")}>
         <p className="text-muted-foreground">
-          {`Target ${settings.targetLufs.toFixed(1)} LUFS, ceiling ${CEILING_DBTP.toFixed(1)} dBTP`}
+          {t("tools.master.target", {
+            lufs: settings.targetLufs.toFixed(1),
+            ceiling: CEILING_DBTP.toFixed(1),
+          })}
         </p>
         {lastExport && (
           <p className="mt-1">
-            <span className="text-primary">Exported:</span>{" "}
+            <span className="text-primary">{t("tools.master.exportedLabel")}</span>{" "}
             <span className="font-mono tabular-nums">
               {`${lastExport.lufs.toFixed(1)} LUFS, ${lastExport.truePeakDb.toFixed(1)} dBTP`}
             </span>
@@ -243,8 +271,12 @@ export function MasterPanel(): JSX.Element {
         )}
         <div className="mt-2.5 flex flex-wrap items-center gap-2">
           <Segmented
-            legend="Bit depth"
-            options={BIT_DEPTHS}
+            legend={t("tools.master.bitDepth")}
+            options={BIT_DEPTHS.map((o) => ({
+              value: o.value,
+              label: t(o.label),
+              title: t(o.title),
+            }))}
             value={settings.bitDepth}
             onChange={setBitDepth}
           />
@@ -254,7 +286,7 @@ export function MasterPanel(): JSX.Element {
             onClick={() => void onExport()}
           >
             <Download aria-hidden="true" data-icon="inline-start" />
-            {exporting ? "Rendering..." : "Export WAV"}
+            {exporting ? t("tools.master.rendering") : t("tools.master.exportWav")}
           </Button>
         </div>
       </ToolCard>

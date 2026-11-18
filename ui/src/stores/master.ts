@@ -1,5 +1,6 @@
 import { create } from "zustand";
 
+import { i18n } from "@/i18n";
 import { api } from "@/lib/ipc";
 import { notifyError } from "@/lib/notify";
 import type {
@@ -92,7 +93,7 @@ export const useMaster = create<MasterState>()((set, get) => {
           set({ settings: { ...get().settings, targetLufs: current.targetLufs } });
       } catch (error) {
         set({ presetsStatus: "error" });
-        notifyError(error, "Could not load the mastering presets");
+        notifyError(error, i18n.t("errors.master.presets"));
       }
     },
 
@@ -119,7 +120,7 @@ export const useMaster = create<MasterState>()((set, get) => {
         await api().playbackSetLevelMatch(enabled);
       } catch (error) {
         set({ levelMatch: previous });
-        notifyError(error, "Could not change level matching");
+        notifyError(error, i18n.t("errors.master.levelMatch"));
       }
     },
 
@@ -127,7 +128,7 @@ export const useMaster = create<MasterState>()((set, get) => {
       try {
         await api().masterPreview(id, get().settings);
       } catch (error) {
-        notifyError(error, "Could not prepare the mastered preview");
+        notifyError(error, i18n.t("errors.master.preview"));
       }
     },
 
@@ -138,7 +139,7 @@ export const useMaster = create<MasterState>()((set, get) => {
         set({ result: { trackId: id, master } });
         return master;
       } catch (error) {
-        notifyError(error, "Could not export the master");
+        notifyError(error, i18n.t("errors.master.export"));
         return null;
       } finally {
         set({ exporting: false });

@@ -145,6 +145,7 @@ The app keeps a local library of tracks the user adds. Original files are never 
 ## Module 7: Settings
 
 **Features**
+- General: UI language. English is the default for every user (never taken from the system language); French first, more later (#80 to #82).
 - Audio output: device list (hot-plug aware), buffer size, sample rate shown.
 - Library: watched folders (add / remove, watch on/off), Cratekit output folder for stems and masters.
 - Processing: "GPU (auto)" or "CPU only" for stems, with the detected backend shown.
@@ -156,6 +157,7 @@ The app keeps a local library of tracks the user adds. Original files are never 
 - Switching the audio output device while a track plays resumes playback on the new device without restarting the app.
 - Unplugging the active audio device falls back to the system default and shows a notice.
 - All settings survive an app restart.
+- A fresh install starts in English on any system; choosing another language switches every window, dialog, toast and the native menu at once, and survives a restart.
 
 ## Module 8: Performance mode (v0.2+)
 

@@ -1,5 +1,6 @@
 import { create } from "zustand";
 
+import { i18n } from "@/i18n";
 import { api } from "@/lib/ipc";
 import { notifyError } from "@/lib/notify";
 import type { ControlTarget, MidiLearned, MidiMapping } from "@/lib/types";
@@ -35,7 +36,7 @@ export const useController = create<ControllerState>()((set, get) => ({
       const mappings = await api().midiMappings(deviceId);
       if (seq === loadSeq) set({ mappings });
     } catch (error) {
-      if (seq === loadSeq) notifyError(error, "Could not load the controller mapping");
+      if (seq === loadSeq) notifyError(error, i18n.t("errors.controller.load"));
     }
   },
 
@@ -45,7 +46,7 @@ export const useController = create<ControllerState>()((set, get) => ({
       await api().midiLearnStart(target);
     } catch (error) {
       set({ learning: null });
-      notifyError(error, "Could not start MIDI learn");
+      notifyError(error, i18n.t("errors.controller.learnStart"));
     }
   },
 
@@ -55,7 +56,7 @@ export const useController = create<ControllerState>()((set, get) => ({
     try {
       await api().midiLearnCancel();
     } catch (error) {
-      notifyError(error, "Could not cancel MIDI learn");
+      notifyError(error, i18n.t("errors.controller.learnCancel"));
     }
   },
 

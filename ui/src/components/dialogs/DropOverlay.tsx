@@ -1,5 +1,6 @@
 import { FolderInput } from "lucide-react";
 import { useEffect, useState, type JSX } from "react";
+import { useTranslation } from "react-i18next";
 
 import { api } from "@/lib/ipc";
 import { announceImport } from "@/lib/notify";
@@ -11,6 +12,7 @@ import { useLibrary } from "@/stores/library";
  * and checks every file.
  */
 export function DropOverlay(): JSX.Element | null {
+  const { t } = useTranslation();
   const [dragging, setDragging] = useState(false);
   const addPaths = useLibrary((s) => s.addPaths);
 
@@ -39,8 +41,8 @@ export function DropOverlay(): JSX.Element | null {
     >
       <div className="flex h-full w-full flex-col items-center justify-center gap-3 rounded-2xl border-2 border-dashed border-primary text-primary">
         <FolderInput className="size-10" />
-        <p className="text-lg font-semibold">Drop tracks or a folder to add them</p>
-        <p className="text-muted-foreground">Your files stay where they are</p>
+        <p className="text-lg font-semibold">{t("dialogs.dropOverlay.title")}</p>
+        <p className="text-muted-foreground">{t("dialogs.dropOverlay.hint")}</p>
       </div>
     </div>
   );

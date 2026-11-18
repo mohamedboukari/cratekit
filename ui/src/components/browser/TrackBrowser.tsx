@@ -17,15 +17,17 @@ import {
   type KeyboardEvent,
   type MouseEvent,
 } from "react";
+import { useTranslation } from "react-i18next";
 
 import { browserColumns, browserFeatures } from "@/components/browser/columns";
 import { TrackContextMenu } from "@/components/browser/TrackContextMenu";
 import { Button } from "@/components/ui/button";
 import { TRACK_DRAG_MIME } from "@/lib/dnd";
 import { formatDuration, formatTime } from "@/lib/format";
-import { AUDIO_FORMATS_TEXT } from "@/lib/formats";
+import { audioFormatsText } from "@/lib/formats";
 import { api } from "@/lib/ipc";
 import { announceImport, notifyError } from "@/lib/notify";
+import type { browser } from "@/i18n/en/browser";
 import type { TrackId, TrackRow } from "@/lib/types";
 import { activeJobs, useJobs } from "@/stores/jobs";
 import { useLibrary } from "@/stores/library";
@@ -38,16 +40,17 @@ const ROW_HEIGHT = 30;
  * energy and the ready tags.
  */
 const GRID_COLUMNS =
-  "grid grid-cols-[32px_minmax(96px,2fr)_minmax(64px,1.3fr)_56px_48px_48px] @xl:grid-cols-[36px_minmax(110px,2fr)_minmax(80px,1.3fr)_56px_48px_76px_48px_120px]";
+  "grid grid-cols-[32px_minmax(88px,2fr)_minmax(56px,1.3fr)_56px_48px_56px] @xl:grid-cols-[36px_minmax(110px,2fr)_minmax(80px,1.3fr)_56px_48px_76px_56px_120px]";
 /** Cells that only fit in the wide layout. */
 const WIDE_ONLY = "hidden @xl:block";
-const SORTABLE_HEADERS: Record<string, string> = {
-  title: "Title",
-  artist: "Artist",
-  bpm: "BPM",
-  camelot: "Key",
-  energy: "Energy",
-  durationSec: "Time",
+/** Header text of each sortable column, as a key under `browser.columns`. */
+const SORTABLE_HEADERS: Record<string, keyof typeof browser.columns> = {
+  title: "title",
+  artist: "artist",
+  bpm: "bpm",
+  camelot: "key",
+  energy: "energy",
+  durationSec: "time",
 };
 
 /**
@@ -58,6 +61,7 @@ const SORTABLE_HEADERS: Record<string, string> = {
  * search are applied by Rust (setQuery); sorting is presentation only.
  */
 export function TrackBrowser(): JSX.Element {
+  const { t } = useTranslation();
   const rows = useLibrary((s) => s.rows);
   const status = useLibrary((s) => s.status);
   const query = useLibrary((s) => s.query);
@@ -69,10 +73,14 @@ export function TrackBrowser(): JSX.Element {
     const map = new Map<TrackId, string>();
     for (const job of activeJobs(jobs)) {
       const pct = job.total > 0 ? Math.round((job.done / job.total) * 100) : 0;
-      for (const id of job.trackIds) map.set(id, `${job.kind} ${pct}%`);
+      const label = t("browser.tags.busy", {
+        kind: t(`browser.tags.jobs.${job.kind}`),
+        percent: pct,
+      });
+      for (const id of job.trackIds) map.set(id, label);
     }
     return map;
-  }, [jobs]);
+  }, [jobs, t]);
   const selectedIds = useLibrary((s) => s.selectedIds);
   const select = useLibrary((s) => s.select);
   const setQuery = useLibrary((s) => s.setQuery);
@@ -219,20 +227,23 @@ export function TrackBrowser(): JSX.Element {
 
   const crateName =
     query.crateId === null
-      ? "All tracks"
-      : (crates.find((c) => c.id === query.crateId)?.name ?? "Crate");
+      ? t("browser.allTracks")
+      : (crates.find((c) => c.id === query.crateId)?.name ?? t("browser.crate"));
   const totalSec = rows.reduce((sum, r) => sum + r.durationSec, 0);
   const deckBpm = detail?.track.bpm ?? null;
   const deckCamelot = detail?.track.camelot ?? null;
 
   return (
-    <section aria-label="Track browser" className="flex h-full min-h-0 flex-col">
+    <section aria-label={t("browser.label")} className="flex h-full min-h-0 flex-col">
       <header className="flex flex-wrap items-center gap-2.5 border-b border-border px-4 py-2">
         <h2 className="font-semibold">{crateName}</h2>
         <span className="text-muted-foreground">
           {status === "loading"
-            ? "Loading..."
-            : `${rows.length} tracks · ${formatDuration(totalSec)}`}
+            ? t("browser.loading")
+            : t("browser.summary", {
+                count: rows.length,
+                duration: formatDuration(totalSec),
+              })}
         </span>
         <SearchBox value={query.search} onChange={onSearch} />
         <div className="ml-auto flex flex-wrap gap-1.5">
@@ -240,10 +251,10 @@ export function TrackBrowser(): JSX.Element {
           <FilterChip
             label={
               query.matchCamelot !== null
-                ? `Matches ${query.matchCamelot}`
+                ? t("browser.filters.matchesKey", { key: query.matchCamelot })
                 : deckCamelot
-                  ? `Matches ${deckCamelot}`
-                  : "Matches deck key"
+                  ? t("browser.filters.matchesKey", { key: deckCamelot })
+                  : t("browser.filters.matchesDeckKey")
             }
             pressed={query.matchCamelot !== null}
             disabled={query.matchCamelot === null && !deckCamelot}
@@ -257,10 +268,10 @@ export function TrackBrowser(): JSX.Element {
           <FilterChip
             label={
               query.nearBpm !== null
-                ? `Near ${Math.round(query.nearBpm)} BPM`
+                ? t("browser.filters.nearBpm", { bpm: Math.round(query.nearBpm) })
                 : deckBpm
-                  ? `Near ${Math.round(deckBpm)} BPM`
-                  : "Near deck BPM"
+                  ? t("browser.filters.nearBpm", { bpm: Math.round(deckBpm) })
+                  : t("browser.filters.nearDeckBpm")
             }
             pressed={query.nearBpm !== null}
             disabled={query.nearBpm === null && !deckBpm}
@@ -269,7 +280,7 @@ export function TrackBrowser(): JSX.Element {
             }
           />
           <FilterChip
-            label="Has stems"
+            label={t("browser.filters.hasStems")}
             pressed={query.hasStems}
             onToggle={() => void setQuery({ hasStems: !query.hasStems })}
           />
@@ -280,7 +291,7 @@ export function TrackBrowser(): JSX.Element {
         <EmptyLibrary />
       ) : rows.length === 0 && status !== "loading" ? (
         <div className="grid flex-1 place-items-center text-muted-foreground">
-          No tracks match these filters
+          {t("browser.noMatch")}
         </div>
       ) : (
         <TrackContextMenu trackId={menuTrackId} selectedIds={selectedIds}>
@@ -294,7 +305,10 @@ export function TrackBrowser(): JSX.Element {
               // oxlint-disable-next-line jsx-a11y/no-noninteractive-element-to-interactive-role
               role="grid"
               tabIndex={0}
-              aria-label={`${crateName}, ${rows.length} tracks`}
+              aria-label={t("browser.table.label", {
+                crate: crateName,
+                count: rows.length,
+              })}
               aria-rowcount={sortedRows.length + 1}
               aria-multiselectable="true"
               aria-activedescendant={
@@ -316,6 +330,7 @@ export function TrackBrowser(): JSX.Element {
                   </th>
                   {headers.map((header) => {
                     const sorted = header.column.getIsSorted();
+                    const headerKey = SORTABLE_HEADERS[header.id];
                     return (
                       <th
                         key={header.id}
@@ -337,7 +352,7 @@ export function TrackBrowser(): JSX.Element {
                           onClick={header.column.getToggleSortingHandler()}
                           className="flex w-full items-center gap-1 px-2 py-1.5 text-left uppercase hover:text-foreground"
                         >
-                          {SORTABLE_HEADERS[header.id] ?? header.id}
+                          {headerKey ? t(`browser.columns.${headerKey}`) : header.id}
                           {sorted === "asc" && (
                             <ArrowUp aria-hidden="true" className="size-3" />
                           )}
@@ -352,7 +367,7 @@ export function TrackBrowser(): JSX.Element {
                     scope="col"
                     className={cn("px-2 py-1.5 text-left font-normal", WIDE_ONLY)}
                   >
-                    Ready
+                    {t("browser.table.ready")}
                   </th>
                 </tr>
               </thead>
@@ -363,23 +378,25 @@ export function TrackBrowser(): JSX.Element {
                 {virtualizer.getVirtualItems().map((item) => {
                   const row = sortedRows[item.index];
                   if (!row) return null;
-                  const t = row.original;
+                  const track = row.original;
                   return (
                     <TrackRowView
-                      key={t.id}
-                      track={t}
+                      key={track.id}
+                      track={track}
                       index={item.index}
                       top={item.start}
-                      selected={selected.has(t.id)}
+                      selected={selected.has(track.id)}
                       active={item.index === activeIndex}
-                      loaded={detail?.track.id === t.id}
-                      busy={busy.get(t.id) ?? null}
+                      loaded={detail?.track.id === track.id}
+                      busy={busy.get(track.id) ?? null}
                       keyMatch={
-                        matching !== null && t.camelot !== null && matching.has(t.camelot)
+                        matching !== null &&
+                        track.camelot !== null &&
+                        matching.has(track.camelot)
                       }
-                      onClick={onRowClick(item.index, t.id)}
-                      onDoubleClick={() => void load(t.id)}
-                      onDragStart={onRowDragStart(t.id)}
+                      onClick={onRowClick(item.index, track.id)}
+                      onDoubleClick={() => void load(track.id)}
+                      onDragStart={onRowDragStart(track.id)}
                     />
                   );
                 })}
@@ -408,7 +425,7 @@ interface TrackRowViewProps {
 }
 
 function TrackRowView({
-  track: t,
+  track,
   index,
   top,
   selected,
@@ -420,12 +437,13 @@ function TrackRowView({
   onDoubleClick,
   onDragStart,
 }: TrackRowViewProps): JSX.Element {
+  const { t } = useTranslation();
   return (
     // Keyboard access is on the grid (aria-activedescendant), not on each row.
     // oxlint-disable-next-line jsx-a11y/click-events-have-key-events
     <tr
-      id={`track-row-${t.id}`}
-      data-track-id={t.id}
+      id={`track-row-${track.id}`}
+      data-track-id={track.id}
       aria-rowindex={index + 2}
       aria-selected={selected}
       draggable
@@ -444,42 +462,50 @@ function TrackRowView({
       <td className="px-2 font-mono text-[11px] text-muted-foreground tabular-nums">
         {index + 1}
       </td>
-      <td className="truncate px-2" title={t.title}>
-        {t.title}
+      <td className="truncate px-2" title={track.title}>
+        {track.title}
       </td>
-      <td className="truncate px-2 text-muted-foreground" title={t.artist}>
-        {t.artist}
+      <td className="truncate px-2 text-muted-foreground" title={track.artist}>
+        {track.artist}
       </td>
-      <td className="px-2 font-mono tabular-nums">{t.bpm?.toFixed(1) ?? "--"}</td>
+      <td className="px-2 font-mono tabular-nums">{track.bpm?.toFixed(1) ?? "--"}</td>
       <td
         className={cn(
           "px-2 font-mono font-semibold tabular-nums",
           keyMatch && "text-primary",
         )}
       >
-        {t.camelot ?? "--"}
+        {track.camelot ?? "--"}
       </td>
       <td
         className={cn("px-2", WIDE_ONLY)}
-        aria-label={t.energy ? `Energy ${t.energy} of 10` : "Energy unknown"}
+        aria-label={
+          track.energy
+            ? t("browser.table.energy", { value: track.energy })
+            : t("browser.table.energyUnknown")
+        }
       >
-        <EnergyBars value={t.energy} />
+        <EnergyBars value={track.energy} />
       </td>
       <td className="px-2 font-mono text-muted-foreground tabular-nums">
-        {formatTime(t.durationSec)}
+        {formatTime(track.durationSec)}
       </td>
       <td className="hidden gap-1 overflow-hidden px-2 @xl:flex">
         {busy ? (
           <Tag accent>{busy}</Tag>
-        ) : t.activity ? (
-          <Tag accent>{`${t.activity.kind}...`}</Tag>
-        ) : t.analyzed ? (
-          <Tag accent>analyzed</Tag>
+        ) : track.activity ? (
+          <Tag accent>
+            {t("browser.tags.activity", {
+              kind: t(`browser.tags.jobs.${track.activity.kind}`),
+            })}
+          </Tag>
+        ) : track.analyzed ? (
+          <Tag accent>{t("browser.tags.analyzed")}</Tag>
         ) : (
-          <Tag>not analyzed</Tag>
+          <Tag>{t("browser.tags.notAnalyzed")}</Tag>
         )}
-        {t.hasStems && <Tag accent>stems</Tag>}
-        {t.mastered && <Tag accent>mastered</Tag>}
+        {track.hasStems && <Tag accent>{t("browser.tags.stems")}</Tag>}
+        {track.mastered && <Tag accent>{t("browser.tags.mastered")}</Tag>}
       </td>
     </tr>
   );
@@ -547,6 +573,7 @@ function SearchBox({
   value: string;
   onChange: (value: string) => void;
 }): JSX.Element {
+  const { t } = useTranslation();
   const [text, setText] = useState(value);
   useEffect(() => {
     if (text === value) return;
@@ -555,7 +582,7 @@ function SearchBox({
   }, [text, value, onChange]);
   return (
     <label className="relative flex items-center">
-      <span className="sr-only">Search tracks</span>
+      <span className="sr-only">{t("browser.search.label")}</span>
       <Search
         aria-hidden="true"
         className="pointer-events-none absolute left-2 size-3.5 text-muted-foreground"
@@ -564,7 +591,7 @@ function SearchBox({
         type="search"
         value={text}
         onChange={(e) => setText(e.target.value)}
-        placeholder="Search title or artist"
+        placeholder={t("browser.search.placeholder")}
         className="h-7 w-48 rounded-md border border-border bg-secondary pl-7 text-[13px] placeholder:text-muted-foreground"
       />
     </label>
@@ -573,6 +600,7 @@ function SearchBox({
 
 /** First run: nothing in the library yet. Drop anywhere on the window, or pick files. */
 function EmptyLibrary(): JSX.Element {
+  const { t, i18n } = useTranslation();
   const addPaths = useLibrary((s) => s.addPaths);
   const [adding, setAdding] = useState(false);
   const add = async (pick: () => Promise<string[]>): Promise<void> => {
@@ -582,7 +610,7 @@ function EmptyLibrary(): JSX.Element {
       setAdding(true);
       announceImport(await addPaths(paths));
     } catch (error) {
-      notifyError(error, "Could not open the file picker");
+      notifyError(error, t("browser.errors.filePicker"));
     } finally {
       setAdding(false);
     }
@@ -591,16 +619,16 @@ function EmptyLibrary(): JSX.Element {
     <div className="flex flex-1 p-4">
       <div className="flex flex-1 flex-col items-center justify-center gap-3 rounded-xl border-2 border-dashed border-border text-center">
         <FolderInput aria-hidden="true" className="size-9 text-muted-foreground" />
-        <p className="text-base font-semibold">Drop tracks or a folder</p>
+        <p className="text-base font-semibold">{t("browser.empty.title")}</p>
         <p className="max-w-80 text-muted-foreground">
-          {`${AUDIO_FORMATS_TEXT}. Your files stay where they are; Cratekit only reads them.`}
+          {t("browser.empty.hint", { formats: audioFormatsText(i18n.language) })}
         </p>
         <div className="flex gap-2">
           <Button
             disabled={adding}
             onClick={() => void add(() => api().dialogOpenFiles())}
           >
-            {adding ? "Adding..." : "Add tracks..."}
+            {adding ? t("browser.empty.adding") : t("browser.empty.addTracks")}
           </Button>
           <Button
             variant="outline"
@@ -612,7 +640,7 @@ function EmptyLibrary(): JSX.Element {
               })
             }
           >
-            Add folder...
+            {t("browser.empty.addFolder")}
           </Button>
         </div>
       </div>

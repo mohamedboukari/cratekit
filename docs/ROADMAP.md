@@ -52,7 +52,7 @@ v0.1 in about 8 weeks of part-time work. Each phase ends with a gate: the test D
 - [ ] Audio output device selection + hot-plug fallback to the system default (#20)
 - [ ] UI: Settings screen (audio output, watched folders, output folder) (#21)
 - [ ] Test analysis on the DJ's 10 tracks; compare with VirtualDJ's BPM/key (#22)
-- [ ] Multi-language UI: i18n foundation (i18next), English by default for every user, French translation (#80)
+- [x] Multi-language UI: i18n foundation (i18next), English by default for every user, French translation (#80)
 
 **Gate:** runs on a laptop CPU; BPM and key agree with VirtualDJ on at least 8 of 10 tracks.
 

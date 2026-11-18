@@ -1,4 +1,5 @@
 import { useRef, type JSX, type KeyboardEvent, type PointerEvent } from "react";
+import { useTranslation } from "react-i18next";
 
 interface KnobProps {
   label: string;
@@ -53,11 +54,12 @@ export function Knob({
   onChange,
   size = 44,
 }: KnobProps): JSX.Element {
+  const { t } = useTranslation();
   const drag = useRef<{ startY: number; startValue: number } | null>(null);
   const range = max - min;
   const clamp = (v: number): number => Math.max(min, Math.min(max, v));
-  const t = range > 0 ? (value - min) / range : 0;
-  const angle = START_DEG + t * SWEEP_DEG;
+  const fraction = range > 0 ? (value - min) / range : 0;
+  const angle = START_DEG + fraction * SWEEP_DEG;
   const centreAngle =
     START_DEG + (bipolar ? (defaultValue - min) / range : 0) * SWEEP_DEG;
   const c = size / 2;
@@ -111,7 +113,7 @@ export function Knob({
         aria-valuemax={max}
         aria-valuenow={Number(value.toFixed(2))}
         aria-valuetext={valueText}
-        title={`${label}: ${valueText}`}
+        title={t("deck.knob.title", { label, value: valueText })}
         onKeyDown={onKeyDown}
         onPointerDown={onPointerDown}
         onPointerMove={onPointerMove}

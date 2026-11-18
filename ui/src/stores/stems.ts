@@ -1,5 +1,6 @@
 import { create } from "zustand";
 
+import { i18n } from "@/i18n";
 import { api, toAppError } from "@/lib/ipc";
 import { notifyError } from "@/lib/notify";
 import type { StemName, StemsInfo, TrackId } from "@/lib/types";
@@ -88,7 +89,7 @@ export const useStems = create<StemsState>()((set, get) => ({
       modelReady: model ? model.downloaded : null,
       modelSizeBytes: model?.sizeBytes ?? null,
     });
-    if (info.status === "rejected") notifyError(info.reason, "Could not read the stems");
+    if (info.status === "rejected") notifyError(info.reason, i18n.t("errors.stems.read"));
   },
 
   split: async (id) => {
@@ -97,7 +98,7 @@ export const useStems = create<StemsState>()((set, get) => ({
     } catch (error) {
       // The model was deleted (e.g. in Settings): show the download step again.
       if (toAppError(error).code === "model_missing") set({ modelReady: false });
-      else notifyError(error, "Could not split stems");
+      else notifyError(error, i18n.t("errors.stems.split"));
     }
   },
 
@@ -105,7 +106,7 @@ export const useStems = create<StemsState>()((set, get) => ({
     try {
       await api().modelsDownload(STEMS_MODEL);
     } catch (error) {
-      notifyError(error, "Could not download the stems model");
+      notifyError(error, i18n.t("errors.stems.downloadModel"));
     }
   },
 
@@ -120,7 +121,7 @@ export const useStems = create<StemsState>()((set, get) => ({
       await Promise.all(stems.map((stem) => api().stemsSetGain(stem, gain)));
     } catch (error) {
       set({ gains: previous });
-      notifyError(error, "Could not change the stem volume");
+      notifyError(error, i18n.t("errors.stems.volume"));
     }
   },
 
@@ -135,7 +136,7 @@ export const useStems = create<StemsState>()((set, get) => ({
       await Promise.all(stems.map((stem) => api().stemsSetMute(stem, next)));
     } catch (error) {
       set({ muted: previous });
-      notifyError(error, "Could not mute the stem");
+      notifyError(error, i18n.t("errors.stems.mute"));
     }
   },
 
@@ -149,7 +150,7 @@ export const useStems = create<StemsState>()((set, get) => ({
       await Promise.all(stems.map((stem) => api().stemsSetSolo(stem, next)));
     } catch (error) {
       set({ soloed: previous });
-      notifyError(error, "Could not solo the stem");
+      notifyError(error, i18n.t("errors.stems.solo"));
     }
   },
 
@@ -157,7 +158,7 @@ export const useStems = create<StemsState>()((set, get) => ({
     try {
       return await api().stemsExport(id);
     } catch (error) {
-      notifyError(error, "Could not export the stems");
+      notifyError(error, i18n.t("errors.stems.export"));
       return null;
     }
   },

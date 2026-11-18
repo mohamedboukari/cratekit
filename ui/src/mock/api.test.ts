@@ -9,6 +9,7 @@ import { TRACK_COUNT } from "@/mock/fixtures";
 const MEMBERS: ReadonlyArray<keyof CratekitApi> = [
   "appVersion",
   "appOpenSettings",
+  "appSetMenuLabels",
   "dialogOpenFiles",
   "dialogOpenFolder",
   "libraryAddPaths",

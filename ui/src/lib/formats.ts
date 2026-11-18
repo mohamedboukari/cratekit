@@ -13,7 +13,13 @@ export const AUDIO_FORMATS = [
 
 export const AUDIO_EXTENSIONS: string[] = AUDIO_FORMATS.flatMap((f) => [...f.extensions]);
 
-/** "MP3, WAV, FLAC, AIFF, M4A/AAC and OGG". */
-export const AUDIO_FORMATS_TEXT = `${AUDIO_FORMATS.slice(0, -1)
-  .map((f) => f.label)
-  .join(", ")} and ${AUDIO_FORMATS.at(-1)?.label ?? ""}`;
+/**
+ * The supported formats as a list in `language`: "MP3, WAV, FLAC, AIFF,
+ * M4A/AAC, and OGG" in English, "... M4A/AAC et OGG" in French (the
+ * browser's own list formatting, so no translated "and" is needed).
+ */
+export function audioFormatsText(language: string): string {
+  return new Intl.ListFormat(language, { type: "conjunction" }).format(
+    AUDIO_FORMATS.map((f) => f.label),
+  );
+}

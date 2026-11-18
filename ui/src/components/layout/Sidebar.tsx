@@ -1,6 +1,7 @@
 import { cn } from "cn";
 import { Settings } from "lucide-react";
 import type { JSX } from "react";
+import { useTranslation } from "react-i18next";
 
 import { CUE_BG } from "@/components/deck/cueColors";
 import { Button } from "@/components/ui/button";
@@ -11,6 +12,7 @@ import { useUi } from "@/stores/ui";
 
 /** Library counts, crates and the connected controller. */
 export function Sidebar(): JSX.Element {
+  const { t } = useTranslation();
   const crates = useLibrary((s) => s.crates);
   const counts = useLibrary((s) => s.counts);
   const crateId = useLibrary((s) => s.query.crateId);
@@ -22,7 +24,7 @@ export function Sidebar(): JSX.Element {
 
   return (
     <nav
-      aria-label="Library"
+      aria-label={t("layout.sidebar.label")}
       className="flex h-full flex-col gap-4 overflow-y-auto bg-sidebar px-2.5 py-3.5"
     >
       <div className="flex items-center gap-2 px-1.5 font-heading text-[15px] font-bold">
@@ -37,20 +39,24 @@ export function Sidebar(): JSX.Element {
 
       <section>
         <h2 className="px-2 pb-1.5 text-[11px] font-semibold tracking-wider text-muted-foreground uppercase">
-          Library
+          {t("layout.sidebar.library")}
         </h2>
         <SidebarItem
-          label="All tracks"
+          label={t("layout.sidebar.allTracks")}
           count={counts?.all}
           active={crateId === null}
           onSelect={() => void selectCrate(null)}
         />
-        <SidebarItem label="Needs analysis" count={counts?.needsAnalysis} disabled />
+        <SidebarItem
+          label={t("layout.sidebar.needsAnalysis")}
+          count={counts?.needsAnalysis}
+          disabled
+        />
       </section>
 
       <section>
         <h2 className="px-2 pb-1.5 text-[11px] font-semibold tracking-wider text-muted-foreground uppercase">
-          Crates
+          {t("layout.sidebar.crates")}
         </h2>
         {crates.map((c) => (
           <SidebarItem
@@ -66,7 +72,7 @@ export function Sidebar(): JSX.Element {
 
       <section className="mt-auto">
         <h2 className="px-2 pb-1.5 text-[11px] font-semibold tracking-wider text-muted-foreground uppercase">
-          Devices
+          {t("layout.sidebar.devices")}
         </h2>
         <div className="mx-1 rounded-lg border border-border bg-card p-2.5">
           {controller ? (
@@ -74,12 +80,12 @@ export function Sidebar(): JSX.Element {
               <b className="block text-xs">{controller.name}</b>
               <span className="inline-flex items-center gap-1.5 text-[11px] text-primary">
                 <span aria-hidden="true" className="size-1.5 rounded-full bg-primary" />
-                connected
+                {t("layout.sidebar.connected")}
               </span>
             </>
           ) : (
             <span className="text-[11px] text-muted-foreground">
-              Plug in a controller or use keyboard shortcuts
+              {t("layout.sidebar.noController")}
             </span>
           )}
         </div>
@@ -88,11 +94,15 @@ export function Sidebar(): JSX.Element {
           size="sm"
           className="mx-1 mt-2 justify-start text-muted-foreground"
           onClick={openSettings}
-          title={settingsShortcut ? `Settings (${settingsShortcut})` : "Settings"}
+          title={
+            settingsShortcut
+              ? t("layout.sidebar.settingsShortcut", { shortcut: settingsShortcut })
+              : t("layout.sidebar.settings")
+          }
           aria-keyshortcuts={isMacPlatform() ? "Meta+Comma" : "Control+Comma"}
         >
           <Settings aria-hidden="true" data-icon="inline-start" />
-          Settings
+          {t("layout.sidebar.settings")}
         </Button>
       </section>
     </nav>

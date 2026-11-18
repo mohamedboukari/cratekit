@@ -1,6 +1,7 @@
 import { useEffect } from "react";
 import { toast } from "sonner";
 
+import { i18n } from "@/i18n";
 import { api, type Unlisten } from "@/lib/ipc";
 import type { ControlTarget, StemName } from "@/lib/types";
 import { useController } from "@/stores/controller";
@@ -38,7 +39,8 @@ export function useIpcEvents(): void {
           void useSetList.getState().refresh();
           void usePlayer.getState().refresh();
         }
-        if (d.kind === "model-download") toast.success("Stems model ready");
+        if (d.kind === "model-download")
+          toast.success(i18n.t("common.events.modelReady"));
         // New stems or a freshly downloaded model change what the Stems tab can show.
         const stemsTrack = useStems.getState().trackId;
         if ((d.kind === "stems" || d.kind === "model-download") && stemsTrack !== null)
@@ -61,8 +63,8 @@ export function useIpcEvents(): void {
       }),
       api().onAudioDeviceChanged((change) => {
         if (change.reason === "unplugged") {
-          toast.warning("Audio device disconnected", {
-            description: "Playback switched to the system default output.",
+          toast.warning(i18n.t("common.events.deviceUnplugged"), {
+            description: i18n.t("common.events.deviceUnpluggedDetail"),
           });
         }
       }),

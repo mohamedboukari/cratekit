@@ -46,18 +46,33 @@ function camelotRank(code: string | null): number | null {
   return Number.isNaN(num) ? null : num * 2 + (code.endsWith("B") ? 1 : 0);
 }
 
-/** Sortable columns. Rendering (#, ready tags, energy bars) lives in TrackBrowser. */
+/**
+ * Sortable columns. Rendering (#, ready tags, energy bars) lives in TrackBrowser.
+ * Headers are translation keys; TrackBrowser translates them at render.
+ */
 export const browserColumns = helper.columns([
-  helper.accessor("title", { header: "Title", sortFn: byText((t) => t.title) }),
-  helper.accessor("artist", { header: "Artist", sortFn: byText((t) => t.artist) }),
-  helper.accessor("bpm", { header: "BPM", sortFn: byNumber((t) => t.bpm) }),
+  helper.accessor("title", {
+    header: "browser.columns.title",
+    sortFn: byText((t) => t.title),
+  }),
+  helper.accessor("artist", {
+    header: "browser.columns.artist",
+    sortFn: byText((t) => t.artist),
+  }),
+  helper.accessor("bpm", {
+    header: "browser.columns.bpm",
+    sortFn: byNumber((t) => t.bpm),
+  }),
   helper.accessor("camelot", {
-    header: "Key",
+    header: "browser.columns.key",
     sortFn: byNumber((t) => camelotRank(t.camelot)),
   }),
-  helper.accessor("energy", { header: "Energy", sortFn: byNumber((t) => t.energy) }),
+  helper.accessor("energy", {
+    header: "browser.columns.energy",
+    sortFn: byNumber((t) => t.energy),
+  }),
   helper.accessor("durationSec", {
-    header: "Time",
+    header: "browser.columns.time",
     sortFn: byNumber((t) => t.durationSec),
   }),
 ]);

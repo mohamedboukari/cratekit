@@ -7,6 +7,9 @@ extend-exclude = [
   "Cargo.lock",
   "graphify-out/",
   "temp/",
+  # Translations in other languages are not English: typos would flag every word.
+  # Add each new language folder here (English, the source, stays checked).
+  "ui/src/i18n/fr/",
   "src-tauri/gen/",
   "src-tauri/icons/",
   # Vendored third-party skills: upstream text, kept verbatim (see each VENDORED.md).

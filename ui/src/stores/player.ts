@@ -1,5 +1,6 @@
 import { create } from "zustand";
 
+import { i18n } from "@/i18n";
 import { api } from "@/lib/ipc";
 import { notifyError } from "@/lib/notify";
 import type { CueColor, CueSlot, PlaybackMode, TrackDetail, TrackId } from "@/lib/types";
@@ -56,7 +57,7 @@ export const usePlayer = create<PlayerState>()((set, get) => {
       try {
         await refreshDetail();
       } catch (error) {
-        notifyError(error, "Could not refresh the track");
+        notifyError(error, i18n.t("errors.player.refresh"));
       }
     },
     detail: null,
@@ -75,7 +76,7 @@ export const usePlayer = create<PlayerState>()((set, get) => {
         set({ detail, playing: false, loadCount: get().loadCount + 1 });
       } catch (error) {
         if (seq !== loadSeq) return;
-        notifyError(error, "Could not load the track");
+        notifyError(error, i18n.t("errors.player.load"));
       }
     },
 
@@ -87,7 +88,7 @@ export const usePlayer = create<PlayerState>()((set, get) => {
         else await api().playbackPlay();
         set({ playing: !playing });
       } catch (error) {
-        notifyError(error, "Playback failed");
+        notifyError(error, i18n.t("errors.player.playback"));
       }
     },
 
@@ -95,7 +96,7 @@ export const usePlayer = create<PlayerState>()((set, get) => {
       try {
         await api().playbackSeek(sec);
       } catch (error) {
-        notifyError(error, "Could not seek");
+        notifyError(error, i18n.t("errors.player.seek"));
       }
     },
 
@@ -109,7 +110,7 @@ export const usePlayer = create<PlayerState>()((set, get) => {
         await api().playbackSetMode(mode);
       } catch (error) {
         if (seq === modeSeq) set({ mode: previous });
-        notifyError(error, "Could not switch what you hear");
+        notifyError(error, i18n.t("errors.player.hearing"));
       }
     },
 
@@ -121,7 +122,7 @@ export const usePlayer = create<PlayerState>()((set, get) => {
         await api().playbackSetFilter(clamped);
       } catch (error) {
         set({ filter: previous });
-        notifyError(error, "Could not change the filter");
+        notifyError(error, i18n.t("errors.player.filter"));
       }
     },
 
@@ -135,7 +136,7 @@ export const usePlayer = create<PlayerState>()((set, get) => {
         }
         await api().playbackSeek(detail.analysis?.firstBeatSec ?? 0);
       } catch (error) {
-        notifyError(error, "Could not return to the cue point");
+        notifyError(error, i18n.t("errors.player.cue"));
       }
     },
 
@@ -157,7 +158,7 @@ export const usePlayer = create<PlayerState>()((set, get) => {
         await api().hotcueSet(detail.track.id, slot, positionSec);
         await refreshDetail();
       } catch (error) {
-        notifyError(error, `Could not set hot cue ${slot}`);
+        notifyError(error, i18n.t("errors.player.hotCueSet", { slot }));
       }
     },
 
@@ -168,7 +169,7 @@ export const usePlayer = create<PlayerState>()((set, get) => {
         await api().hotcueClear(detail.track.id, slot);
         await refreshDetail();
       } catch (error) {
-        notifyError(error, `Could not clear hot cue ${slot}`);
+        notifyError(error, i18n.t("errors.player.hotCueClear", { slot }));
       }
     },
 
@@ -179,7 +180,7 @@ export const usePlayer = create<PlayerState>()((set, get) => {
         await api().hotcueUpdate(detail.track.id, slot, name, color);
         await refreshDetail();
       } catch (error) {
-        notifyError(error, `Could not change hot cue ${slot}`);
+        notifyError(error, i18n.t("errors.player.hotCueChange", { slot }));
       }
     },
 

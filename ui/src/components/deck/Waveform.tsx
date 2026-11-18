@@ -7,6 +7,7 @@ import {
   type KeyboardEvent,
   type PointerEvent,
 } from "react";
+import { useTranslation } from "react-i18next";
 
 import {
   drawWaveform,
@@ -41,6 +42,7 @@ interface WaveformProps {
  * move, Delete to clear.
  */
 export function Waveform({ detail }: WaveformProps): JSX.Element {
+  const { t } = useTranslation();
   const position = usePlaybackPositionRef();
   const seek = usePlayer((s) => s.seek);
   const setHotCue = usePlayer((s) => s.setHotCue);
@@ -104,7 +106,10 @@ export function Waveform({ detail }: WaveformProps): JSX.Element {
         slider.setAttribute("aria-valuenow", String(second));
         slider.setAttribute(
           "aria-valuetext",
-          `${formatTime(pos)} of ${formatTime(duration)}`,
+          t("deck.waveform.positionValue", {
+            time: formatTime(pos),
+            duration: formatTime(duration),
+          }),
         );
         lastAnnounced = second;
       }
@@ -115,7 +120,7 @@ export function Waveform({ detail }: WaveformProps): JSX.Element {
       cancelAnimationFrame(frame);
       observer.disconnect();
     };
-  }, [position, waveform, cues, duration, analysis]);
+  }, [position, waveform, cues, duration, analysis, t]);
 
   const seekFromPointer = (event: PointerEvent<HTMLCanvasElement>): void => {
     const rect = event.currentTarget.getBoundingClientRect();
@@ -137,7 +142,7 @@ export function Waveform({ detail }: WaveformProps): JSX.Element {
   if (!waveform) {
     return (
       <div className="grid h-full place-items-center rounded-md border border-dashed border-border text-muted-foreground">
-        Not analyzed yet: the waveform appears after analysis
+        {t("deck.waveform.notAnalyzed")}
       </div>
     );
   }
@@ -151,7 +156,7 @@ export function Waveform({ detail }: WaveformProps): JSX.Element {
         // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role
         role="slider"
         tabIndex={0}
-        aria-label="Track position"
+        aria-label={t("deck.waveform.position")}
         aria-valuemin={0}
         aria-valuemax={Math.floor(duration)}
         aria-valuenow={0}
@@ -167,7 +172,7 @@ export function Waveform({ detail }: WaveformProps): JSX.Element {
       </div>
       {/* Slider children are presentational in ARIA, so the flags live beside it. */}
       <fieldset className="pointer-events-none absolute inset-0 min-w-0">
-        <legend className="sr-only">Hot cues</legend>
+        <legend className="sr-only">{t("deck.waveform.hotCues")}</legend>
         {cues.map((cue) => (
           <CueFlag
             key={cue.slot}
@@ -212,6 +217,7 @@ function CueFlag({
   onClear,
   onEdit,
 }: CueFlagProps): JSX.Element {
+  const { t } = useTranslation();
   const [dragSec, setDragSec] = useState<number | null>(null);
   /** Pointer x at press, and how far it was from the cue line (so the flag does not jump). */
   const press = useRef<{ x: number; offset: number } | null>(null);
@@ -227,7 +233,15 @@ function CueFlag({
   return (
     <button
       type="button"
-      aria-label={`Hot cue ${cue.slot} at ${formatTime(cue.positionSec)}${cue.name ? `, ${cue.name}` : ""}. Delete to clear, Shift+Enter to edit`}
+      aria-label={
+        cue.name
+          ? t("deck.waveform.flagNamed", {
+              slot: cue.slot,
+              time: formatTime(cue.positionSec),
+              name: cue.name,
+            })
+          : t("deck.waveform.flag", { slot: cue.slot, time: formatTime(cue.positionSec) })
+      }
       aria-keyshortcuts="Delete Shift+Enter F2"
       onContextMenu={(e) => {
         e.preventDefault();

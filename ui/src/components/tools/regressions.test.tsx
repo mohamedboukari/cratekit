@@ -33,6 +33,7 @@ describe("tool tab regressions", () => {
       jobId: "other",
       kind: "stems",
       label: "Splitting stems",
+      stage: null,
       trackIds: [5],
       done: 4,
       total: 20,

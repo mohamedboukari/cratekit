@@ -1,0 +1,35 @@
+/** Shell, sidebar, status bar, demo banner and the app loading state. */
+export const layout = {
+  app: {
+    loading: "Loading Cratekit...",
+  },
+  demoBanner: "Demo with fake data. The desktop app analyzes your own tracks, offline.",
+  sidebar: {
+    label: "Library",
+    library: "Library",
+    allTracks: "All tracks",
+    needsAnalysis: "Needs analysis",
+    crates: "Crates",
+    devices: "Devices",
+    connected: "connected",
+    noController: "Plug in a controller or use keyboard shortcuts",
+    settings: "Settings",
+    settingsShortcut: "Settings ({{shortcut}})",
+  },
+  statusBar: {
+    noController: "No controller",
+    jobsLabel: "Background jobs: {{running}}. Show queue",
+    noJobsLabel: "No background jobs. Show queue",
+    noJobs: "No background jobs",
+    more_one: "+{{count}} more",
+    more_other: "+{{count}} more",
+    paused: "paused",
+    jobs: "Background jobs",
+    resume: "Resume",
+    pause: "Pause",
+    nothingRunning: "Nothing running. Analysis, stems and exports show up here.",
+    cancelJob: "Cancel {{label}}",
+    backendChecking: "Backend: checking",
+    offline: "Offline · nothing uploaded",
+  },
+} as const;
