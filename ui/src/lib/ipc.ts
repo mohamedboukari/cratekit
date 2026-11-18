@@ -30,6 +30,7 @@ import type {
   JobProgress,
   LibraryCounts,
   LibraryQuery,
+  MenuLabels,
   MasterPreset,
   MasterResult,
   MasterSettings,
@@ -61,6 +62,8 @@ export interface CratekitApi {
   appVersion(): Promise<string>;
   /** Opens the Settings window (or focuses it). The native menu does the same with Cmd/Ctrl+,. */
   appOpenSettings(): Promise<void>;
+  /** Relabels the native menu items Rust builds itself, in the UI language. */
+  appSetMenuLabels(labels: MenuLabels): Promise<void>;
   /** Native file picker for audio files; empty when cancelled. */
   dialogOpenFiles(): Promise<string[]>;
   /** Native folder picker; null when cancelled. */

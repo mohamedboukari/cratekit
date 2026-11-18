@@ -3,6 +3,9 @@ import "@testing-library/jest-dom/vitest";
 import { cleanup } from "@testing-library/react";
 import { afterEach } from "vitest";
 
+// The UI text comes from i18next; tests render in English, the default.
+import "@/i18n";
+
 // Without Vitest globals, Testing Library does not unmount between tests on its own.
 afterEach(() => {
   cleanup();

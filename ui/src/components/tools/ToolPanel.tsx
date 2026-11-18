@@ -1,5 +1,6 @@
 import { cn } from "cn";
 import type { JSX, KeyboardEvent } from "react";
+import { useTranslation } from "react-i18next";
 
 import { AnalyzePanel } from "@/components/tools/AnalyzePanel";
 import { ControllerPanel } from "@/components/tools/ControllerPanel";
@@ -14,24 +15,25 @@ const PANELS: Record<ToolTab, () => JSX.Element> = {
   controller: ControllerPanel,
 };
 
-const TABS: ReadonlyArray<{ id: ToolTab; label: string }> = [
-  { id: "analyze", label: "Analyze" },
-  { id: "master", label: "Master" },
-  { id: "stems", label: "Stems" },
-  { id: "controller", label: "Controller" },
-];
+const TABS = [
+  { id: "analyze", label: "tools.panel.tabs.analyze" },
+  { id: "master", label: "tools.panel.tabs.master" },
+  { id: "stems", label: "tools.panel.tabs.stems" },
+  { id: "controller", label: "tools.panel.tabs.controller" },
+] as const satisfies ReadonlyArray<{ id: ToolTab; label: string }>;
 
 /**
  * Right-hand tool panel with the four tabs (roving tabindex, arrow keys).
  * Switching tabs also switches what you hear (hooks/useHearing.ts).
  */
 export function ToolPanel(): JSX.Element {
+  const { t } = useTranslation();
   const active = useUi((s) => s.activeTool);
   const setActive = useUi((s) => s.setActiveTool);
   const Panel = PANELS[active];
 
   const onKeyDown = (event: KeyboardEvent<HTMLButtonElement>): void => {
-    const index = TABS.findIndex((t) => t.id === active);
+    const index = TABS.findIndex((tab) => tab.id === active);
     let nextIndex: number;
     if (event.key === "ArrowRight") nextIndex = (index + 1) % TABS.length;
     else if (event.key === "ArrowLeft")
@@ -48,29 +50,32 @@ export function ToolPanel(): JSX.Element {
   };
 
   return (
-    <aside aria-label="Tools" className="flex h-full flex-col border-l border-border">
+    <aside
+      aria-label={t("tools.panel.label")}
+      className="flex h-full flex-col border-l border-border"
+    >
       <div
         role="tablist"
-        aria-label="Tools"
+        aria-label={t("tools.panel.label")}
         className="flex gap-0.5 border-b border-border px-1"
       >
-        {TABS.map((t) => (
+        {TABS.map((tab) => (
           <button
-            key={t.id}
-            id={`tool-tab-${t.id}`}
+            key={tab.id}
+            id={`tool-tab-${tab.id}`}
             type="button"
             role="tab"
-            aria-selected={active === t.id}
+            aria-selected={active === tab.id}
             aria-controls="tool-panel"
-            tabIndex={active === t.id ? 0 : -1}
-            onClick={() => setActive(t.id)}
+            tabIndex={active === tab.id ? 0 : -1}
+            onClick={() => setActive(tab.id)}
             onKeyDown={onKeyDown}
             className={cn(
               "min-w-0 flex-1 truncate border-b-2 border-transparent px-1.5 py-2.5 text-center font-semibold text-muted-foreground",
-              active === t.id && "border-primary text-foreground",
+              active === tab.id && "border-primary text-foreground",
             )}
           >
-            {t.label}
+            {t(tab.label)}
           </button>
         ))}
       </div>

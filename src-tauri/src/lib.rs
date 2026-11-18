@@ -3,7 +3,9 @@
 //! Commands here stay thin: they validate input, call `cratekit-core` or
 //! `cratekit-audio`, and map errors to [`AppError`]. No domain logic lives here.
 
-use serde::Serialize;
+use std::sync::{Mutex, PoisonError};
+
+use serde::{Deserialize, Serialize};
 use tauri::menu::{Menu, MenuItemBuilder, SubmenuBuilder};
 use tauri::{AppHandle, Manager, Runtime, WebviewUrl, WebviewWindowBuilder, WindowEvent};
 
@@ -15,6 +17,99 @@ const SETTINGS_LABEL: &str = "settings";
 const SETTINGS_MENU_ID: &str = "open-settings";
 /// The UI renders the Settings view for this hash (see `ui/src/main.tsx`).
 const SETTINGS_URL: &str = "index.html#settings";
+
+/// Text of every native menu item and of the Settings window title, in the
+/// UI language. The UI owns the translations and sends them
+/// (`app_set_menu_labels`); Rust keeps the latest in managed state so a
+/// Settings window opened later gets the right title too.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct MenuLabels {
+    settings: String,
+    settings_window_title: String,
+    #[cfg_attr(
+        all(target_os = "macos", not(test)),
+        expect(
+            dead_code,
+            reason = "macOS puts Settings in the app menu, there is no File menu"
+        )
+    )]
+    file: String,
+    edit: String,
+    window: String,
+    undo: String,
+    redo: String,
+    cut: String,
+    copy: String,
+    paste: String,
+    select_all: String,
+    minimize: String,
+    close_window: String,
+    quit: String,
+    #[cfg_attr(
+        all(not(target_os = "macos"), not(test)),
+        expect(dead_code, reason = "only the macOS app menu has this item")
+    )]
+    about: String,
+    #[cfg_attr(
+        all(not(target_os = "macos"), not(test)),
+        expect(dead_code, reason = "only the macOS app menu has this item")
+    )]
+    services: String,
+    #[cfg_attr(
+        all(not(target_os = "macos"), not(test)),
+        expect(dead_code, reason = "only the macOS app menu has this item")
+    )]
+    hide: String,
+    #[cfg_attr(
+        all(not(target_os = "macos"), not(test)),
+        expect(dead_code, reason = "only the macOS app menu has this item")
+    )]
+    hide_others: String,
+    #[cfg_attr(
+        all(not(target_os = "macos"), not(test)),
+        expect(dead_code, reason = "only the macOS app menu has this item")
+    )]
+    show_all: String,
+}
+
+impl Default for MenuLabels {
+    /// English, the default UI language, used until the UI sends its labels.
+    fn default() -> Self {
+        Self {
+            settings: "Settings...".into(),
+            settings_window_title: "Cratekit Settings".into(),
+            file: "File".into(),
+            edit: "Edit".into(),
+            window: "Window".into(),
+            undo: "Undo".into(),
+            redo: "Redo".into(),
+            cut: "Cut".into(),
+            copy: "Copy".into(),
+            paste: "Paste".into(),
+            select_all: "Select All".into(),
+            minimize: "Minimize".into(),
+            close_window: "Close Window".into(),
+            quit: "Quit".into(),
+            about: "About Cratekit".into(),
+            services: "Services".into(),
+            hide: "Hide Cratekit".into(),
+            hide_others: "Hide Others".into(),
+            show_all: "Show All".into(),
+        }
+    }
+}
+
+/// The labels in use: read when a window or menu is built, replaced by
+/// `app_set_menu_labels`.
+type MenuLabelsState = Mutex<MenuLabels>;
+
+/// The current labels (a poisoned lock still holds valid text, so it is used).
+fn current_labels<R: Runtime>(app: &AppHandle<R>) -> MenuLabels {
+    app.try_state::<MenuLabelsState>()
+        .map(|state| state.lock().unwrap_or_else(PoisonError::into_inner).clone())
+        .unwrap_or_default()
+}
 
 /// The error every Tauri command returns, serialized to the UI as `{ code, message }`.
 #[derive(Debug, Serialize)]
@@ -60,7 +155,7 @@ fn open_settings<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<()> {
         return Ok(());
     }
     WebviewWindowBuilder::new(app, SETTINGS_LABEL, WebviewUrl::App(SETTINGS_URL.into()))
-        .title("Cratekit Settings")
+        .title(current_labels(app).settings_window_title)
         .inner_size(760.0, 560.0)
         .min_inner_size(640.0, 480.0)
         .resizable(true)
@@ -78,47 +173,64 @@ async fn open_settings_window(app: AppHandle) -> Result<(), AppError> {
     Ok(())
 }
 
+/// Rebuilds the native menu with labels in the UI language (sent by the UI at
+/// startup and whenever the language changes in Settings).
+#[tauri::command]
+fn app_set_menu_labels(
+    app: AppHandle,
+    state: tauri::State<'_, MenuLabelsState>,
+    labels: MenuLabels,
+) -> Result<(), AppError> {
+    let menu = build_menu(&app, &labels)?;
+    app.set_menu(menu)?;
+    if let Some(window) = app.get_webview_window(SETTINGS_LABEL) {
+        window.set_title(&labels.settings_window_title)?;
+    }
+    *state.lock().unwrap_or_else(PoisonError::into_inner) = labels;
+    Ok(())
+}
+
 /// The native menu: "Settings..." with Cmd/Ctrl+, plus the standard Edit and
 /// Window menus (copy and paste in text fields need the Edit menu on macOS).
-fn build_menu<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<Menu<R>> {
-    let settings = MenuItemBuilder::with_id(SETTINGS_MENU_ID, "Settings...")
+fn build_menu<R: Runtime>(app: &AppHandle<R>, labels: &MenuLabels) -> tauri::Result<Menu<R>> {
+    let settings = MenuItemBuilder::with_id(SETTINGS_MENU_ID, &labels.settings)
         .accelerator("CmdOrCtrl+,")
         .build(app)?;
-    let edit = SubmenuBuilder::new(app, "Edit")
-        .undo()
-        .redo()
+    let edit = SubmenuBuilder::new(app, &labels.edit)
+        .undo_with_text(&labels.undo)
+        .redo_with_text(&labels.redo)
         .separator()
-        .cut()
-        .copy()
-        .paste()
-        .select_all()
+        .cut_with_text(&labels.cut)
+        .copy_with_text(&labels.copy)
+        .paste_with_text(&labels.paste)
+        .select_all_with_text(&labels.select_all)
         .build()?;
-    let window = SubmenuBuilder::new(app, "Window")
-        .minimize()
+    let window = SubmenuBuilder::new(app, &labels.window)
+        .minimize_with_text(&labels.minimize)
         .separator()
-        .close_window()
+        .close_window_with_text(&labels.close_window)
         .build()?;
 
     // macOS puts Settings in the app menu; Windows and Linux in File.
     #[cfg(target_os = "macos")]
     let first = SubmenuBuilder::new(app, "Cratekit")
-        .about(None)
+        .about_with_text(&labels.about, None)
         .separator()
         .item(&settings)
         .separator()
-        .services()
+        .services_with_text(&labels.services)
         .separator()
-        .hide()
-        .hide_others()
-        .show_all()
+        .hide_with_text(&labels.hide)
+        .hide_others_with_text(&labels.hide_others)
+        .show_all_with_text(&labels.show_all)
         .separator()
-        .quit()
+        .quit_with_text(&labels.quit)
         .build()?;
     #[cfg(not(target_os = "macos"))]
-    let first = SubmenuBuilder::new(app, "File")
+    let first = SubmenuBuilder::new(app, &labels.file)
         .item(&settings)
         .separator()
-        .quit()
+        .quit_with_text(&labels.quit)
         .build()?;
 
     Menu::with_items(app, &[&first, &edit, &window])
@@ -132,7 +244,8 @@ fn build_menu<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<Menu<R>> {
 pub fn run() -> anyhow::Result<()> {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
-        .menu(build_menu)
+        .manage(MenuLabelsState::default())
+        .menu(|app| build_menu(app, &MenuLabels::default()))
         .on_menu_event(|app, event| {
             if event.id() == SETTINGS_MENU_ID {
                 // A failure here has no caller to report to; the menu item stays usable.
@@ -148,7 +261,11 @@ pub fn run() -> anyhow::Result<()> {
                 settings.close().ok();
             }
         })
-        .invoke_handler(tauri::generate_handler![app_version, open_settings_window])
+        .invoke_handler(tauri::generate_handler![
+            app_version,
+            open_settings_window,
+            app_set_menu_labels
+        ])
         .run(tauri::generate_context!())?;
     Ok(())
 }
@@ -160,6 +277,51 @@ mod tests {
     #[test]
     fn app_version_returns_the_core_version() {
         assert_eq!(app_version().unwrap(), cratekit_core::version());
+    }
+
+    #[test]
+    fn menu_labels_default_to_english_and_are_all_set() {
+        let MenuLabels {
+            settings,
+            settings_window_title,
+            file,
+            edit,
+            window,
+            undo,
+            redo,
+            cut,
+            copy,
+            paste,
+            select_all,
+            minimize,
+            close_window,
+            quit,
+            about,
+            services,
+            hide,
+            hide_others,
+            show_all,
+        } = MenuLabels::default();
+        assert_eq!(settings, "Settings...");
+        assert_eq!([file, edit, window], ["File", "Edit", "Window"]);
+        let all = [
+            settings_window_title,
+            undo,
+            redo,
+            cut,
+            copy,
+            paste,
+            select_all,
+            minimize,
+            close_window,
+            quit,
+            about,
+            services,
+            hide,
+            hide_others,
+            show_all,
+        ];
+        assert!(all.iter().all(|label| !label.is_empty()));
     }
 
     #[test]

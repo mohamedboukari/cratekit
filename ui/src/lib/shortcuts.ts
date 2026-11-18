@@ -6,6 +6,10 @@
  * Keys use KeyboardEvent.code (physical keys), so pads and stem keys stay in
  * the same place on every keyboard layout.
  */
+import type { shortcuts as shortcutText } from "@/i18n/en/shortcuts";
+
+/** Translation key of a shortcut label, e.g. "shortcuts.labels.cue". */
+export type ShortcutLabelKey = `shortcuts.labels.${keyof typeof shortcutText.labels}`;
 
 export type ActionId =
   | "play-pause"
@@ -25,15 +29,25 @@ export type ActionId =
   | "ab-toggle"
   | "open-settings";
 
-export interface Shortcut {
+interface ShortcutBase {
   id: ActionId;
   code: string;
   /** Requires Cmd on macOS, Ctrl elsewhere. */
   mod: boolean;
-  label: string;
-  /** Text shown for the key, e.g. "Space" or "1". */
+  /** Text shown for the key (never translated), e.g. "Space" or "1". */
   keyLabel: string;
 }
+
+/**
+ * A shortcut and its label translation key. Hot cue labels also carry the
+ * cue number they show: render them with `t(labelKey, { n })`, the others
+ * with `t(labelKey)`.
+ */
+export type Shortcut = ShortcutBase &
+  (
+    | { labelKey: Exclude<ShortcutLabelKey, "shortcuts.labels.hotCue"> }
+    | { labelKey: "shortcuts.labels.hotCue"; n: number }
+  );
 
 const HOTCUES: ReadonlyArray<readonly [ActionId, number]> = [
   ["hotcue-1", 1],
@@ -51,23 +65,66 @@ export const SHORTCUTS: readonly Shortcut[] = [
     id: "play-pause",
     code: "Space",
     mod: false,
-    label: "Play / pause",
+    labelKey: "shortcuts.labels.playPause",
     keyLabel: "Space",
   },
-  { id: "cue", code: "KeyC", mod: false, label: "Cue", keyLabel: "C" },
+  {
+    id: "cue",
+    code: "KeyC",
+    mod: false,
+    labelKey: "shortcuts.labels.cue",
+    keyLabel: "C",
+  },
   ...HOTCUES.map(([id, n]): Shortcut => ({
     id,
     code: `Digit${n}`,
     mod: false,
-    label: `Hot cue ${n}`,
+    labelKey: "shortcuts.labels.hotCue",
+    n,
     keyLabel: String(n),
   })),
-  { id: "mute-vocals", code: "KeyQ", mod: false, label: "Mute vocals", keyLabel: "Q" },
-  { id: "mute-drums", code: "KeyW", mod: false, label: "Mute drums", keyLabel: "W" },
-  { id: "mute-bass", code: "KeyE", mod: false, label: "Mute bass", keyLabel: "E" },
-  { id: "mute-other", code: "KeyR", mod: false, label: "Mute other", keyLabel: "R" },
-  { id: "ab-toggle", code: "KeyB", mod: false, label: "Compare A/B", keyLabel: "B" },
-  { id: "open-settings", code: "Comma", mod: true, label: "Settings", keyLabel: "," },
+  {
+    id: "mute-vocals",
+    code: "KeyQ",
+    mod: false,
+    labelKey: "shortcuts.labels.muteVocals",
+    keyLabel: "Q",
+  },
+  {
+    id: "mute-drums",
+    code: "KeyW",
+    mod: false,
+    labelKey: "shortcuts.labels.muteDrums",
+    keyLabel: "W",
+  },
+  {
+    id: "mute-bass",
+    code: "KeyE",
+    mod: false,
+    labelKey: "shortcuts.labels.muteBass",
+    keyLabel: "E",
+  },
+  {
+    id: "mute-other",
+    code: "KeyR",
+    mod: false,
+    labelKey: "shortcuts.labels.muteOther",
+    keyLabel: "R",
+  },
+  {
+    id: "ab-toggle",
+    code: "KeyB",
+    mod: false,
+    labelKey: "shortcuts.labels.abToggle",
+    keyLabel: "B",
+  },
+  {
+    id: "open-settings",
+    code: "Comma",
+    mod: true,
+    labelKey: "shortcuts.labels.openSettings",
+    keyLabel: ",",
+  },
 ];
 
 export function isMacPlatform(): boolean {

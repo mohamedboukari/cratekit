@@ -1,4 +1,5 @@
 import { useEffect, type JSX } from "react";
+import { useTranslation } from "react-i18next";
 
 import { SettingsView } from "@/components/settings/SettingsView";
 import { Toaster } from "@/components/ui/sonner";
@@ -12,6 +13,7 @@ import { useSettings } from "@/stores/settings";
  * for changes Rust broadcasts.
  */
 export function SettingsApp(): JSX.Element {
+  const { t } = useTranslation();
   const loadSettings = useSettings((s) => s.load);
   const loadDevices = useDevices((s) => s.load);
 
@@ -30,7 +32,7 @@ export function SettingsApp(): JSX.Element {
 
   return (
     <main className="h-full bg-background text-foreground">
-      <h1 className="sr-only">Cratekit settings</h1>
+      <h1 className="sr-only">{t("settings.windowTitle")}</h1>
       <SettingsView />
       <Toaster />
     </main>

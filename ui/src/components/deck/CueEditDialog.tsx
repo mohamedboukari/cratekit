@@ -1,5 +1,6 @@
 import { cn } from "cn";
 import { useState, type FormEvent, type JSX, type RefObject } from "react";
+import { useTranslation } from "react-i18next";
 
 import { CUE_BG } from "@/components/deck/cueColors";
 import { Button } from "@/components/ui/button";
@@ -39,6 +40,7 @@ export function CueEditDialog({
 }
 
 function CueForm({ cue, onClose }: { cue: Cue; onClose: () => void }): JSX.Element {
+  const { t } = useTranslation();
   const updateHotCue = usePlayer((s) => s.updateHotCue);
   const clearHotCue = usePlayer((s) => s.clearHotCue);
   const [name, setName] = useState(cue.name ?? "");
@@ -52,19 +54,19 @@ function CueForm({ cue, onClose }: { cue: Cue; onClose: () => void }): JSX.Eleme
 
   return (
     <form onSubmit={save} className="grid gap-4">
-      <DialogTitle>{`Hot cue ${cue.slot}`}</DialogTitle>
+      <DialogTitle>{t("deck.cueEditor.title", { slot: cue.slot })}</DialogTitle>
       <label className="grid gap-1">
-        Name
+        {t("deck.cueEditor.name")}
         <input
           value={name}
           onChange={(e) => setName(e.target.value)}
-          placeholder="e.g. Drop, Vocal in"
+          placeholder={t("deck.cueEditor.namePlaceholder")}
           maxLength={40}
           className="h-7 rounded-md border border-border bg-secondary px-2 text-[13px]"
         />
       </label>
       <fieldset className="grid gap-1.5">
-        <legend className="mb-1">Colour</legend>
+        <legend className="mb-1">{t("deck.cueEditor.colour")}</legend>
         <div className="flex flex-wrap gap-1.5">
           {COLORS.map((c) => (
             <label key={c} className="relative">
@@ -82,7 +84,7 @@ function CueForm({ cue, onClose }: { cue: Cue; onClose: () => void }): JSX.Eleme
                   CUE_BG[c],
                 )}
               />
-              <span className="sr-only">{c}</span>
+              <span className="sr-only">{t(`deck.cueEditor.colors.${c}`)}</span>
             </label>
           ))}
         </div>
@@ -96,9 +98,9 @@ function CueForm({ cue, onClose }: { cue: Cue; onClose: () => void }): JSX.Eleme
             onClose();
           }}
         >
-          Delete cue
+          {t("deck.cueEditor.delete")}
         </Button>
-        <Button type="submit">Save</Button>
+        <Button type="submit">{t("deck.cueEditor.save")}</Button>
       </DialogFooter>
     </form>
   );

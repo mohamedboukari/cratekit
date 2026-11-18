@@ -65,7 +65,7 @@ Laptop-first: designed for 1366x768, works down to the 1024x640 minimum window. 
 | Master | Presets (from Rust), intensity, loudness target, reference track, level-matched A/B, peak and RMS meters, export 24/16-bit | no track; presets loading or failed (Retry); rendering |
 | Stems | Split time and backend; 4 or 2 stems; per stem: colour, name, waveform, mute, solo, volume; export | no track; model missing (download dialog); not split; splitting (progress, cancel) |
 | Controller | Device drawing that lights up from control events; mapping table with Learn | no controller (keyboard shortcut list); listening ("Move a control..."); learned; moved from another control |
-| Settings | Audio output (device, buffer size, sample rate), Library (watched folders, auto-add, output folder), Processing (GPU or CPU), Models (download, delete), Controller (devices), Keyboard (shortcuts) | loading |
+| Settings | General (language), Audio output (device, buffer size, sample rate), Library (watched folders, auto-add, output folder), Processing (GPU or CPU), Models (download, delete), Controller (devices), Keyboard (shortcuts) | loading |
 | Status bar | Controller, job queue popover (pause, resume, cancel), backend, "Offline · nothing uploaded", version | no jobs |
 | Dialogs | VirtualDJ export dry run (changes and backup path, then confirm); model download (size, progress, checksum, cancel); hot cue edit (name, colour, delete); file drop overlay | |
 
@@ -81,6 +81,19 @@ Laptop-first: designed for 1366x768, works down to the 1024x640 minimum window. 
 - Every control is reachable by keyboard, with a visible focus ring. Dialogs trap focus and close on Escape.
 - Drop files or folders anywhere on the window to add them (macOS and Linux). On Windows, Tauri's native file drop would turn off the HTML5 drag and drop the set list uses, so `src-tauri/tauri.windows.conf.json` disables it there; Windows users add tracks with Add tracks, Add folder or watched folders.
 - While a dialog is open, deck shortcuts do nothing (Cmd/Ctrl+, still opens Settings).
+
+## Languages
+
+The UI is translated with **i18next + react-i18next** (#80). **English is the default for every user**, whatever the system language; another language is chosen in **Settings, General, Language** and applies to both windows at once (through `settings_changed`), the page's `lang` attribute and the native menu (`app_set_menu_labels`).
+
+- **Files:** `ui/src/i18n/en/` is the source, one file per UI area (`common`, `deck`, `layout`, `browser`, `dialogs`, `tools`, `settings`, `shortcuts`, `errors`); `ui/src/i18n/fr/` mirrors it. French is typed against English, so a missing or extra key fails `tsc`; a test also checks every value is real text with no em or en dash.
+- **Keys:** nested by area and sub-area, short camelCase (`deck.transport.play`, `browser.setList.saveAsCrate`). Plurals use `_one` / `_other` and `t(key, { count })`; values use `{{name}}` interpolation.
+- **In code:** components call `const { t } = useTranslation()`; code outside React (stores, `lib/`) calls `i18n.t` from `@/i18n`. Label maps store keys and translate when rendering, so a language switch updates them.
+- **Errors:** the toast title is the translated context; the detail is translated by `AppError.code` when known, else Rust's message. Rust stays language-neutral.
+- **Background jobs:** named by `jobLabel()` from the job's `kind`, `stage` and track count, never from Rust's English `label`. Lists in sentences (the supported formats) use `Intl.ListFormat` in the current language.
+- **Not translated:** music data (titles, artists, crates), key names and Camelot codes, and units (BPM, LUFS, dBTP, dB, CUE). **DJ numbers keep the dot format in every language** (124.0 BPM, -8.0 LUFS, m:ss), like DJ software and hardware; counts, plurals and durations in sentences follow the language.
+- **Adding a string:** add it to the English area file, then the same key in every other language (tsc tells you which). Adding a language: see #82.
+- French text is drafted for review: a native speaker checks it before each release.
 
 ## React rules
 

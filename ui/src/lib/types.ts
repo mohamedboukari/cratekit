@@ -118,10 +118,16 @@ export type JobKind = "analysis" | "stems" | "master" | "export" | "model-downlo
 
 export type JobState = "queued" | "running" | "paused" | "done" | "failed";
 
+/** A step inside a multi-step job, as a code the UI translates (Rust stays language-neutral). */
+export type JobStage = "download" | "verify";
+
 export interface Job {
   id: JobId;
   kind: JobKind;
+  /** Rust's own label, in English: a fallback only; the UI shows `jobLabel(job)`. */
   label: string;
+  /** The current step of a multi-step job (the model download), or null. */
+  stage: JobStage | null;
   /** Tracks this job works on (empty for jobs such as a model download). */
   trackIds: TrackId[];
   done: number;
@@ -132,7 +138,10 @@ export interface Job {
 export interface JobProgress {
   jobId: JobId;
   kind: JobKind;
+  /** Rust's own label, in English: a fallback only; the UI translates by kind and stage. */
   label: string;
+  /** The current step of a multi-step job (the model download), or null. */
+  stage: JobStage | null;
   /** Tracks this job works on (empty for jobs such as a model download). */
   trackIds: TrackId[];
   done: number;
@@ -257,10 +266,13 @@ export interface StemsInfo {
 
 export type StemsBackendPreference = "auto" | "cpu";
 
+/** Why stems run on the CPU: no supported GPU, CPU chosen in Settings, or the GPU check failed. */
+export type StemsCpuReason = "no_gpu" | "cpu_chosen" | "gpu_check_failed";
+
 export interface StemsBackendStatus {
   active: "coreml" | "directml" | "cpu";
-  /** Why the CPU is used, when it is. */
-  reason: string | null;
+  /** Why the CPU is used, as a code the UI words; null when a GPU is in use. */
+  reason: StemsCpuReason | null;
 }
 
 export interface ModelStatus {
@@ -290,7 +302,35 @@ export interface FileDrop {
 /** Saved pane sizes, per panel group id: panel id to percentage. */
 export type PaneLayouts = Record<string, Record<string, number>>;
 
+/** UI languages (#80). English is the default for every user. */
+export type UiLanguage = "en" | "fr";
+
+/** Text of every native menu item and the Settings window title, in the UI language. */
+export interface MenuLabels {
+  settings: string;
+  settingsWindowTitle: string;
+  file: string;
+  edit: string;
+  window: string;
+  undo: string;
+  redo: string;
+  cut: string;
+  copy: string;
+  paste: string;
+  selectAll: string;
+  minimize: string;
+  closeWindow: string;
+  quit: string;
+  about: string;
+  services: string;
+  hide: string;
+  hideOthers: string;
+  showAll: string;
+}
+
 export interface Settings {
+  /** The UI language, chosen in Settings (never taken from the system). */
+  language: UiLanguage;
   audioDeviceId: string | null;
   bufferSize: number;
   watchedFolders: string[];
@@ -302,10 +342,16 @@ export interface Settings {
   setList: TrackId[];
 }
 
+/** One value the export writes for a track: data, not text (the UI words it). */
+export type ExportChangeItem =
+  | { field: "bpm"; value: number | null }
+  | { field: "key"; value: string | null }
+  | { field: "cues"; value: number };
+
 export interface ExportChange {
   trackId: TrackId;
   title: string;
-  changes: string[];
+  changes: ExportChangeItem[];
 }
 
 export interface ExportPlan {

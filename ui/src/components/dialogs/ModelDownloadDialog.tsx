@@ -1,4 +1,6 @@
+import { jobLabel } from "@/lib/format";
 import type { JSX } from "react";
+import { useTranslation } from "react-i18next";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -33,26 +35,29 @@ export function ModelDownloadDialog({
   onCancelJob,
   onClose,
 }: ModelDownloadDialogProps): JSX.Element {
+  const { t } = useTranslation();
   const pct = job && job.total > 0 ? Math.round((job.done / job.total) * 100) : 0;
   const size =
-    sizeBytes === null ? "about 200 MB" : `${Math.round(sizeBytes / 1_000_000)} MB`;
+    sizeBytes === null
+      ? t("dialogs.modelDownload.sizeUnknown")
+      : t("dialogs.modelDownload.size", { mb: Math.round(sizeBytes / 1_000_000) });
   return (
     <Dialog open={open} onOpenChange={(next) => !next && onClose()}>
       <DialogContent>
-        <DialogTitle>Download the stems model</DialogTitle>
+        <DialogTitle>{t("dialogs.modelDownload.title")}</DialogTitle>
         <DialogDescription>
-          {`Stem splitting uses the htdemucs model (${size}). It downloads once, its checksum is verified, and it stays on this computer. This is the only time Cratekit goes online.`}
+          {t("dialogs.modelDownload.description", { size })}
         </DialogDescription>
         {job && (
           <div className="grid gap-1.5">
             <div className="flex justify-between">
-              <span>{job.label}</span>
+              <span>{jobLabel(job)}</span>
               <span className="font-mono tabular-nums">{pct}%</span>
             </div>
             <progress
               max={100}
               value={pct}
-              aria-label={job.label}
+              aria-label={jobLabel(job)}
               className="h-1.5 w-full appearance-none overflow-hidden rounded-full [&::-moz-progress-bar]:bg-primary [&::-webkit-progress-bar]:bg-secondary [&::-webkit-progress-value]:bg-primary"
             />
           </div>
@@ -61,18 +66,20 @@ export function ModelDownloadDialog({
           {job ? (
             <>
               <Button variant="outline" onClick={() => onCancelJob(job)}>
-                Cancel download
+                {t("dialogs.modelDownload.cancel")}
               </Button>
               <Button variant="ghost" onClick={onClose}>
-                Hide
+                {t("dialogs.modelDownload.hide")}
               </Button>
             </>
           ) : (
             <>
               <Button variant="outline" onClick={onClose}>
-                Not now
+                {t("dialogs.modelDownload.notNow")}
               </Button>
-              <Button onClick={onStart}>{`Download ${size}`}</Button>
+              <Button onClick={onStart}>
+                {t("dialogs.modelDownload.download", { size })}
+              </Button>
             </>
           )}
         </DialogFooter>

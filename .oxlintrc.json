@@ -60,10 +60,11 @@
     // that is the idiomatic React pattern, not a defect.
     "typescript/consistent-return": "off",
 
-    // Side-effect imports are allowed only for styles and the test matchers setup.
+    // Side-effect imports are allowed only for styles, the test matchers setup,
+    // and the translations (i18next must be initialized before anything renders).
     "import/no-unassigned-import": [
       "warn",
-      { "allow": ["**/*.css", "@testing-library/jest-dom/vitest"] }
+      { "allow": ["**/*.css", "@testing-library/jest-dom/vitest", "@/i18n"] }
     ]
   },
 

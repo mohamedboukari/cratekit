@@ -1,4 +1,6 @@
+import { type TFunction } from "i18next";
 import { useEffect, useState, type JSX } from "react";
+import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
@@ -9,13 +11,25 @@ import {
   DialogFooter,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { i18n } from "@/i18n";
 import { api } from "@/lib/ipc";
 import { notifyError } from "@/lib/notify";
-import type { ExportPlan, TrackId } from "@/lib/types";
+import type { ExportChangeItem, ExportPlan, TrackId } from "@/lib/types";
 import { useUi } from "@/stores/ui";
 
-function tracks(count: number): string {
-  return `${count} ${count === 1 ? "track" : "tracks"}`;
+/** One export change in the UI language (Rust sends the data, not the words). */
+function changeText(change: ExportChangeItem, t: TFunction): string {
+  const unknown = t("dialogs.export.changes.unknown");
+  switch (change.field) {
+    case "bpm":
+      return t("dialogs.export.changes.bpm", {
+        value: change.value?.toFixed(1) ?? unknown,
+      });
+    case "key":
+      return t("dialogs.export.changes.key", { value: change.value ?? unknown });
+    case "cues":
+      return t("dialogs.export.changes.cues", { count: change.value });
+  }
 }
 
 /**
@@ -55,6 +69,7 @@ function ExportBody({
   setWriting: (writing: boolean) => void;
   onDone: () => void;
 }): JSX.Element {
+  const { t } = useTranslation();
   const [plan, setPlan] = useState<ExportPlan | null>(null);
   const [failed, setFailed] = useState(false);
 
@@ -66,7 +81,8 @@ function ExportBody({
       .catch((error: unknown) => {
         if (!current) return;
         setFailed(true);
-        notifyError(error, "Could not prepare the VirtualDJ export");
+        // Read at call time: a language switch must not re-run the dry run.
+        notifyError(error, i18n.t("dialogs.errors.exportPrepare"));
       });
     return () => {
       current = false;
@@ -77,12 +93,12 @@ function ExportBody({
     setWriting(true);
     try {
       const done = await api().exportVirtualdj(ids, false);
-      toast.success(`Exported ${tracks(done.tracks.length)} to VirtualDJ`, {
-        description: `Backup: ${done.backupPath}`,
+      toast.success(t("dialogs.export.exported", { count: done.tracks.length }), {
+        description: t("dialogs.export.backupPath", { path: done.backupPath }),
       });
       onDone();
     } catch (error) {
-      notifyError(error, "The VirtualDJ export failed; your database was not changed");
+      notifyError(error, t("dialogs.errors.exportWrite"));
     } finally {
       setWriting(false);
     }
@@ -92,35 +108,35 @@ function ExportBody({
 
   return (
     <>
-      <DialogTitle>Export to VirtualDJ</DialogTitle>
+      <DialogTitle>{t("dialogs.export.title")}</DialogTitle>
       <DialogDescription>
         {plan
           ? empty
-            ? "Nothing to change: VirtualDJ already has this data."
-            : `These changes will be written for ${tracks(plan.tracks.length)}. VirtualDJ's database is backed up first.`
+            ? t("dialogs.export.nothingToChange")
+            : t("dialogs.export.willWrite", { count: plan.tracks.length })
           : failed
-            ? "The export could not be prepared."
-            : "Checking what would change..."}
+            ? t("dialogs.export.prepareFailed")
+            : t("dialogs.export.checking")}
       </DialogDescription>
       {plan && !empty && (
         <>
           <ul className="max-h-64 overflow-y-auto rounded-md border border-border">
-            {plan.tracks.map((t) => (
+            {plan.tracks.map((track) => (
               <li
-                key={t.trackId}
+                key={track.trackId}
                 className="border-b border-border px-3 py-1.5 last:border-b-0"
               >
-                <span className="block truncate font-medium" title={t.title}>
-                  {t.title}
+                <span className="block truncate font-medium" title={track.title}>
+                  {track.title}
                 </span>
                 <span className="text-[11px] text-muted-foreground">
-                  {t.changes.join(", ")}
+                  {track.changes.map((change) => changeText(change, t)).join(", ")}
                 </span>
               </li>
             ))}
           </ul>
           <p className="text-[11px] text-muted-foreground">
-            Backup:{" "}
+            {t("dialogs.export.backup")}{" "}
             <span className="font-mono" title={plan.backupPath}>
               {plan.backupPath}
             </span>
@@ -129,10 +145,10 @@ function ExportBody({
       )}
       <DialogFooter>
         <Button variant="outline" disabled={writing} onClick={onDone}>
-          Cancel
+          {t("dialogs.export.cancel")}
         </Button>
         <Button disabled={!plan || empty || writing} onClick={() => void confirm()}>
-          {writing ? "Writing..." : "Export"}
+          {writing ? t("dialogs.export.writing") : t("dialogs.export.confirm")}
         </Button>
       </DialogFooter>
     </>

@@ -1,6 +1,7 @@
 import { cn } from "cn";
 import { Pause, Play } from "lucide-react";
 import { useEffect, useRef, type JSX, type MouseEvent } from "react";
+import { useTranslation } from "react-i18next";
 
 import { Knob } from "@/components/controls/Knob";
 import { CUE_BG } from "@/components/deck/cueColors";
@@ -8,7 +9,7 @@ import { Button } from "@/components/ui/button";
 import { usePlaybackPositionRef } from "@/hooks/usePlaybackRefs";
 import { releasePointerFocus } from "@/lib/focus";
 import { filterText, formatTime } from "@/lib/format";
-import type { CueSlot, PlaybackMode, TrackDetail } from "@/lib/types";
+import type { CueSlot, TrackDetail } from "@/lib/types";
 import { usePlayer } from "@/stores/player";
 import { useUi } from "@/stores/ui";
 
@@ -17,14 +18,9 @@ const PAGE_SLOTS: Record<1 | 2, readonly CueSlot[]> = {
   2: [5, 6, 7, 8],
 };
 
-const HEARING: Record<PlaybackMode, string> = {
-  original: "Original",
-  mastered: "Mastered",
-  stems: "Stems mix",
-};
-
 /** Transport row: CUE, play, hot cue pads (paged), time, what you hear, filter. */
 export function Transport({ detail }: { detail: TrackDetail }): JSX.Element {
+  const { t } = useTranslation();
   const playing = usePlayer((s) => s.playing);
   const mode = usePlayer((s) => s.mode);
   const filter = usePlayer((s) => s.filter);
@@ -69,7 +65,7 @@ export function Transport({ detail }: { detail: TrackDetail }): JSX.Element {
           releasePointerFocus(e);
           void cue();
         }}
-        title="Cue (C)"
+        title={t("deck.transport.cueTitle")}
       >
         CUE
       </Button>
@@ -79,14 +75,18 @@ export function Transport({ detail }: { detail: TrackDetail }): JSX.Element {
           releasePointerFocus(e);
           void togglePlay();
         }}
-        aria-label={playing ? "Pause" : "Play"}
-        title="Play / pause (Space)"
+        aria-label={playing ? t("deck.transport.pause") : t("deck.transport.play")}
+        title={t("deck.transport.playTitle")}
       >
         {playing ? <Pause aria-hidden="true" /> : <Play aria-hidden="true" />}
       </Button>
 
       <fieldset className="flex items-center gap-1.5">
-        <legend className="sr-only">{`Hot cues ${padPage === 1 ? "1 to 4" : "5 to 8"}`}</legend>
+        <legend className="sr-only">
+          {padPage === 1
+            ? t("deck.transport.padsLegend", { from: 1, to: 4 })
+            : t("deck.transport.padsLegend", { from: 5, to: 8 })}
+        </legend>
         {PAGE_SLOTS[padPage].map((slot) => {
           const set = detail.cues.find((c) => c.slot === slot);
           return (
@@ -96,10 +96,13 @@ export function Transport({ detail }: { detail: TrackDetail }): JSX.Element {
               onClick={onPad(slot)}
               aria-label={
                 set
-                  ? `Hot cue ${slot}, jump to ${formatTime(set.positionSec)}`
-                  : `Hot cue ${slot}, empty: set at playhead`
+                  ? t("deck.transport.padSet", {
+                      slot,
+                      time: formatTime(set.positionSec),
+                    })
+                  : t("deck.transport.padEmpty", { slot })
               }
-              title={`Hot cue ${slot} (${slot}). Shift-click to clear`}
+              title={t("deck.transport.padTitle", { slot })}
               className={cn(
                 "h-8 w-9 rounded-md font-mono text-[13px] font-bold",
                 set
@@ -115,7 +118,11 @@ export function Transport({ detail }: { detail: TrackDetail }): JSX.Element {
           variant="ghost"
           size="sm"
           onClick={togglePadPage}
-          aria-label={`Show hot cues ${padPage === 1 ? "5 to 8" : "1 to 4"}`}
+          aria-label={
+            padPage === 1
+              ? t("deck.transport.showPads", { from: 5, to: 8 })
+              : t("deck.transport.showPads", { from: 1, to: 4 })
+          }
         >
           {padPage === 1 ? "5-8" : "1-4"}
         </Button>
@@ -129,10 +136,13 @@ export function Transport({ detail }: { detail: TrackDetail }): JSX.Element {
       </span>
 
       <span className="ml-auto text-xs text-muted-foreground">
-        Hearing: <b className="font-semibold text-primary">{HEARING[mode]}</b>
+        {t("deck.transport.hearingLabel")}{" "}
+        <b className="font-semibold text-primary">
+          {t(`deck.transport.hearing.${mode}`)}
+        </b>
       </span>
       <Knob
-        label="Filter"
+        label={t("deck.transport.filter")}
         value={filter}
         min={-1}
         max={1}

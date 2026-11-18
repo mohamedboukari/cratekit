@@ -1,4 +1,5 @@
 import type { JSX } from "react";
+import { useTranslation } from "react-i18next";
 
 import { Transport } from "@/components/deck/Transport";
 import { Waveform } from "@/components/deck/Waveform";
@@ -6,15 +7,16 @@ import { usePlayer } from "@/stores/player";
 
 /** The deck: track header with stats, waveform with cue flags, transport. */
 export function Deck(): JSX.Element {
+  const { t } = useTranslation();
   const detail = usePlayer((s) => s.detail);
 
   if (!detail) {
     return (
       <section
-        aria-label="Deck"
+        aria-label={t("deck.label")}
         className="grid h-full place-items-center border-b border-border text-muted-foreground"
       >
-        Double-click a track (or press Enter) to load it on the deck
+        {t("deck.empty")}
       </section>
     );
   }
@@ -22,7 +24,7 @@ export function Deck(): JSX.Element {
   const { track, analysis } = detail;
   return (
     <section
-      aria-label="Deck"
+      aria-label={t("deck.label")}
       className="flex h-full min-h-0 flex-col gap-2.5 border-b border-border px-4.5 py-3"
     >
       <div className="flex items-center gap-3.5">
@@ -43,18 +45,20 @@ export function Deck(): JSX.Element {
             highlight
             hint={
               analysis
-                ? `confidence ${Math.round(analysis.bpmConfidence * 100)}%`
+                ? t("deck.stats.confidence", {
+                    percent: Math.round(analysis.bpmConfidence * 100),
+                  })
                 : undefined
             }
           />
           <Stat
-            label="Key"
+            label={t("deck.stats.key")}
             value={
               track.keyName?.replace(" minor", " min").replace(" major", " maj") ?? "--"
             }
           />
           <Stat label="Camelot" value={track.camelot ?? "--"} highlight />
-          <Stat label="Energy" value={track.energy?.toString() ?? "--"} />
+          <Stat label={t("deck.stats.energy")} value={track.energy?.toString() ?? "--"} />
           <Stat label="LUFS" value={track.lufs?.toFixed(1) ?? "--"} />
         </dl>
       </div>

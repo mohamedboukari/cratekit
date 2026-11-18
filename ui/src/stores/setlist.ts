@@ -1,5 +1,6 @@
 import { create } from "zustand";
 
+import { i18n } from "@/i18n";
 import { api, toAppError } from "@/lib/ipc";
 import { notifyError } from "@/lib/notify";
 import type { TrackId, TrackRow, Transition } from "@/lib/types";
@@ -63,7 +64,7 @@ export const useSetList = create<SetListState>()((set, get) => {
       await useSettings.getState().set("setList", ids);
       await updateTransitions(ids, seq);
     } catch (error) {
-      if (seq === changeSeq) notifyError(error, "Could not update the set list");
+      if (seq === changeSeq) notifyError(error, i18n.t("errors.setlist.update"));
     }
   }
 
@@ -80,7 +81,7 @@ export const useSetList = create<SetListState>()((set, get) => {
     try {
       await updateTransitions(ids, seq);
     } catch (error) {
-      if (seq === changeSeq) notifyError(error, "Could not check the set list");
+      if (seq === changeSeq) notifyError(error, i18n.t("errors.setlist.check"));
     }
   }
 
@@ -101,7 +102,7 @@ export const useSetList = create<SetListState>()((set, get) => {
       loading = loaded
         ? Promise.resolve()
         : reload(ids).catch((error: unknown) => {
-            notifyError(error, "Could not load the set list");
+            notifyError(error, i18n.t("errors.setlist.load"));
           });
       return loading;
     },
@@ -113,7 +114,7 @@ export const useSetList = create<SetListState>()((set, get) => {
       try {
         await reload(ids);
       } catch (error) {
-        notifyError(error, "Could not refresh the set list");
+        notifyError(error, i18n.t("errors.setlist.refresh"));
       }
     },
 
@@ -131,7 +132,7 @@ export const useSetList = create<SetListState>()((set, get) => {
         items.splice(at, 0, ...rows);
         await commit(items);
       } catch (error) {
-        notifyError(error, "Could not add to the set list");
+        notifyError(error, i18n.t("errors.setlist.add"));
       }
     },
 
@@ -163,7 +164,7 @@ export const useSetList = create<SetListState>()((set, get) => {
         await api().crateAddTracks(crate.id, ids);
         return true;
       } catch (error) {
-        notifyError(error, "Could not save the set as a crate");
+        notifyError(error, i18n.t("errors.setlist.saveCrate"));
         return false;
       }
     },

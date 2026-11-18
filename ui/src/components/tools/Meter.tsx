@@ -1,4 +1,5 @@
 import { useEffect, useRef, type JSX } from "react";
+import { useTranslation } from "react-i18next";
 
 import { drawMeter, readMeterColors, type MeterColors } from "@/canvas/meter";
 import { useMeterRef } from "@/hooks/usePlaybackRefs";
@@ -20,6 +21,7 @@ function dbText(db: number): string {
  * for level changes.
  */
 export function Meter({ ceilingDb }: { ceilingDb: number }): JSX.Element {
+  const { t } = useTranslation();
   const meter = useMeterRef();
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const peakRef = useRef<HTMLSpanElement>(null);
@@ -70,7 +72,7 @@ export function Meter({ ceilingDb }: { ceilingDb: number }): JSX.Element {
 
   return (
     <div className="grid grid-cols-[44px_1fr_52px] items-center gap-x-2 gap-y-1">
-      <span className="text-[11px] text-muted-foreground">Peak</span>
+      <span className="text-[11px] text-muted-foreground">{t("tools.master.peak")}</span>
       <canvas ref={canvasRef} aria-hidden="true" className="row-span-2 h-7 w-full" />
       <span className="text-right font-mono text-[11px] tabular-nums">
         <span ref={peakRef}>-inf</span> dB

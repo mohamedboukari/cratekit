@@ -1,5 +1,6 @@
 import { create } from "zustand";
 
+import { i18n } from "@/i18n";
 import { api } from "@/lib/ipc";
 import { notifyError } from "@/lib/notify";
 import type {
@@ -70,7 +71,7 @@ export const useLibrary = create<LibraryState>()((set, get) => ({
     } catch (error) {
       if (seq !== requestSeq) return;
       set({ status: "error" });
-      notifyError(error, "Could not load the library");
+      notifyError(error, i18n.t("errors.library.load"));
     }
   },
 
@@ -89,7 +90,7 @@ export const useLibrary = create<LibraryState>()((set, get) => ({
       set({ rows, counts, crates, status: "ready", selectedIds });
     } catch (error) {
       if (seq !== requestSeq) return;
-      notifyError(error, "Could not refresh the library");
+      notifyError(error, i18n.t("errors.library.refresh"));
     }
   },
 
@@ -112,7 +113,7 @@ export const useLibrary = create<LibraryState>()((set, get) => ({
       await get().refreshRows();
       return ids.length;
     } catch (error) {
-      notifyError(error, "Could not add the tracks");
+      notifyError(error, i18n.t("errors.library.add"));
       return 0;
     }
   },

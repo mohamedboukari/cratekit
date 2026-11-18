@@ -20,6 +20,7 @@ export function createTauriApi(): CratekitApi {
   return {
     appVersion: () => invoke("app_version"),
     appOpenSettings: () => invoke("open_settings_window"),
+    appSetMenuLabels: (labels) => invoke("app_set_menu_labels", { labels }),
     dialogOpenFiles: async () =>
       (await open({
         multiple: true,

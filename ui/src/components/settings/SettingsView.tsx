@@ -1,10 +1,12 @@
 import { cn } from "cn";
 import { FolderPlus, Trash2 } from "lucide-react";
 import { useEffect, useId, useRef, useState, type JSX, type ReactNode } from "react";
+import { useTranslation } from "react-i18next";
 
 import { ShortcutList } from "@/components/controls/ShortcutList";
 import { Button } from "@/components/ui/button";
-import { BACKEND_LABEL } from "@/lib/format";
+import { i18n, LANGUAGES } from "@/i18n";
+import { backendLabel } from "@/lib/format";
 import { api } from "@/lib/ipc";
 import { notifyError } from "@/lib/notify";
 import type { ModelStatus, StemsBackendPreference } from "@/lib/types";
@@ -12,12 +14,13 @@ import { useDevices } from "@/stores/devices";
 import { useSettings } from "@/stores/settings";
 
 const SECTIONS = [
-  { id: "audio", label: "Audio output" },
-  { id: "library", label: "Library" },
-  { id: "processing", label: "Processing" },
-  { id: "models", label: "Models" },
-  { id: "controller", label: "Controller" },
-  { id: "keyboard", label: "Keyboard" },
+  { id: "general", labelKey: "settings.sections.general" },
+  { id: "audio", labelKey: "settings.sections.audio" },
+  { id: "library", labelKey: "settings.sections.library" },
+  { id: "processing", labelKey: "settings.sections.processing" },
+  { id: "models", labelKey: "settings.sections.models" },
+  { id: "controller", labelKey: "settings.sections.controller" },
+  { id: "keyboard", labelKey: "settings.sections.keyboard" },
 ] as const;
 
 type SectionId = (typeof SECTIONS)[number]["id"];
@@ -28,7 +31,7 @@ const BUFFER_SIZES = [128, 256, 512, 1024] as const;
 function pickBuffer(frames: number): void {
   api()
     .audioSetBufferSize(frames)
-    .catch((error: unknown) => notifyError(error, "Could not change the buffer size"));
+    .catch((error: unknown) => notifyError(error, i18n.t("errors.settings.bufferSize")));
 }
 
 /** The model list, or an empty list (with an error toast) when Rust cannot answer. */
@@ -36,7 +39,7 @@ async function readModels(): Promise<ModelStatus[]> {
   try {
     return await api().modelsStatus();
   } catch (error) {
-    notifyError(error, "Could not read the models");
+    notifyError(error, i18n.t("errors.settings.readModels"));
     return [];
   }
 }
@@ -54,7 +57,7 @@ function focusIfPending(el: HTMLButtonElement | null): void {
 }
 
 function megabytes(bytes: number): string {
-  return `${Math.round(bytes / 1_000_000)} MB`;
+  return i18n.t("settings.models.size", { value: Math.round(bytes / 1_000_000) });
 }
 
 /**
@@ -63,13 +66,14 @@ function megabytes(bytes: number): string {
  * reverted on error); Rust broadcasts it to the other window.
  */
 export function SettingsView(): JSX.Element {
-  const [section, setSection] = useState<SectionId>("audio");
+  const { t } = useTranslation();
+  const [section, setSection] = useState<SectionId>("general");
   const settings = useSettings((s) => s.settings);
 
   return (
     <div className="grid h-full min-h-0 grid-cols-[180px_1fr]">
       <nav
-        aria-label="Settings sections"
+        aria-label={t("settings.sectionsLabel")}
         className="border-r border-border bg-sidebar p-2"
       >
         <ul className="flex flex-col gap-0.5">
@@ -84,7 +88,7 @@ export function SettingsView(): JSX.Element {
                   section === s.id && "bg-card text-foreground",
                 )}
               >
-                {s.label}
+                {t(s.labelKey)}
               </button>
             </li>
           ))}
@@ -92,7 +96,9 @@ export function SettingsView(): JSX.Element {
       </nav>
       <div className="min-h-0 overflow-y-auto p-5">
         {!settings ? (
-          <p className="text-muted-foreground">Loading settings...</p>
+          <p className="text-muted-foreground">{t("settings.loading")}</p>
+        ) : section === "general" ? (
+          <GeneralSection />
         ) : section === "audio" ? (
           <AudioSection />
         ) : section === "library" ? (
@@ -105,8 +111,8 @@ export function SettingsView(): JSX.Element {
           <ControllerSection />
         ) : (
           <Section
-            title="Keyboard"
-            description="Shortcuts work in the main window, except while you type in a field or a dialog is open."
+            title={t("settings.sections.keyboard")}
+            description={t("settings.keyboard.description")}
           >
             <ShortcutList bare />
           </Section>
@@ -162,7 +168,44 @@ function Field({
 const SELECT =
   "h-7 rounded-md border border-border bg-secondary px-2 text-[13px] text-foreground";
 
+function GeneralSection(): JSX.Element {
+  const { t } = useTranslation();
+  const language = useSettings((s) => s.settings?.language ?? "en");
+  const set = useSettings((s) => s.set);
+
+  const pickLanguage = (code: string): void => {
+    // Narrow the select's string to a language we offer.
+    const picked = LANGUAGES.find((l) => l.code === code);
+    if (picked) void set("language", picked.code);
+  };
+
+  return (
+    <Section
+      title={t("settings.sections.general")}
+      description={t("settings.general.description")}
+    >
+      <Field label={t("settings.general.language")}>
+        {(id) => (
+          <select
+            id={id}
+            className={SELECT}
+            value={language}
+            onChange={(e) => pickLanguage(e.target.value)}
+          >
+            {LANGUAGES.map((l) => (
+              <option key={l.code} value={l.code} lang={l.code}>
+                {l.name}
+              </option>
+            ))}
+          </select>
+        )}
+      </Field>
+    </Section>
+  );
+}
+
 function AudioSection(): JSX.Element {
+  const { t } = useTranslation();
   const devices = useDevices((s) => s.audio);
   const loadDevices = useDevices((s) => s.load);
   const deviceId = useSettings((s) => s.settings?.audioDeviceId ?? null);
@@ -174,15 +217,15 @@ function AudioSection(): JSX.Element {
     api()
       .audioSetDevice(id)
       .then(loadDevices)
-      .catch((error: unknown) => notifyError(error, "Could not switch the audio output"));
+      .catch((error: unknown) => notifyError(error, t("errors.settings.audioOutput")));
   };
 
   return (
     <Section
-      title="Audio output"
-      description="Where Cratekit plays. If the device is unplugged, playback moves to the system default."
+      title={t("settings.sections.audio")}
+      description={t("settings.audio.description")}
     >
-      <Field label="Output device">
+      <Field label={t("settings.audio.device")}>
         {(id) => (
           <select
             id={id}
@@ -190,20 +233,20 @@ function AudioSection(): JSX.Element {
             value={current?.id ?? ""}
             onChange={(e) => pickDevice(e.target.value)}
           >
-            {devices.length === 0 && <option value="">No output devices found</option>}
+            {devices.length === 0 && (
+              <option value="">{t("settings.audio.noDevices")}</option>
+            )}
             {devices.map((d) => (
               <option key={d.id} value={d.id}>
-                {d.name}
-                {d.isDefault ? " (system default)" : ""}
+                {d.isDefault
+                  ? t("settings.audio.systemDefault", { name: d.name })
+                  : d.name}
               </option>
             ))}
           </select>
         )}
       </Field>
-      <Field
-        label="Buffer size"
-        hint="Smaller is more responsive; raise it if you hear clicks."
-      >
+      <Field label={t("settings.audio.bufferSize")} hint={t("settings.audio.bufferHint")}>
         {(id) => (
           <select
             id={id}
@@ -213,13 +256,13 @@ function AudioSection(): JSX.Element {
           >
             {BUFFER_SIZES.map((frames) => (
               <option key={frames} value={frames}>
-                {`${frames} samples`}
+                {t("settings.audio.samples", { frames })}
               </option>
             ))}
           </select>
         )}
       </Field>
-      <Field label="Sample rate">
+      <Field label={t("settings.audio.sampleRate")}>
         {(id) => (
           <output id={id} className="pt-1.5 font-mono tabular-nums">
             {current ? `${current.sampleRate / 1000} kHz` : "--"}
@@ -231,6 +274,7 @@ function AudioSection(): JSX.Element {
 }
 
 function LibrarySection(): JSX.Element {
+  const { t } = useTranslation();
   const folders = useSettings((s) => s.settings?.watchedFolders ?? []);
   const watch = useSettings((s) => s.settings?.watchFolders ?? false);
   const output = useSettings((s) => s.settings?.outputFolder ?? "");
@@ -242,7 +286,7 @@ function LibrarySection(): JSX.Element {
       if (folder && !folders.includes(folder))
         await set("watchedFolders", [...folders, folder]);
     } catch (error) {
-      notifyError(error, "Could not open the folder picker");
+      notifyError(error, t("errors.settings.folderPicker"));
     }
   };
   const chooseOutput = async (): Promise<void> => {
@@ -250,19 +294,19 @@ function LibrarySection(): JSX.Element {
       const folder = await api().dialogOpenFolder();
       if (folder) await set("outputFolder", folder);
     } catch (error) {
-      notifyError(error, "Could not open the folder picker");
+      notifyError(error, t("errors.settings.folderPicker"));
     }
   };
 
   return (
     <Section
-      title="Library"
-      description="Folders Cratekit watches for new tracks, and where exports go. Your original files are never changed."
+      title={t("settings.sections.library")}
+      description={t("settings.library.description")}
     >
       <div className="flex flex-col gap-2">
-        <h3 className="font-medium">Watched folders</h3>
+        <h3 className="font-medium">{t("settings.library.watched")}</h3>
         {folders.length === 0 ? (
-          <p className="text-muted-foreground">No folders yet.</p>
+          <p className="text-muted-foreground">{t("settings.library.empty")}</p>
         ) : (
           <ul className="flex flex-col gap-1">
             {folders.map((folder) => (
@@ -279,7 +323,7 @@ function LibrarySection(): JSX.Element {
                 <Button
                   variant="ghost"
                   size="icon-sm"
-                  aria-label={`Stop watching ${folder}`}
+                  aria-label={t("settings.library.stopWatching", { folder })}
                   onClick={() =>
                     void set(
                       "watchedFolders",
@@ -296,7 +340,7 @@ function LibrarySection(): JSX.Element {
         <div className="flex items-center gap-3">
           <Button variant="outline" size="sm" onClick={() => void addFolder()}>
             <FolderPlus aria-hidden="true" data-icon="inline-start" />
-            Add folder...
+            {t("settings.library.addFolder")}
           </Button>
           <label className="flex items-center gap-1.5">
             <input
@@ -305,11 +349,11 @@ function LibrarySection(): JSX.Element {
               onChange={(e) => void set("watchFolders", e.target.checked)}
               className="accent-primary"
             />
-            Add new files automatically
+            {t("settings.library.autoAdd")}
           </label>
         </div>
       </div>
-      <Field label="Output folder" hint="Masters and stems are written here.">
+      <Field label={t("settings.library.output")} hint={t("settings.library.outputHint")}>
         {(id) => (
           <div className="flex items-center gap-2">
             <output
@@ -317,10 +361,10 @@ function LibrarySection(): JSX.Element {
               className="min-w-0 flex-1 truncate font-mono text-[12px]"
               title={output}
             >
-              {output || "Not set"}
+              {output || t("settings.library.notSet")}
             </output>
             <Button variant="outline" size="sm" onClick={() => void chooseOutput()}>
-              Choose...
+              {t("settings.library.choose")}
             </Button>
           </div>
         )}
@@ -330,6 +374,7 @@ function LibrarySection(): JSX.Element {
 }
 
 function ProcessingSection(): JSX.Element {
+  const { t } = useTranslation();
   const preference = useSettings((s) => s.settings?.stemsBackend ?? "auto");
   const set = useSettings((s) => s.set);
   const backend = useDevices((s) => s.backend);
@@ -340,16 +385,23 @@ function ProcessingSection(): JSX.Element {
   }> = [
     {
       value: "auto",
-      label: "Use the GPU when available",
-      hint: "CoreML on macOS, DirectML on Windows; falls back to the CPU.",
+      label: t("settings.processing.auto"),
+      hint: t("settings.processing.autoHint"),
     },
-    { value: "cpu", label: "CPU only", hint: "Slower, but works on every machine." },
+    {
+      value: "cpu",
+      label: t("settings.processing.cpu"),
+      hint: t("settings.processing.cpuHint"),
+    },
   ];
 
   return (
-    <Section title="Processing" description="How stem splitting runs on this computer.">
+    <Section
+      title={t("settings.sections.processing")}
+      description={t("settings.processing.description")}
+    >
       <fieldset className="flex flex-col gap-2">
-        <legend className="mb-1 font-medium">Stems backend</legend>
+        <legend className="mb-1 font-medium">{t("settings.processing.backend")}</legend>
         {options.map((o) => (
           <label key={o.value} className="flex items-start gap-2">
             <input
@@ -368,15 +420,21 @@ function ProcessingSection(): JSX.Element {
         ))}
       </fieldset>
       <p className="text-muted-foreground">
-        {backend
-          ? `In use now: ${BACKEND_LABEL[backend.active]}${backend.reason ? ` (${backend.reason})` : ""}`
-          : "Checking the backend..."}
+        {!backend
+          ? t("settings.processing.checking")
+          : backend.reason
+            ? t("settings.processing.inUseReason", {
+                backend: backendLabel(backend.active),
+                reason: t(`settings.processing.cpuReasons.${backend.reason}`),
+              })
+            : t("settings.processing.inUse", { backend: backendLabel(backend.active) })}
       </p>
     </Section>
   );
 }
 
 function ModelsSection(): JSX.Element {
+  const { t } = useTranslation();
   const [models, setModels] = useState<ModelStatus[] | null>(null);
   const [confirming, setConfirming] = useState<string | null>(null);
   /** Running downloads: model name to percent (this window may not share the main window's jobs). */
@@ -421,7 +479,7 @@ function ModelsSection(): JSX.Element {
       jobToModel.current.set(await api().modelsDownload(name), name);
     } catch (error) {
       setProgress(({ [name]: _failed, ...rest }) => rest);
-      notifyError(error, "Could not start the download");
+      notifyError(error, t("errors.settings.download"));
     }
   };
 
@@ -431,21 +489,21 @@ function ModelsSection(): JSX.Element {
     api()
       .modelsDelete(name)
       .then(refresh)
-      .catch((error: unknown) => notifyError(error, "Could not delete the model"));
+      .catch((error: unknown) => notifyError(error, t("errors.settings.deleteModel")));
   };
 
   return (
     <Section
-      title="Models"
-      description="Machine learning models download once, are checked against a checksum, and stay on this computer."
+      title={t("settings.sections.models")}
+      description={t("settings.models.description")}
     >
       {models === null ? (
-        <p className="text-muted-foreground">Checking models...</p>
+        <p className="text-muted-foreground">{t("settings.models.checking")}</p>
       ) : models.length === 0 ? (
         <p className="flex items-center gap-2 text-muted-foreground">
-          No models to show.
+          {t("settings.models.empty")}
           <Button variant="outline" size="sm" onClick={() => void refresh()}>
-            Retry
+            {t("settings.models.retry")}
           </Button>
         </p>
       ) : (
@@ -460,7 +518,15 @@ function ModelsSection(): JSX.Element {
                 <span className="flex-1">
                   <span className="font-mono">{m.name}</span>
                   <span className="block text-[11px] text-muted-foreground">
-                    {`${megabytes(m.sizeBytes)}, ${pct !== undefined ? `downloading ${pct}%` : m.downloaded ? "downloaded" : "not downloaded"}`}
+                    {t("settings.models.status", {
+                      size: megabytes(m.sizeBytes),
+                      state:
+                        pct !== undefined
+                          ? t("settings.models.stateDownloading", { pct })
+                          : m.downloaded
+                            ? t("settings.models.stateDownloaded")
+                            : t("settings.models.stateNotDownloaded"),
+                    })}
                   </span>
                 </span>
                 {!m.downloaded ? (
@@ -471,7 +537,9 @@ function ModelsSection(): JSX.Element {
                     disabled={pct !== undefined}
                     onClick={() => void download(m.name)}
                   >
-                    {pct !== undefined ? `Downloading ${pct}%` : "Download"}
+                    {pct !== undefined
+                      ? t("settings.models.downloading", { pct })
+                      : t("settings.models.download")}
                   </Button>
                 ) : confirming === m.name ? (
                   <>
@@ -480,7 +548,7 @@ function ModelsSection(): JSX.Element {
                       size="sm"
                       onClick={() => remove(m.name)}
                     >
-                      Delete for good
+                      {t("settings.models.deleteForGood")}
                     </Button>
                     <Button
                       ref={focusOnMount}
@@ -491,7 +559,7 @@ function ModelsSection(): JSX.Element {
                         setConfirming(null);
                       }}
                     >
-                      Keep
+                      {t("settings.models.keep")}
                     </Button>
                   </>
                 ) : (
@@ -505,7 +573,7 @@ function ModelsSection(): JSX.Element {
                       setConfirming(m.name);
                     }}
                   >
-                    Delete...
+                    {t("settings.models.delete")}
                   </Button>
                 )}
               </li>
@@ -518,16 +586,15 @@ function ModelsSection(): JSX.Element {
 }
 
 function ControllerSection(): JSX.Element {
+  const { t } = useTranslation();
   const devices = useDevices((s) => s.midi);
   return (
     <Section
-      title="Controller"
-      description="USB MIDI controllers are detected when you plug them in. Map controls in the Controller tab of the main window."
+      title={t("settings.sections.controller")}
+      description={t("settings.controller.description")}
     >
       {devices.length === 0 ? (
-        <p className="text-muted-foreground">
-          No controller found. Plug one in, or use the keyboard shortcuts.
-        </p>
+        <p className="text-muted-foreground">{t("settings.controller.empty")}</p>
       ) : (
         <ul className="flex flex-col gap-1">
           {devices.map((d) => (
@@ -541,7 +608,9 @@ function ControllerSection(): JSX.Element {
               />
               {d.name}
               <span className="text-[11px] text-muted-foreground">
-                {d.connected ? "connected" : "not connected"}
+                {d.connected
+                  ? t("settings.controller.connected")
+                  : t("settings.controller.notConnected")}
               </span>
             </li>
           ))}

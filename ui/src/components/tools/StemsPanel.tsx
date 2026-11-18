@@ -1,6 +1,7 @@
 import { cn } from "cn";
 import { Download, Scissors, X } from "lucide-react";
 import { useEffect, useRef, useState, type JSX } from "react";
+import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 
 import { drawMiniWaveform } from "@/canvas/waveform";
@@ -8,27 +9,50 @@ import { ModelDownloadDialog } from "@/components/dialogs/ModelDownloadDialog";
 import { ToolCard, ToolEmpty } from "@/components/tools/ToolCard";
 import { Button } from "@/components/ui/button";
 import { usePanelFocusFallback } from "@/hooks/usePanelFocusFallback";
-import { BACKEND_LABEL } from "@/lib/format";
+import { backendLabel, jobLabel } from "@/lib/format";
 import type { Job, StemName, Waveform } from "@/lib/types";
 import { useDevices } from "@/stores/devices";
 import { activeJobs, useJobs } from "@/stores/jobs";
 import { usePlayer } from "@/stores/player";
 import { ALL_STEMS, type StemLayout, useStems } from "@/stores/stems";
 
+/** Translation key of a mixer row's name. */
+type StemLabelKey = `tools.stems.names.${StemName | "instrumental"}`;
+
 /** Stem colours: the token for the dot, and the CSS variable for the canvas. */
 const STEM_STYLE: Record<
   StemName,
-  { dot: string; token: string; label: string; key: string }
+  { dot: string; token: string; label: StemLabelKey; key: string }
 > = {
-  vocals: { dot: "bg-ck-pink", token: "--color-ck-pink", label: "Vocals", key: "Q" },
-  drums: { dot: "bg-ck-orange", token: "--color-ck-orange", label: "Drums", key: "W" },
-  bass: { dot: "bg-ck-blue", token: "--color-ck-blue", label: "Bass", key: "E" },
-  other: { dot: "bg-ck-teal", token: "--color-ck-teal", label: "Other", key: "R" },
+  vocals: {
+    dot: "bg-ck-pink",
+    token: "--color-ck-pink",
+    label: "tools.stems.names.vocals",
+    key: "Q",
+  },
+  drums: {
+    dot: "bg-ck-orange",
+    token: "--color-ck-orange",
+    label: "tools.stems.names.drums",
+    key: "W",
+  },
+  bass: {
+    dot: "bg-ck-blue",
+    token: "--color-ck-blue",
+    label: "tools.stems.names.bass",
+    key: "E",
+  },
+  other: {
+    dot: "bg-ck-teal",
+    token: "--color-ck-teal",
+    label: "tools.stems.names.other",
+    key: "R",
+  },
 };
 
 interface StemRow {
   id: string;
-  label: string;
+  label: StemLabelKey;
   stems: readonly StemName[];
   /** The stem whose colour represents the row. */
   lead: StemName;
@@ -43,7 +67,7 @@ function rowsFor(layout: StemLayout): StemRow[] {
     return [
       {
         id: "vocals",
-        label: "Vocals",
+        label: "tools.stems.names.vocals",
         stems: ["vocals"],
         lead: "vocals",
         wave: "vocals",
@@ -51,7 +75,7 @@ function rowsFor(layout: StemLayout): StemRow[] {
       },
       {
         id: "instrumental",
-        label: "Instrumental",
+        label: "tools.stems.names.instrumental",
         stems: ["drums", "bass", "other"],
         lead: "drums",
         wave: "instrumental",
@@ -69,16 +93,13 @@ function rowsFor(layout: StemLayout): StemRow[] {
   }));
 }
 
-function megabytes(bytes: number): string {
-  return `${Math.round(bytes / 1_000_000)} MB`;
-}
-
 /**
  * Stems tab (#35, UI side): model download, split with progress, and a stem
  * mixer (mute, solo, volume) in four or two stems. Rust splits and mixes;
  * this panel sends the controls and shows what Rust reports.
  */
 export function StemsPanel(): JSX.Element {
+  const { t } = useTranslation();
   const detail = usePlayer((s) => s.detail);
   const info = useStems((s) => s.info);
   const status = useStems((s) => s.status);
@@ -119,34 +140,46 @@ export function StemsPanel(): JSX.Element {
             : "split";
   usePanelFocusFallback(view);
 
-  if (!detail || trackId === null)
-    return <ToolEmpty>Load a track to split it into stems.</ToolEmpty>;
+  if (!detail || trackId === null) return <ToolEmpty>{t("tools.stems.empty")}</ToolEmpty>;
 
-  const backendLabel = backend ? BACKEND_LABEL[backend.active] : null;
+  const backendName = backend ? backendLabel(backend.active) : null;
 
   if (view === "progress" && splitJob) {
     const pct =
       splitJob.total > 0 ? Math.round((splitJob.done / splitJob.total) * 100) : 0;
     return (
       <ToolEmpty>
-        <p>{`${splitJob.label}: ${detail.track.title}${backendLabel ? ` on ${backendLabel}` : ""}`}</p>
+        <p>
+          {backendName
+            ? t("tools.stems.progressOn", {
+                job: jobLabel(splitJob),
+                title: detail.track.title,
+                backend: backendName,
+              })
+            : t("tools.stems.progress", {
+                job: jobLabel(splitJob),
+                title: detail.track.title,
+              })}
+        </p>
         <progress
           max={100}
           value={pct}
-          aria-label="Split progress"
+          aria-label={t("tools.stems.splitProgress")}
           className="h-1.5 w-48 appearance-none overflow-hidden rounded-full [&::-moz-progress-bar]:bg-primary [&::-webkit-progress-bar]:bg-secondary [&::-webkit-progress-value]:bg-primary"
         />
-        <span className="font-mono tabular-nums">{pct}%</span>
+        <span className="font-mono tabular-nums">
+          {t("tools.percent", { value: pct })}
+        </span>
         <Button variant="outline" size="sm" onClick={() => void cancel(splitJob.id)}>
           <X aria-hidden="true" data-icon="inline-start" />
-          Cancel
+          {t("tools.stems.cancel")}
         </Button>
       </ToolEmpty>
     );
   }
 
   if (!info) {
-    if (status !== "ready") return <ToolEmpty>Checking stems...</ToolEmpty>;
+    if (status !== "ready") return <ToolEmpty>{t("tools.stems.checking")}</ToolEmpty>;
     if (modelReady === false)
       return (
         <ModelRequired
@@ -158,33 +191,45 @@ export function StemsPanel(): JSX.Element {
       );
     return (
       <ToolEmpty>
-        <p>Split {detail.track.title} into vocals, drums, bass and other.</p>
+        <p>{t("tools.stems.splitPrompt", { title: detail.track.title })}</p>
         <Button onClick={() => void split(trackId)}>
           <Scissors aria-hidden="true" data-icon="inline-start" />
-          Split stems
+          {t("tools.stems.split")}
         </Button>
-        {backendLabel && <span className="text-[11px]">Runs on {backendLabel}</span>}
+        {backendName && (
+          <span className="text-[11px]">
+            {t("tools.stems.runsOn", { backend: backendName })}
+          </span>
+        )}
       </ToolEmpty>
     );
   }
 
   const onExport = async (): Promise<void> => {
     const paths = await exportStems(trackId);
-    if (paths) toast.success(`Exported ${paths.length} stems`, { description: paths[0] });
+    if (paths)
+      toast.success(t("tools.stems.exported", { count: paths.length }), {
+        description: paths[0],
+      });
   };
 
   return (
     <div className="flex flex-col gap-3 p-3">
       <ToolCard
-        title="Stems"
+        title={t("tools.stems.title")}
         aside={
           <span className="text-[11px] text-muted-foreground">
-            {`Split in ${info.splitSec.toFixed(1)} s, cached${backendLabel ? `, ${backendLabel}` : ""}`}
+            {backendName
+              ? t("tools.stems.splitInfoOn", {
+                  seconds: info.splitSec.toFixed(1),
+                  backend: backendName,
+                })
+              : t("tools.stems.splitInfo", { seconds: info.splitSec.toFixed(1) })}
           </span>
         }
       >
         <fieldset className="mb-2.5 flex gap-1">
-          <legend className="sr-only">Stem layout</legend>
+          <legend className="sr-only">{t("tools.stems.layout")}</legend>
           {(["four", "two"] as const).map((l) => (
             <Button
               key={l}
@@ -193,7 +238,7 @@ export function StemsPanel(): JSX.Element {
               aria-pressed={layout === l}
               onClick={() => setLayout(l)}
             >
-              {l === "four" ? "4 stems" : "2 stems"}
+              {l === "four" ? t("tools.stems.fourStems") : t("tools.stems.twoStems")}
             </Button>
           ))}
         </fieldset>
@@ -216,7 +261,7 @@ export function StemsPanel(): JSX.Element {
         onClick={() => void onExport()}
       >
         <Download aria-hidden="true" data-icon="inline-start" />
-        Export stems (WAV)
+        {t("tools.stems.export")}
       </Button>
     </div>
   );
@@ -244,6 +289,7 @@ function StemMixerRow({
   row: StemRow;
   waveform: Waveform;
 }): JSX.Element {
+  const { t } = useTranslation();
   const lead = row.stems[0] ?? row.lead;
   const gain = useStems((s) => s.gains[lead]);
   const gainsDiffer = useStems((s) =>
@@ -255,7 +301,10 @@ function StemMixerRow({
   const toggleMute = useStems((s) => s.toggleMute);
   const toggleSolo = useStems((s) => s.toggleSolo);
   const style = STEM_STYLE[row.lead];
-  const volumeText = gainsDiffer ? "mixed" : `${Math.round(gain * 100)}%`;
+  const volumeText = gainsDiffer
+    ? t("tools.stems.mixed")
+    : t("tools.percent", { value: Math.round(gain * 100) });
+  const label = t(row.label);
 
   // Two lines, so the row fits the narrowest tool panel: controls, then the waveform.
   return (
@@ -265,13 +314,17 @@ function StemMixerRow({
           aria-hidden="true"
           className={cn("size-2 shrink-0 rounded-full", style.dot)}
         />
-        <span className="min-w-0 flex-1 truncate">{row.label}</span>
+        <span className="min-w-0 flex-1 truncate">{label}</span>
         <Button
           variant={muted === "none" ? "outline" : "default"}
           size="icon-sm"
           aria-pressed={pressedFor(muted)}
-          aria-label={`Mute ${row.label}`}
-          title={row.keyHint ? `Mute (${row.keyHint})` : "Mute"}
+          aria-label={t("tools.stems.mute", { stem: label })}
+          title={
+            row.keyHint
+              ? t("tools.stems.muteTitleKey", { key: row.keyHint })
+              : t("tools.stems.muteTitle")
+          }
           onClick={() => void toggleMute(row.stems)}
           className={cn(muted === "some" && "opacity-70")}
         >
@@ -281,8 +334,8 @@ function StemMixerRow({
           variant={soloed === "none" ? "outline" : "default"}
           size="icon-sm"
           aria-pressed={pressedFor(soloed)}
-          aria-label={`Solo ${row.label}`}
-          title="Solo"
+          aria-label={t("tools.stems.solo", { stem: label })}
+          title={t("tools.stems.soloTitle")}
           onClick={() => void toggleSolo(row.stems)}
           className={cn(soloed === "some" && "opacity-70")}
         >
@@ -293,9 +346,9 @@ function StemMixerRow({
           min={0}
           max={100}
           value={Math.round(gain * 100)}
-          aria-label={`${row.label} volume`}
+          aria-label={t("tools.stems.volume", { stem: label })}
           aria-valuetext={volumeText}
-          title={`Volume ${volumeText}`}
+          title={t("tools.stems.volumeTitle", { value: volumeText })}
           onChange={(e) => void setGain(row.stems, Number(e.target.value) / 100)}
           className="w-20 shrink-0 accent-primary"
         />
@@ -353,17 +406,22 @@ function ModelRequired({
   onStart: () => void;
   onCancelJob: (job: Job) => void;
 }): JSX.Element {
+  const { t } = useTranslation();
   const [open, setOpen] = useState(false);
   return (
     <ToolEmpty>
       <p>
-        Splitting stems needs the stems model
-        {sizeBytes !== null ? ` (${megabytes(sizeBytes)})` : ""}. It downloads once and
-        stays on this computer.
+        {sizeBytes !== null
+          ? t("tools.stems.modelNeededSize", {
+              size: t("tools.stems.megabytes", {
+                value: Math.round(sizeBytes / 1_000_000),
+              }),
+            })
+          : t("tools.stems.modelNeeded")}
       </p>
       <Button onClick={() => setOpen(true)}>
         <Download aria-hidden="true" data-icon="inline-start" />
-        {job ? "Downloading..." : "Download model"}
+        {job ? t("tools.stems.downloading") : t("tools.stems.downloadModel")}
       </Button>
       <ModelDownloadDialog
         open={open}

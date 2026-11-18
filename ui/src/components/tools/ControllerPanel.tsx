@@ -1,5 +1,7 @@
 import { cn } from "cn";
+import type { TFunction } from "i18next";
 import { useEffect, useRef, type JSX, type RefObject } from "react";
+import { useTranslation } from "react-i18next";
 
 import { ShortcutList } from "@/components/controls/ShortcutList";
 import { ToolCard, ToolEmpty } from "@/components/tools/ToolCard";
@@ -13,32 +15,36 @@ import { useUi } from "@/stores/ui";
 /** How long a control stays lit after Rust reports it moved. */
 const ACTIVITY_MS = 160;
 
-/** Display names for control targets. */
-const TARGET_LABEL: Record<ControlTarget, string> = {
-  play: "Play / pause",
-  cue: "Cue",
-  "hotcue-1": "Hot cue 1",
-  "hotcue-2": "Hot cue 2",
-  "hotcue-3": "Hot cue 3",
-  "hotcue-4": "Hot cue 4",
-  "hotcue-5": "Hot cue 5",
-  "hotcue-6": "Hot cue 6",
-  "hotcue-7": "Hot cue 7",
-  "hotcue-8": "Hot cue 8",
-  "pad-page": "Pad page (1-4 / 5-8)",
-  "mute-vocals": "Mute vocals",
-  "mute-drums": "Mute drums",
-  "mute-bass": "Mute bass",
-  "mute-other": "Mute other",
-  filter: "Filter knob",
-  tempo: "Tempo fader",
-  volume: "Volume",
-  "ab-toggle": "A/B compare",
-};
+/** Translation keys of the display names for control targets. */
+const TARGET_LABEL = {
+  play: "tools.controller.targets.play",
+  cue: "tools.controller.targets.cue",
+  "hotcue-1": "tools.controller.targets.hotcue1",
+  "hotcue-2": "tools.controller.targets.hotcue2",
+  "hotcue-3": "tools.controller.targets.hotcue3",
+  "hotcue-4": "tools.controller.targets.hotcue4",
+  "hotcue-5": "tools.controller.targets.hotcue5",
+  "hotcue-6": "tools.controller.targets.hotcue6",
+  "hotcue-7": "tools.controller.targets.hotcue7",
+  "hotcue-8": "tools.controller.targets.hotcue8",
+  "pad-page": "tools.controller.targets.padPage",
+  "mute-vocals": "tools.controller.targets.muteVocals",
+  "mute-drums": "tools.controller.targets.muteDrums",
+  "mute-bass": "tools.controller.targets.muteBass",
+  "mute-other": "tools.controller.targets.muteOther",
+  filter: "tools.controller.targets.filter",
+  tempo: "tools.controller.targets.tempo",
+  volume: "tools.controller.targets.volume",
+  "ab-toggle": "tools.controller.targets.abToggle",
+} as const satisfies Record<ControlTarget, string>;
 
-function bindingText(binding: MidiBinding | null): string {
-  if (!binding) return "Not mapped";
-  return `${binding.kind === "note" ? "Note" : "CC"} ${binding.number}, ch ${binding.channel + 1}`;
+function bindingText(binding: MidiBinding | null, t: TFunction): string {
+  if (!binding) return t("tools.controller.notMapped");
+  return t("tools.controller.binding", {
+    kind: binding.kind === "note" ? t("tools.controller.note") : "CC",
+    number: binding.number,
+    channel: binding.channel + 1,
+  });
 }
 
 /**
@@ -72,12 +78,13 @@ function useControlActivity(root: RefObject<HTMLElement | null>): void {
  * owns the mappings and runs the actions; this panel only shows them.
  */
 export function ControllerPanel(): JSX.Element {
+  const { t } = useTranslation();
   const device = useDevices((s) => s.midi.find((d) => d.connected) ?? null);
 
   if (!device) {
     return (
       <div className="flex flex-col gap-3 p-3">
-        <ToolEmpty>Plug in a controller or use keyboard shortcuts.</ToolEmpty>
+        <ToolEmpty>{t("tools.controller.empty")}</ToolEmpty>
         <ShortcutList />
       </div>
     );
@@ -87,6 +94,7 @@ export function ControllerPanel(): JSX.Element {
 }
 
 function ConnectedController({ device }: { device: MidiDevice }): JSX.Element {
+  const { t } = useTranslation();
   const mappings = useController((s) => s.mappings);
   const learning = useController((s) => s.learning);
   const lastLearned = useController((s) => s.lastLearned);
@@ -122,27 +130,29 @@ function ConnectedController({ device }: { device: MidiDevice }): JSX.Element {
         aside={
           <span className="flex items-center gap-1.5 text-[11px] text-primary">
             <span aria-hidden="true" className="size-1.5 rounded-full bg-primary" />
-            connected
+            {t("tools.controller.connected")}
           </span>
         }
       >
         <ControllerDrawing root={drawing} />
       </ToolCard>
 
-      <ToolCard title="Mapping">
+      <ToolCard title={t("tools.controller.mapping")}>
         <div>
           <table className="w-full">
-            <caption className="sr-only">MIDI mapping for {device.name}</caption>
+            <caption className="sr-only">
+              {t("tools.controller.mappingCaption", { device: device.name })}
+            </caption>
             <thead>
               <tr className="text-left text-[11px] text-muted-foreground">
                 <th scope="col" className="pb-1 font-normal">
-                  Control
+                  {t("tools.controller.control")}
                 </th>
                 <th scope="col" className="pb-1 font-normal">
                   MIDI
                 </th>
                 <th scope="col" className="pb-1 font-normal">
-                  <span className="sr-only">Learn</span>
+                  <span className="sr-only">{t("tools.controller.learn")}</span>
                 </th>
               </tr>
             </thead>
@@ -150,22 +160,27 @@ function ConnectedController({ device }: { device: MidiDevice }): JSX.Element {
               {mappings.map((m) => {
                 const listening = learning === m.target;
                 const learned = lastLearned?.target === m.target;
+                const target = t(TARGET_LABEL[m.target]);
                 return (
                   <tr key={m.target} className={cn(listening && "bg-primary/10")}>
                     <th scope="row" className="py-1 text-left font-normal">
-                      {TARGET_LABEL[m.target]}
+                      {target}
                     </th>
                     <td className="py-1 font-mono text-[11px] tabular-nums">
                       {listening ? (
-                        <span className="text-primary">Move a control...</span>
+                        <span className="text-primary">
+                          {t("tools.controller.moveControl")}
+                        </span>
                       ) : (
                         <span className={cn(!m.binding && "text-muted-foreground")}>
-                          {bindingText(m.binding)}
+                          {bindingText(m.binding, t)}
                         </span>
                       )}
                       {learned && lastLearned.replaced && (
                         <span className="block text-ck-orange">
-                          {`Moved from ${TARGET_LABEL[lastLearned.replaced]}`}
+                          {t("tools.controller.movedFrom", {
+                            target: t(TARGET_LABEL[lastLearned.replaced]),
+                          })}
                         </span>
                       )}
                     </td>
@@ -175,14 +190,18 @@ function ConnectedController({ device }: { device: MidiDevice }): JSX.Element {
                         size="sm"
                         aria-label={
                           listening
-                            ? `Cancel learning ${TARGET_LABEL[m.target]}`
-                            : `Learn ${TARGET_LABEL[m.target]}`
+                            ? t("tools.controller.cancelLearnTarget", { target })
+                            : t("tools.controller.learnTarget", { target })
                         }
                         onClick={() =>
                           void (listening ? cancelLearn() : startLearn(m.target))
                         }
                       >
-                        {listening ? "Cancel" : learned ? "Learned" : "Learn"}
+                        {listening
+                          ? t("tools.controller.cancel")
+                          : learned
+                            ? t("tools.controller.learned")
+                            : t("tools.controller.learn")}
                       </Button>
                     </td>
                   </tr>
@@ -192,9 +211,19 @@ function ConnectedController({ device }: { device: MidiDevice }): JSX.Element {
           </table>
           <output aria-live="polite" className="sr-only">
             {learning !== null
-              ? `Move a control on the ${device.name} to map ${TARGET_LABEL[learning]}`
+              ? t("tools.controller.listening", {
+                  device: device.name,
+                  target: t(TARGET_LABEL[learning]),
+                })
               : lastLearned
-                ? `Mapped ${TARGET_LABEL[lastLearned.target]}${lastLearned.replaced ? `, moved from ${TARGET_LABEL[lastLearned.replaced]}` : ""}`
+                ? lastLearned.replaced
+                  ? t("tools.controller.mappedMoved", {
+                      target: t(TARGET_LABEL[lastLearned.target]),
+                      from: t(TARGET_LABEL[lastLearned.replaced]),
+                    })
+                  : t("tools.controller.mapped", {
+                      target: t(TARGET_LABEL[lastLearned.target]),
+                    })
                 : ""}
           </output>
         </div>
@@ -212,19 +241,22 @@ function ControllerDrawing({
 }: {
   root: RefObject<HTMLDivElement | null>;
 }): JSX.Element {
+  const { t } = useTranslation();
   const padPage = useUi((s) => s.padPage);
   const cueSlots = padPage === 1 ? [1, 2, 3, 4] : [5, 6, 7, 8];
-  const stemPads: ReadonlyArray<{ target: ControlTarget; label: string }> = [
-    { target: "mute-vocals", label: "Voc" },
-    { target: "mute-drums", label: "Drm" },
-    { target: "mute-bass", label: "Bas" },
-    { target: "mute-other", label: "Oth" },
-  ];
+  const stemPads = [
+    { target: "mute-vocals", label: "tools.controller.pads.vocals" },
+    { target: "mute-drums", label: "tools.controller.pads.drums" },
+    { target: "mute-bass", label: "tools.controller.pads.bass" },
+    { target: "mute-other", label: "tools.controller.pads.other" },
+  ] as const satisfies ReadonlyArray<{ target: ControlTarget; label: string }>;
 
   return (
     <figure>
       <figcaption className="sr-only">
-        {`Controller layout: jog wheel, filter knob, tempo fader, hot cue pads ${padPage === 1 ? "1 to 4" : "5 to 8"} and stem mute pads. Controls light up as you use them.`}
+        {padPage === 1
+          ? t("tools.controller.layout", { first: 1, last: 4 })
+          : t("tools.controller.layout", { first: 5, last: 8 })}
       </figcaption>
       <div ref={root} aria-hidden="true" className="grid grid-cols-[1fr_auto] gap-3">
         <div className="flex items-center gap-3">
@@ -239,7 +271,9 @@ function ControllerDrawing({
                 LIT,
               )}
             />
-            <span className="text-[10px] text-muted-foreground">Filter</span>
+            <span className="text-[10px] text-muted-foreground">
+              {t("tools.controller.filter")}
+            </span>
           </div>
           <div className="flex flex-col gap-1">
             <div
@@ -272,7 +306,9 @@ function ControllerDrawing({
           >
             <div className="absolute inset-x-[-4px] top-1/2 h-2 rounded-sm bg-muted-foreground" />
           </div>
-          <span className="text-[10px] text-muted-foreground">Tempo</span>
+          <span className="text-[10px] text-muted-foreground">
+            {t("tools.controller.tempo")}
+          </span>
         </div>
         <div className="col-span-2 grid grid-cols-4 gap-1.5">
           {cueSlots.map((slot) => (
@@ -296,7 +332,7 @@ function ControllerDrawing({
                 LIT,
               )}
             >
-              {pad.label}
+              {t(pad.label)}
             </div>
           ))}
         </div>

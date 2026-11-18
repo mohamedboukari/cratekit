@@ -115,9 +115,10 @@ ui/
       types.ts         TS types mirroring the Rust command/event payloads
       shortcuts.ts     the single keyboard shortcut map
       notify.ts        command errors as toasts
-      format.ts        display formatting only (times, durations, filter text)
+      format.ts        display formatting only (times, durations, filter text, backend and job labels)
       dnd.ts           drag and drop payload type and validation
       focus.ts         focus helpers (buttons give focus back after a mouse click)
+    i18n/              i18next instance (English for every user by default), typed keys, en/ (source) and one folder per language; see docs/UI.md, Languages
     mock/              fake-data CratekitApi + fixtures (browser dev server, Pages demo, tests);
                        only loaded when DEV or VITE_MOCK=1, so production Tauri builds never contain it
     stores/            Zustand stores per domain: library, player, jobs, settings, ui, devices, setlist, master, stems, controller
@@ -144,6 +145,7 @@ Rules:
 | --- | --- |
 | `app_version` | App version (first command; proves IPC works) |
 | `open_settings_window` | Opens or focuses the native Settings window (also the app menu item "Settings...", Cmd/Ctrl+,) |
+| `app_set_menu_labels(labels)` | Relabels every native menu item (Settings..., File, Edit, Window, undo to select all, minimize, close window, quit, and the macOS app menu items) and the Settings window title (`MenuLabels`) in the UI language; the UI owns the translations, Rust keeps the latest for windows opened later (English until the first call) |
 | file and folder pickers | Through `tauri-plugin-dialog` (`dialog:allow-open` only), wrapped as `dialogOpenFiles` / `dialogOpenFolder` in `CratekitApi` |
 | `library_add_paths(paths)` | Add files/folders, returns new track ids |
 | `library_list(query)` | Tracks with filters (crate, search, BPM range, near a BPM with the tolerance decided in Rust, key match, has stems) |
@@ -161,13 +163,13 @@ Rules:
 | `master_presets` / `master_preview(id, settings)` / `master_export(id, settings)` | Mastering: presets with label, default target and a one-line description; B-side render for A/B; export into the output folder, returns path, LUFS and true peak |
 | `hotcue_set(id, slot, sec)` / `hotcue_clear(id, slot)` / `hotcue_update(id, slot, name, color)` | Cues (set or move, clear, rename and recolour) |
 | `midi_list_devices / midi_learn_start(target) / midi_learn_cancel / midi_mappings(device_id)` | Controller; `midi_mappings` returns one row per control target (`binding` null when unmapped) |
-| `export_virtualdj(ids, dry_run)` | Export |
+| `export_virtualdj(ids, dry_run)` | Export; each track's `changes` are data (`{ field: bpm \| key \| cues, value }`), worded by the UI |
 | `models_status / models_download(name) / models_delete(name)` | ML models |
 | `audio_list_devices / audio_set_device(id) / audio_set_buffer_size(frames)` | Audio output |
-| `settings_get / settings_set(key, value)` | Settings (watched folders, output folder, processing backend, pane layouts, the set list order, ...) |
-| `stems_backend_status` | Active stems backend (CoreML / DirectML / CPU) and why |
+| `settings_get / settings_set(key, value)` | Settings (UI `language`, `"en"` by default for every user; watched folders, output folder, processing backend, pane layouts, the set list order, ...) |
+| `stems_backend_status` | Active stems backend (CoreML / DirectML / CPU) and why, as a code (`no_gpu`, `cpu_chosen`, `gpu_check_failed`) the UI words |
 
-**Events (Rust → UI)**: `job_progress {jobId, kind, label, trackIds, done, total}` (`trackIds`: the tracks the job works on, empty for a model download), `job_done {jobId, kind}`, `job_failed {jobId, kind, error}`, `playback_position {sec}` (30 Hz), `meter {peakDb, rmsDb}` (30 Hz), `playback_state {playing}` (start, pause, end of track), `midi_device_changed`, `midi_learned {target, binding, replaced}` (`replaced`: the target that lost this control, or null), `control_event {target, value}` (Rust runs engine actions such as play, cue, hot cues, filter and tempo itself; the UI runs the UI-owned targets `mute-*`, `ab-toggle` and `pad-page` from this event), `audio_device_changed {id, reason}`, `settings_changed` (the full settings, after any change, so both windows stay in sync). Files dropped on a window arrive through Tauri's drag and drop event (`onFilesDropped` in `CratekitApi`).
+**Events (Rust → UI)**: `job_progress {jobId, kind, label, stage, trackIds, done, total}` (`trackIds`: the tracks the job works on, empty for a model download; `stage`: `download` or `verify` for the model download, else null; `label` is an English fallback, the UI names jobs from `kind`, `stage` and the track count), `job_done {jobId, kind}`, `job_failed {jobId, kind, error}`, `playback_position {sec}` (30 Hz), `meter {peakDb, rmsDb}` (30 Hz), `playback_state {playing}` (start, pause, end of track), `midi_device_changed`, `midi_learned {target, binding, replaced}` (`replaced`: the target that lost this control, or null), `control_event {target, value}` (Rust runs engine actions such as play, cue, hot cues, filter and tempo itself; the UI runs the UI-owned targets `mute-*`, `ab-toggle` and `pad-page` from this event), `audio_device_changed {id, reason}`, `settings_changed` (the full settings, after any change, so both windows stay in sync). Files dropped on a window arrive through Tauri's drag and drop event (`onFilesDropped` in `CratekitApi`).
 
 **Naming convention:** command and event names are snake_case; payload fields are camelCase, so Rust payload structs use `#[serde(rename_all = "camelCase")]`. The TypeScript side of this contract is `ui/src/lib/types.ts` and `CratekitApi` in `ui/src/lib/ipc.ts`; keep the three in sync.
 

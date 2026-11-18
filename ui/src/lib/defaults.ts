@@ -6,6 +6,7 @@ import type { Settings } from "@/lib/types";
  * sizes instead of blocking on a failed load.
  */
 export const DEFAULT_SETTINGS: Settings = {
+  language: "en",
   audioDeviceId: null,
   bufferSize: 512,
   watchedFolders: [],

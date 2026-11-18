@@ -8,6 +8,7 @@ import {
   TriangleAlertIcon,
 } from "lucide-react";
 import type { CSSProperties, JSX } from "react";
+import { useTranslation } from "react-i18next";
 import { Toaster as Sonner, type ToasterProps } from "sonner";
 
 const toasterStyle: CSSProperties & Record<`--${string}`, string> = {
@@ -18,9 +19,12 @@ const toasterStyle: CSSProperties & Record<`--${string}`, string> = {
 };
 
 function Toaster(props: ToasterProps): JSX.Element {
+  // The toast region's screen reader label follows the UI language (#80).
+  const { t } = useTranslation();
   return (
     <Sonner
       theme="dark"
+      containerAriaLabel={t("common.notifications")}
       className="toaster group"
       icons={{
         success: <CircleCheckIcon className="size-4" />,

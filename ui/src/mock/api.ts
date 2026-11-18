@@ -13,6 +13,7 @@ import type {
   JobDone,
   JobFailed,
   JobKind,
+  JobStage,
   JobProgress,
   MeterReading,
   MidiBinding,
@@ -201,13 +202,24 @@ export function createMockApi(): CratekitApi {
     onStep?: (i: number) => void,
   ): string {
     const jobId = `mock-${nextJob++}`;
+    // Only the model download has steps: download, then the checksum (last 2 of 25).
+    const stageAt = (step: number): JobStage | null =>
+      kind === "model-download" ? (step >= total - 2 ? "verify" : "download") : null;
     const labelAt = (step: number): string =>
       typeof label === "string" ? label : label(step);
     let done = 0;
     const timer: ReturnType<typeof setInterval> = setInterval(() => {
       onStep?.(done);
       done += 1;
-      ch.progress.emit({ jobId, kind, label: labelAt(done), trackIds, done, total });
+      ch.progress.emit({
+        jobId,
+        kind,
+        label: labelAt(done),
+        stage: stageAt(done),
+        trackIds,
+        done,
+        total,
+      });
       if (done >= total) {
         clearInterval(timer);
         jobTimers.delete(jobId);
@@ -215,7 +227,15 @@ export function createMockApi(): CratekitApi {
       }
     }, stepMs);
     jobTimers.set(jobId, timer);
-    ch.progress.emit({ jobId, kind, label: labelAt(0), trackIds, done: 0, total });
+    ch.progress.emit({
+      jobId,
+      kind,
+      label: labelAt(0),
+      stage: stageAt(0),
+      trackIds,
+      done: 0,
+      total,
+    });
     return jobId;
   }
 
@@ -223,6 +243,8 @@ export function createMockApi(): CratekitApi {
     appVersion: () => resolve("0.1.0-demo"),
     // No native windows in a browser: the UI shows Settings as an in-page window instead.
     appOpenSettings: () => resolve(undefined),
+    // A browser has no native menu.
+    appSetMenuLabels: () => resolve(undefined),
     dialogOpenFiles: () =>
       resolve([
         "~/Music/Incoming/Late Night Demo.mp3",
@@ -519,9 +541,9 @@ export function createMockApi(): CratekitApi {
               trackId: id,
               title: t.track.title,
               changes: [
-                `BPM ${t.track.bpm ?? "?"}`,
-                `Key ${t.track.camelot ?? "?"}`,
-                `${t.cues.length} hot cues`,
+                { field: "bpm", value: t.track.bpm },
+                { field: "key", value: t.track.camelot },
+                { field: "cues", value: t.cues.length },
               ],
             },
           ];

@@ -1,5 +1,7 @@
 import { create } from "zustand";
 
+import { i18n } from "@/i18n";
+import { jobLabel } from "@/lib/format";
 import { api } from "@/lib/ipc";
 import { notifyError } from "@/lib/notify";
 import type { Job, JobDone, JobFailed, JobId, JobProgress, JobState } from "@/lib/types";
@@ -37,13 +39,16 @@ export const useJobs = create<JobsState>()((set, get) => ({
   onProgress: (p) => {
     if (cancelled.has(p.jobId)) return;
     set((s) => ({
-      announcement: s.jobs[p.jobId] ? s.announcement : `${p.label} started`,
+      announcement: s.jobs[p.jobId]
+        ? s.announcement
+        : i18n.t("common.jobs.started", { label: jobLabel(p) }),
       jobs: {
         ...s.jobs,
         [p.jobId]: {
           id: p.jobId,
           kind: p.kind,
           label: p.label,
+          stage: p.stage,
           trackIds: p.trackIds,
           done: p.done,
           total: p.total,
@@ -59,7 +64,7 @@ export const useJobs = create<JobsState>()((set, get) => ({
       const job = s.jobs[d.jobId];
       if (!job) return s;
       return {
-        announcement: `${job.label} done`,
+        announcement: i18n.t("common.jobs.done", { label: jobLabel(job) }),
         jobs: { ...s.jobs, [d.jobId]: { ...job, done: job.total, state: "done" } },
       };
     });
@@ -77,7 +82,7 @@ export const useJobs = create<JobsState>()((set, get) => ({
       if (!job) return s;
       return { jobs: { ...s.jobs, [f.jobId]: { ...job, state: "failed" } } };
     });
-    notifyError(f.error, "A background job failed");
+    notifyError(f.error, i18n.t("errors.jobs.failed"));
   },
 
   cancel: async (id) => {
@@ -89,7 +94,7 @@ export const useJobs = create<JobsState>()((set, get) => ({
         return { jobs: rest };
       });
     } catch (error) {
-      notifyError(error, "Could not cancel the job");
+      notifyError(error, i18n.t("errors.jobs.cancel"));
     }
   },
 
@@ -104,7 +109,10 @@ export const useJobs = create<JobsState>()((set, get) => ({
       }
       set({ paused, jobs });
     } catch (error) {
-      notifyError(error, paused ? "Could not pause jobs" : "Could not resume jobs");
+      notifyError(
+        error,
+        paused ? i18n.t("errors.jobs.pause") : i18n.t("errors.jobs.resume"),
+      );
     }
   },
 }));

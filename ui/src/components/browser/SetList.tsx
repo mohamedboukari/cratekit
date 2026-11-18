@@ -11,6 +11,7 @@ import {
   type KeyboardEvent,
   type MouseEvent,
 } from "react";
+import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
@@ -37,6 +38,7 @@ function acceptsDrop(event: DragEvent<HTMLElement>): boolean {
  * Key and BPM fit between neighbours come from Rust.
  */
 export function SetList(): JSX.Element {
+  const { t } = useTranslation();
   const items = useSetList((s) => s.items);
   const transitions = useSetList((s) => s.transitions);
   const add = useSetList((s) => s.add);
@@ -74,10 +76,10 @@ export function SetList(): JSX.Element {
 
   // Warnings are looked up by the neighbour pair, so a stale answer never lands on the wrong pair.
   const transitionByPair = useMemo(
-    () => new Map(transitions.map((t) => [`${t.fromId}:${t.toId}`, t])),
+    () => new Map(transitions.map((tr) => [`${tr.fromId}:${tr.toId}`, tr])),
     [transitions],
   );
-  const totalSec = items.reduce((sum, t) => sum + t.durationSec, 0);
+  const totalSec = items.reduce((sum, track) => sum + track.durationSec, 0);
 
   /** After a keyboard move or remove, keeps focus in the list (React re-inserts moved nodes). */
   const focusAfter = async (
@@ -131,7 +133,7 @@ export function SetList(): JSX.Element {
   const onSave = async (event: FormEvent<HTMLFormElement>): Promise<void> => {
     event.preventDefault();
     if (await saveAsCrate(name)) {
-      toast.success(`Saved "${name.trim()}" as a crate`);
+      toast.success(t("browser.setList.saved", { name: name.trim() }));
       setNaming(false);
       setName("");
       await refreshRows();
@@ -140,13 +142,13 @@ export function SetList(): JSX.Element {
 
   return (
     <aside
-      aria-label="Set list"
+      aria-label={t("browser.setList.title")}
       className="flex h-full min-h-0 flex-col border-l border-border"
     >
       <header className="flex items-center gap-2 border-b border-border px-3 py-2">
         <ListMusic aria-hidden="true" className="size-4 text-muted-foreground" />
         <h2 ref={heading} tabIndex={-1} className="font-semibold">
-          Set list
+          {t("browser.setList.title")}
         </h2>
         <span className="text-muted-foreground">
           {items.length} · {formatDuration(totalSec)}
@@ -159,7 +161,7 @@ export function SetList(): JSX.Element {
             disabled={items.length === 0}
             onClick={() => setNaming(true)}
           >
-            Save as crate
+            {t("browser.setList.saveAsCrate")}
           </Button>
           <Button
             variant="ghost"
@@ -167,7 +169,7 @@ export function SetList(): JSX.Element {
             disabled={items.length === 0}
             onClick={() => void clear()}
           >
-            Clear
+            {t("browser.setList.clear")}
           </Button>
         </div>
       </header>
@@ -178,7 +180,7 @@ export function SetList(): JSX.Element {
           className="flex gap-2 border-b border-border px-3 py-2"
         >
           <label className="sr-only" htmlFor="setlist-crate-name">
-            Crate name
+            {t("browser.setList.crateName")}
           </label>
           <input
             id="setlist-crate-name"
@@ -190,11 +192,11 @@ export function SetList(): JSX.Element {
               e.stopPropagation();
               setNaming(false);
             }}
-            placeholder="Crate name"
+            placeholder={t("browser.setList.crateName")}
             className="h-7 min-w-0 flex-1 rounded-md border border-border bg-secondary px-2 text-[13px]"
           />
           <Button size="sm" type="submit" disabled={!name.trim()}>
-            Save
+            {t("browser.setList.save")}
           </Button>
         </form>
       )}
@@ -209,12 +211,11 @@ export function SetList(): JSX.Element {
             dropIndex !== null && "border-primary text-primary",
           )}
         >
-          Drag tracks here to build your set, or right-click a track and choose Add to set
-          list
+          {t("browser.setList.empty")}
         </div>
       ) : (
         <div onDragLeave={onListDragLeave} className="min-h-0 flex-1 overflow-y-auto p-2">
-          <ol aria-label="Set order">
+          <ol aria-label={t("browser.setList.order")}>
             {items.map((track, index) => (
               <SetListItem
                 key={track.id}
@@ -251,7 +252,7 @@ export function SetList(): JSX.Element {
               dropIndex === items.length && "border-primary text-primary",
             )}
           >
-            Drop here to add at the end
+            {t("browser.setList.dropAtEnd")}
           </div>
         </div>
       )}
@@ -286,15 +287,18 @@ function SetListItem({
   onRemove,
   onLoad,
 }: SetListItemProps): JSX.Element {
+  const { t } = useTranslation();
   // Rust sends null when either key is unknown; only a known clash warns.
   const keyClash = transition?.keyCompatible === false;
   const bpmJump = transition?.bpmJump === true && transition.bpmChangePct !== null;
-  const warnings = [
-    keyClash ? "key clash with the previous track" : null,
+  const warnings: string[] = [
+    keyClash ? t("browser.setList.keyClash") : null,
     bpmJump && transition?.bpmChangePct != null
-      ? `BPM ${transition.bpmChangePct > 0 ? "+" : ""}${transition.bpmChangePct}%`
+      ? t("browser.setList.bpmJump", {
+          change: `${transition.bpmChangePct > 0 ? "+" : ""}${transition.bpmChangePct}`,
+        })
       : null,
-  ].filter((w): w is string => w !== null);
+  ].filter((w) => w !== null);
 
   return (
     <li
@@ -323,7 +327,7 @@ function SetListItem({
           onDrop={onDrop}
           onKeyDown={onKeyDown}
           onClick={onLoad}
-          aria-label={`${index + 1}. ${track.title}, load on deck${warnings.length ? `. ${warnings.join(", ")}` : ""}`}
+          aria-label={`${t("browser.setList.itemLabel", { position: index + 1, title: track.title })}${warnings.length ? `. ${warnings.join(", ")}` : ""}`}
           aria-keyshortcuts="Alt+ArrowUp Alt+ArrowDown Delete"
           className="flex min-w-0 flex-1 items-center gap-2 rounded-md px-2 py-1.5 text-left"
         >
@@ -348,7 +352,7 @@ function SetListItem({
         <button
           type="button"
           onClick={onRemove}
-          aria-label={`Remove ${track.title} from the set list`}
+          aria-label={t("browser.setList.remove", { title: track.title })}
           className="mr-1 rounded-sm p-0.5 text-muted-foreground opacity-0 group-hover:opacity-100 hover:text-foreground focus-visible:opacity-100"
         >
           <X aria-hidden="true" className="size-3.5" />

@@ -1,4 +1,5 @@
 import type { JSX, ReactNode } from "react";
+import { useTranslation } from "react-i18next";
 
 import {
   ContextMenu,
@@ -40,6 +41,7 @@ export function TrackContextMenu({
   selectedIds,
   children,
 }: TrackContextMenuProps): JSX.Element {
+  const { t } = useTranslation();
   const crates = useLibrary((s) => s.crates);
   const refreshRows = useLibrary((s) => s.refreshRows);
   const load = usePlayer((s) => s.load);
@@ -65,32 +67,29 @@ export function TrackContextMenu({
           disabled={targets.length !== 1}
           onClick={() => trackId !== null && void load(trackId)}
         >
-          Load on deck
+          {t("browser.contextMenu.loadOnDeck")}
         </ContextMenuItem>
         <ContextMenuItem
           disabled={targets.length === 0}
           onClick={() => void addToSetList(targets)}
         >
-          Add to set list{plural}
+          {t("browser.contextMenu.addToSetList", { suffix: plural })}
         </ContextMenuItem>
         <ContextMenuSeparator />
         <ContextMenuItem
           disabled={targets.length === 0}
-          onClick={run(
-            () => api().analyzeTracks(targets),
-            "Could not start the analysis",
-          )}
+          onClick={run(() => api().analyzeTracks(targets), t("browser.errors.analyze"))}
         >
-          Analyze{plural}
+          {t("browser.contextMenu.analyze", { suffix: plural })}
         </ContextMenuItem>
         <ContextMenuItem
           disabled={targets.length !== 1}
           onClick={run(async () => {
             const [id] = targets;
             if (id !== undefined) await api().stemsSplit(id);
-          }, "Could not split stems")}
+          }, t("browser.errors.splitStems"))}
         >
-          Split stems
+          {t("browser.contextMenu.splitStems")}
         </ContextMenuItem>
         <ContextMenuItem
           disabled={targets.length !== 1}
@@ -99,26 +98,29 @@ export function TrackContextMenu({
             if (row) setReference({ id: row.id, title: row.title });
           }}
         >
-          Use as mastering reference
+          {t("browser.contextMenu.useAsReference")}
         </ContextMenuItem>
         <ContextMenuItem
           disabled={targets.length === 0}
           onClick={() => openExport(targets)}
         >
-          Export to VirtualDJ{plural}...
+          {t("browser.contextMenu.exportToVirtualDj", { suffix: plural })}
         </ContextMenuItem>
         <ContextMenuSub>
           <ContextMenuSubTrigger disabled={targets.length === 0}>
-            Add to crate
+            {t("browser.contextMenu.addToCrate")}
           </ContextMenuSubTrigger>
           <ContextMenuSubContent>
             {crates.map((crate) => (
               <ContextMenuItem
                 key={crate.id}
-                onClick={run(async () => {
-                  await api().crateAddTracks(crate.id, targets);
-                  await refreshRows();
-                }, `Could not add to ${crate.name}`)}
+                onClick={run(
+                  async () => {
+                    await api().crateAddTracks(crate.id, targets);
+                    await refreshRows();
+                  },
+                  t("browser.errors.addToCrate", { crate: crate.name }),
+                )}
               >
                 {crate.name}
               </ContextMenuItem>
@@ -126,11 +128,11 @@ export function TrackContextMenu({
           </ContextMenuSubContent>
         </ContextMenuSub>
         <ContextMenuSeparator />
-        <ContextMenuItem disabled title="Arrives with the library task">
-          Show in folder
+        <ContextMenuItem disabled title={t("browser.contextMenu.comingSoon")}>
+          {t("browser.contextMenu.showInFolder")}
         </ContextMenuItem>
-        <ContextMenuItem disabled title="Arrives with the library task">
-          Remove from library
+        <ContextMenuItem disabled title={t("browser.contextMenu.comingSoon")}>
+          {t("browser.contextMenu.removeFromLibrary")}
         </ContextMenuItem>
       </ContextMenuContent>
     </ContextMenu>
