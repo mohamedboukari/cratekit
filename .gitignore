@@ -38,6 +38,16 @@ test-data/
 *.aif
 *.m4a
 *.ogg
+# Except the synthetic decoder test tones, one by one (made by a formula,
+# see crates/cratekit-core/tests/fixtures/make-fixtures.sh).
+!crates/cratekit-core/tests/fixtures/tone.wav
+!crates/cratekit-core/tests/fixtures/tone.aiff
+!crates/cratekit-core/tests/fixtures/tone.flac
+!crates/cratekit-core/tests/fixtures/tone.mp3
+!crates/cratekit-core/tests/fixtures/tone.m4a
+!crates/cratekit-core/tests/fixtures/tone.ogg
+!crates/cratekit-core/tests/fixtures/mono-48k.wav
+!crates/cratekit-core/tests/fixtures/rate-change.mp3
 
 # Secrets and local overrides
 .env

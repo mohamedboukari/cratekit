@@ -7,6 +7,10 @@ export const errors: Translation["errors"] = {
     not_found: "Cet élément n'existe plus.",
     model_missing: "Le modèle de stems n'est pas encore téléchargé.",
     window: "Une fenêtre n'a pas pu s'ouvrir.",
+    unsupported_format: "Ce fichier n'est pas un format audio que Cratekit sait lire.",
+    decode: "Ce fichier audio n'a pas pu être décodé.",
+    no_audio: "Ce fichier ne contient pas d'audio.",
+    audio_processing: "L'audio n'a pas pu être traité.",
   },
   controller: {
     load: "Impossible de charger l'assignation du contrôleur",

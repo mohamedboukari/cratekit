@@ -10,7 +10,9 @@ publish.workspace = true
 
 [dependencies]
 ebur128 = { workspace = true }
+rubato = { workspace = true }
 stratum-dsp = { workspace = true, optional = true }
+symphonia = { workspace = true }
 thiserror = { workspace = true }
 
 [features]
