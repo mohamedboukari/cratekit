@@ -52,6 +52,7 @@ v0.1 in about 8 weeks of part-time work. Each phase ends with a gate: the test D
 - [ ] Audio output device selection + hot-plug fallback to the system default (#20)
 - [ ] UI: Settings screen (audio output, watched folders, output folder) (#21)
 - [ ] Test analysis on the DJ's 10 tracks; compare with VirtualDJ's BPM/key (#22)
+- [ ] Multi-language UI: i18n foundation (i18next), English by default for every user, French translation (#80)
 
 **Gate:** runs on a laptop CPU; BPM and key agree with VirtualDJ on at least 8 of 10 tracks.
 
@@ -90,6 +91,7 @@ Stems
 - [ ] `release` Claude skill (version bump, CHANGELOG cut, tag, signed installers)
 - [ ] README in BunMail's style: pitch, "Why Cratekit?" comparison table, quick start, honest "How good is the mastering?" section, screenshots (#45)
 - [ ] Launch: Show HN, r/DJs, r/WeAreTheMusicMakers, VirtualDJ forum (#46)
+- [ ] Arabic translation with a right-to-left layout (#81)
 
 **Gate:** the DJ uses Cratekit every week to prepare his sets → tag **v0.1** and publish.
 
@@ -107,6 +109,11 @@ Toward replacing VirtualDJ (SPEC Module 8). Starts after v0.1 ships.
 - [ ] Record the mix to WAV (#64)
 - [ ] Full DDJ-FLX4 mapping for performance (#65)
 - [ ] Performance mode UI: two decks, mixer, FX (#66)
+- [ ] Sampler: one-shot sample pads (#75)
+- [ ] Slip mode and reverse (#76)
+- [ ] Beat jump (#77)
+- [ ] Up to 16 hot cues per track (#78)
+- [ ] Pitch range setting: ±8%, ±16%, ±100% (#79)
 
 **Gate:** the test DJ plays a full set with Cratekit instead of VirtualDJ.
 
@@ -118,3 +125,17 @@ Toward replacing VirtualDJ (SPEC Module 8). Starts after v0.1 ships.
 - Rekordbox XML and Serato export (#50)
 - Ready-made mappings for more controllers (Numark, Hercules, Pioneer DDJ-400/SB3) (#51)
 - Batch mastering of a crate (#52)
+- More UI languages: Spanish, German and others (#82)
+- Four decks (#83)
+- **Research:** DVS, control with timecode vinyl and CDs (#84)
+- **Research:** CDJ and HID controller support (#85)
+- Auto-mix and next-track suggestions, computed locally (#86)
+- Effect chaining: several effects per deck (#87)
+- Crossfader curve setting (#88)
+- Automatic set recording (#89)
+- FLAC export for recordings and stems (#90)
+- Cover art in the library and on the deck (#91)
+- Themes: light theme and accent colours (#92)
+- Multi-screen: detach panels into their own windows (#93)
+- Karaoke mode (#94)
+- Playlist export and import (M3U), the offline alternative to cloud sharing (#95)
