@@ -30,11 +30,11 @@ pub trait TempoDetector {
 pub const BPM_RANGE: (f32, f32) = (70.0, 180.0);
 
 /// Onset envelope resolution: one value every 5 ms.
-const HOP_SECONDS: f64 = 0.005;
+pub(crate) const HOP_SECONDS: f64 = 0.005;
 /// Length of each of the two box averages that smooth the energy (together a
 /// 40 ms triangle): long enough that low bass notes and drones do not ripple
 /// it, short enough to keep onsets sharp.
-const WINDOW_SECONDS: f64 = 0.02;
+pub(crate) const WINDOW_SECONDS: f64 = 0.02;
 /// Tempos the coarse search considers: wider than `BPM_RANGE` (results are
 /// folded into it), with a margin so a beat near either end is still an
 /// interior peak of the autocorrelation, not an edge value.
@@ -98,7 +98,7 @@ impl TempoDetector for OnsetTempo {
 /// How strongly a new sound starts in each frame (every `hop` samples): the
 /// rise in (compressed) energy from the previous frame, and zero when the
 /// energy falls.
-fn onset_envelope(samples: &[f32], hop: usize, window: usize) -> Vec<f64> {
+pub(crate) fn onset_envelope(samples: &[f32], hop: usize, window: usize) -> Vec<f64> {
     // Running total of squared samples, so the energy of any stretch is one
     // subtraction (the window is longer than the hop).
     let mut running = Vec::with_capacity(samples.len() + 1);

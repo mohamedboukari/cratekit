@@ -1,6 +1,6 @@
 # Cratekit: analysis module
 
-`crates/cratekit-core/src/analysis/`: track analysis (SPEC, Module 2). Pure Rust, no Tauri; tested with `cargo nextest run -p cratekit-core --all-features` (the `stratum` wrappers need the feature). Detectors arrive task by task: key and Camelot (#11) and tempo and key detection (#10) now; loudness and energy (#12), waveform columns (#13) and `analyze_track()` later.
+`crates/cratekit-core/src/analysis/`: track analysis (SPEC, Module 2). Pure Rust, no Tauri; tested with `cargo nextest run -p cratekit-core --all-features` (the `stratum` wrappers need the feature). Detectors arrive task by task: key and Camelot (#11), tempo and key detection (#10), loudness and energy (#12) now; waveform columns (#13) and `analyze_track()` later.
 
 ## Layout
 
@@ -10,6 +10,8 @@
 | `key.rs` | Musical keys and the Camelot wheel (#11) |
 | `tempo.rs` | `TempoDetector` trait and `OnsetTempo`, our BPM detector (#10) |
 | `key_detect.rs` | `KeyDetector` trait and `ProfileKey`, our key detector (#10) |
+| `loudness.rs` | `measure_loudness`: integrated LUFS and true peak, through the `ebur128` crate (#12) |
+| `energy.rs` | `energy_score`: the 1 to 10 energy score (#12) |
 | `stratum.rs` | `StratumTempo` and `StratumKey`: `stratum-dsp` behind the same traits, `stratum` cargo feature (off by default) (#10) |
 
 ## `key.rs`: keys and the Camelot wheel
@@ -66,3 +68,32 @@ Both detectors take mono `f32` samples and a sample rate, and analyze whatever t
 | Steady 55 Hz drone | no tempo | 126 BPM |
 
 Our detectors are the default and the app does not ship `stratum-dsp`. Synthetic loops are not real music: re-run this comparison on the test DJ's tracks (#22) before deciding again. Enable it with `--features stratum` (CI and `bun run check` build and test with all features).
+
+## Loudness (`loudness.rs`)
+
+`measure_loudness(channels, rate) -> Option<Loudness { integrated_lufs, true_peak_dbtp }>` (the UI's `lufs` and `truePeakDb`). It takes the whole track, one slice per channel (planar), and wraps the `ebur128` crate (MIT, a pure Rust port of the reference libebur128), so it can be swapped.
+
+- **Integrated loudness:** ITU-R BS.1770 / EBU R128. K-weighted power in 400 ms blocks (75% overlap), the -70 LUFS absolute gate, then the relative gate 10 LU below the level of the remaining blocks.
+- **True peak:** the highest level between samples, by 4x oversampling below 96 kHz (2x below 192 kHz), maximum over all channels, in dBTP. Never below the highest sample.
+- **Channels:** mono, stereo, or 5.1 in the usual order (the LFE is not counted). A mono track counts as one channel: a mono tone reads 3 LU below the same tone on both stereo channels, as BS.1770 says.
+- **No answer** (`None`): no channels, channels of different lengths, a sample rate outside 16 Hz to 2.8 MHz, non-finite samples, audio shorter than one 400 ms gating block, or audio entirely below the -70 LUFS gate (silence).
+
+**Tests** (synthetic tones modelled on EBU Tech 3341): a 997 Hz sine at -23 dBFS on both channels reads -23.0 LUFS (within 0.1) at 48 and 44.1 kHz, and -26.0 in mono; added silence and a part 30 dB quieter are gated out; levels move 1 to 1; a quarter-rate sine with every sample at -3 dBFS reads about 0 dBTP; a plain tone's true peak is its peak; the loudest channel sets the true peak; no answer for each unusable input, including audio shorter than 400 ms.
+
+## Energy (`energy.rs`)
+
+`energy_score(samples, rate, integrated_lufs) -> Option<u8>`, 1 (calm) to 10 (peak time), the UI's `energy`. Mono samples, plus the loudness from `measure_loudness`. **A heuristic for ranking tracks, not a measurement:** the ranges and weights below are first guesses checked on synthetic audio, to re-tune on the test DJ's tracks (#22).
+
+| Feature | Weight | 0 | 1 | How |
+| --- | --- | --- | --- | --- |
+| Loudness | 0.4 | -30 LUFS | -6 LUFS | Integrated loudness, linear between the two |
+| Onset density | 0.35 | 0 per second | 8 per second | Peaks of the tempo detector's onset envelope where the log energy rises by at least 0.7 (about +3 dB) within 40 ms. Found twice and merged, at least 50 ms apart: in the signal (kicks, bass notes, chord changes) and in its sample-to-sample difference, which favours highs, so hi-hats over a full mix count too |
+| Brightness | 0.25 | 100 Hz | 4 kHz | The RMS frequency (it averages the square of the frequency, weighted by power, so it leans toward the highs), from the RMS of the sample-to-sample difference over the RMS of the signal (for a sine of frequency f the ratio is 2 sin(pi f / rate)); on a log scale; no FFT, a tone reads the same at any sample rate |
+
+Score: `1 + round(9 * weighted sum)`, each feature clamped to 0 to 1. No answer for silence, under 3 s, non-finite samples or loudness, or a zero sample rate.
+
+On the synthetic audio: a quiet 80 Hz tone scores 1, kicks alone 3, the SPEC test loop 6, the loop with off-beat hats 7.
+
+**Speed** (release, 90 s of stereo): loudness and energy together about 0.1 s.
+
+**Tests:** the score stays within 1 to 10; brightness reads the frequency of 100 Hz, 1 kHz and 4 kHz tones within 1% at 44.1, 48 and 96 kHz; one onset per kick at 90, 124 and 174 BPM and at most one (the tone starting) for steady tones from 40 to 440 Hz; 16th-note hats mixed under the full loop count as onsets; a calm tone scores lowest, then kicks alone, then the full loop; hats raise brightness and the score; faster kicks raise the density; a louder copy scores higher with the same brightness; no score for unusable input.

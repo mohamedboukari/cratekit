@@ -39,7 +39,7 @@ v0.1 in about 8 weeks of part-time work. Each phase ends with a gate: the test D
 - [x] Synthetic audio test helpers (kick at BPM, chords in a key, sine at level) (#9)
 - [x] `TempoDetector` + `KeyDetector` traits; stratum-dsp implementation; fallback implementation (#10). Our own detectors are the default; stratum-dsp is behind the `stratum` feature
 - [x] Camelot mapping + `matches()` with tests for every key (#11)
-- [ ] Loudness (LUFS, true peak) + energy score (#12)
+- [x] Loudness (LUFS, true peak) + energy score (#12)
 - [ ] Waveform columns (#13)
 - [ ] SQLite (rusqlite, WAL, single writer) schema + migrations; add files/folders; tag reading (#14)
 - [ ] Background analysis queue with progress events (#15)
