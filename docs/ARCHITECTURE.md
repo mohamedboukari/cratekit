@@ -45,7 +45,7 @@ src/
   lib.rs
   error.rs             CoreError (thiserror)
   synth.rs             synthetic test audio (kick, chords, bass, sine, SPEC loop); tests or `test-helpers` feature only
-  audio/               decode (symphonia), resample (rubato), AudioBuffer, write WAV (hound)
+  audio/               AudioBuffer, decode_file (symphonia), resample (rubato); write WAV (hound) later; see docs/audio.md
   analysis/
     mod.rs             analyze_track() -> TrackAnalysis
     tempo.rs           trait TempoDetector; OnsetTempo (ours, the default)

@@ -123,7 +123,13 @@ pub struct AppError {
 impl From<cratekit_core::CoreError> for AppError {
     fn from(err: cratekit_core::CoreError) -> Self {
         let code = match err {
-            cratekit_core::CoreError::Io(_) => "io",
+            cratekit_core::CoreError::Io(_) | cratekit_core::CoreError::ReadFile { .. } => "io",
+            cratekit_core::CoreError::UnsupportedFormat { .. } => "unsupported_format",
+            cratekit_core::CoreError::Decode { .. } => "decode",
+            cratekit_core::CoreError::NoAudio { .. } => "no_audio",
+            cratekit_core::CoreError::InvalidAudio(_) | cratekit_core::CoreError::Resample(_) => {
+                "audio_processing"
+            }
         };
         Self {
             code,

@@ -2,7 +2,8 @@
 //!
 //! This crate must build and test without Tauri (`cargo test -p cratekit-core`).
 //! Modules from `docs/ARCHITECTURE.md` (audio, analysis, mastering, stems,
-//! library, export) are added here task by task. So far: [`analysis::key`]
+//! library, export) are added here task by task. So far: [`audio`] (decoding
+//! files to planar `f32` and resampling), [`analysis::key`]
 //! (musical keys and the Camelot wheel), [`analysis::tempo`] and
 //! [`analysis::key_detect`] (tempo and key detection), [`analysis::loudness`]
 //! (integrated LUFS and true peak), [`analysis::energy`] (the 1 to 10 energy
@@ -10,6 +11,7 @@
 //! `test-helpers` feature).
 
 pub mod analysis;
+pub mod audio;
 mod error;
 #[cfg(any(test, feature = "test-helpers"))]
 pub mod synth;

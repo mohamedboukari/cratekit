@@ -27,3 +27,5 @@ extend-exclude = [
 ]
 
 [default.extend-words]
+# symphonia's TimeBase field for the numerator.
+numer = "numer"

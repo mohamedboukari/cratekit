@@ -15,6 +15,14 @@ function codeDetail(code: string): string | null {
       return i18n.t("errors.codes.model_missing");
     case "window":
       return i18n.t("errors.codes.window");
+    case "unsupported_format":
+      return i18n.t("errors.codes.unsupported_format");
+    case "decode":
+      return i18n.t("errors.codes.decode");
+    case "no_audio":
+      return i18n.t("errors.codes.no_audio");
+    case "audio_processing":
+      return i18n.t("errors.codes.audio_processing");
     default:
       return null;
   }

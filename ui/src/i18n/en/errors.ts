@@ -6,6 +6,10 @@ export const errors = {
     not_found: "This item no longer exists.",
     model_missing: "The stems model is not downloaded yet.",
     window: "A window could not be opened.",
+    unsupported_format: "This file is not an audio format Cratekit can read.",
+    decode: "This audio file could not be decoded.",
+    no_audio: "This file contains no audio.",
+    audio_processing: "The audio could not be processed.",
   },
   controller: {
     load: "Could not load the controller mapping",
