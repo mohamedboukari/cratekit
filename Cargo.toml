@@ -18,6 +18,8 @@ cratekit-core = { path = "crates/cratekit-core" }
 # EBU R128 / ITU-R BS.1770 loudness and true peak (MIT; deps MIT or Apache-2.0); approved 2026-11-18.
 ebur128 = "0.1"
 serde = { version = "1", features = ["derive"] }
+# JSON checks of the IPC payloads in tests (MIT OR Apache-2.0; already in the tree through Tauri).
+serde_json = "1"
 # BPM and key detection behind our detector traits (MIT OR Apache-2.0); approved 2026-11-15.
 # No features: keeps `ml` (ONNX Runtime) out even if a later release enables it by default.
 stratum-dsp = { version = "1", default-features = false }
@@ -28,10 +30,13 @@ tauri-plugin-dialog = "2.8"
 thiserror = "2"
 # Resampling (MIT OR Apache-2.0; deps MIT or Apache-2.0); approved 2026-11-18.
 rubato = "5"
+# SQLite library database (MIT; deps MIT or Apache-2.0; SQLite itself is public domain).
+# `bundled` compiles SQLite into the app, so there is nothing to install. Chosen in the stack (CLAUDE.md).
+rusqlite = { version = "0.43", features = ["bundled"] }
 # Audio decoding (MPL-2.0; deps MIT, Apache-2.0, BSD or Zlib); approved 2026-11-18.
 # Default features (WAV, PCM, ADPCM, FLAC, Ogg Vorbis, MKV/WebM, ID3 and APE tags, SIMD with
-# runtime detection) plus MP3, AAC in M4A, and AIFF.
-symphonia = { version = "0.6", features = ["mp3", "aac", "isomp4", "aiff"] }
+# runtime detection) plus MP3, AAC and Apple Lossless (ALAC) in M4A, and AIFF. ALAC approved 2026-11-18.
+symphonia = { version = "0.6", features = ["mp3", "aac", "alac", "isomp4", "aiff"] }
 
 # Lints shared by every crate (each crate opts in with `[lints] workspace = true`).
 # CI runs clippy with `-D warnings`, so "warn" also fails the build.

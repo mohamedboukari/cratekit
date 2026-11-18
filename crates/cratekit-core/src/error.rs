@@ -55,6 +55,31 @@ pub enum CoreError {
     /// The resampler could not be set up or failed while running.
     #[error("resampling failed: {0}")]
     Resample(String),
+
+    /// The library database failed (it could not be opened, migrated, read
+    /// or written).
+    #[error("library database error: {0}")]
+    Database(#[from] rusqlite::Error),
+
+    /// The library database was made by a newer Cratekit than this one.
+    #[error(
+        "the library database is from a newer Cratekit (schema {found}, this app knows {known})"
+    )]
+    DatabaseTooNew {
+        /// The schema version in the file.
+        found: i64,
+        /// The newest schema version this build knows.
+        known: i64,
+    },
+
+    /// A track, crate or other item asked for by id does not exist.
+    #[error("no {what} with id {id}")]
+    NotFound {
+        /// What was looked up, e.g. "track".
+        what: &'static str,
+        /// The id that was asked for.
+        id: i64,
+    },
 }
 
 #[cfg(test)]

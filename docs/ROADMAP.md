@@ -41,7 +41,7 @@ v0.1 in about 8 weeks of part-time work. Each phase ends with a gate: the test D
 - [x] Camelot mapping + `matches()` with tests for every key (#11)
 - [x] Loudness (LUFS, true peak) + energy score (#12)
 - [ ] Waveform columns (#13)
-- [ ] SQLite (rusqlite, WAL, single writer) schema + migrations; add files/folders; tag reading (#14)
+- [x] SQLite (rusqlite, WAL, single writer) schema + migrations; add files/folders; tag reading (#14)
 - [ ] Background analysis queue with progress events (#15)
 - [x] UI: typed IPC layer (`ui/src/lib/ipc.ts`) (#16)
 - [x] UI: window layout (sidebar, deck, tabs, track browser, status bar) (#17)

@@ -46,8 +46,13 @@ test-data/
 !crates/cratekit-core/tests/fixtures/tone.mp3
 !crates/cratekit-core/tests/fixtures/tone.m4a
 !crates/cratekit-core/tests/fixtures/tone.ogg
+!crates/cratekit-core/tests/fixtures/tone-alac.m4a
 !crates/cratekit-core/tests/fixtures/mono-48k.wav
 !crates/cratekit-core/tests/fixtures/rate-change.mp3
+!crates/cratekit-core/tests/fixtures/tagged.mp3
+!crates/cratekit-core/tests/fixtures/tagged.flac
+!crates/cratekit-core/tests/fixtures/tagged.m4a
+!crates/cratekit-core/tests/fixtures/tagged.ogg
 
 # Secrets and local overrides
 .env

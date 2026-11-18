@@ -23,6 +23,10 @@ function codeDetail(code: string): string | null {
       return i18n.t("errors.codes.no_audio");
     case "audio_processing":
       return i18n.t("errors.codes.audio_processing");
+    case "database":
+      return i18n.t("errors.codes.database");
+    case "database_too_new":
+      return i18n.t("errors.codes.database_too_new");
     default:
       return null;
   }

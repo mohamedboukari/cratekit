@@ -10,6 +10,9 @@ export const errors = {
     decode: "This audio file could not be decoded.",
     no_audio: "This file contains no audio.",
     audio_processing: "The audio could not be processed.",
+    database: "The library database could not be read or written.",
+    database_too_new:
+      "This library was made by a newer Cratekit. Update the app to open it.",
   },
   controller: {
     load: "Could not load the controller mapping",

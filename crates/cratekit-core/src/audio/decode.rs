@@ -8,7 +8,7 @@ use symphonia::core::audio::GenericAudioBufferRef;
 use symphonia::core::codecs::audio::AudioDecoderOptions;
 use symphonia::core::errors::Error as SymphoniaError;
 use symphonia::core::formats::probe::Hint;
-use symphonia::core::formats::{FormatOptions, TrackType};
+use symphonia::core::formats::{FormatOptions, FormatReader, TrackType};
 use symphonia::core::io::MediaSourceStream;
 use symphonia::core::meta::MetadataOptions;
 use symphonia::core::units::TimeBase;
@@ -32,7 +32,8 @@ const MIN_DAMAGED_TO_FAIL: usize = 8;
 /// Decodes a whole audio file to planar `f32` at its own sample rate and
 /// channel count. The file is only read, never changed.
 ///
-/// Reads MP3, WAV, FLAC, AIFF, M4A (AAC) and Ogg Vorbis; the format is found
+/// Reads MP3, WAV, FLAC, AIFF, M4A (AAC or Apple Lossless) and Ogg Vorbis;
+/// the format is found
 /// from the file's content, with the extension only as a hint. Encoder delay
 /// and padding are trimmed when the file records them (MP3 with a LAME or
 /// Xing header, Ogg), so sample 0 is the first sample of the music. M4A is
@@ -71,27 +72,7 @@ pub fn decode_file(path: &Path) -> Result<AudioBuffer, CoreError> {
         path: path.to_path_buf(),
     };
 
-    let file = File::open(path).map_err(read_error)?;
-    let stream = MediaSourceStream::new(Box::new(file), Default::default());
-    let mut hint = Hint::new();
-    if let Some(extension) = path.extension().and_then(|ext| ext.to_str()) {
-        hint.with_extension(extension);
-    }
-    let mut format = symphonia::default::get_probe()
-        .probe(
-            &hint,
-            stream,
-            FormatOptions::default(),
-            MetadataOptions::default(),
-        )
-        .map_err(|err| match err {
-            SymphoniaError::IoError(io) if io.kind() == ErrorKind::UnexpectedEof => {
-                decode_error("the file ends before its audio starts".into())
-            }
-            SymphoniaError::IoError(io) => read_error(io),
-            SymphoniaError::Unsupported(_) => unsupported(),
-            other => decode_error(other.to_string()),
-        })?;
+    let mut format = open_format(path)?;
 
     let track = format
         .default_track(TrackType::Audio)
@@ -173,6 +154,46 @@ pub fn decode_file(path: &Path) -> Result<AudioBuffer, CoreError> {
         return Err(no_audio());
     }
     AudioBuffer::new(timeline.sample_rate, timeline.channels)
+}
+
+/// Opens `path` and finds its container format from the content (the
+/// extension is only a hint). Reads the headers and tags, not the audio.
+pub(super) fn open_format(path: &Path) -> Result<Box<dyn FormatReader>, CoreError> {
+    let file = File::open(path).map_err(|source| CoreError::ReadFile {
+        path: path.to_path_buf(),
+        source,
+    })?;
+    let stream = MediaSourceStream::new(Box::new(file), Default::default());
+    let mut hint = Hint::new();
+    if let Some(extension) = path.extension().and_then(|ext| ext.to_str()) {
+        hint.with_extension(extension);
+    }
+    symphonia::default::get_probe()
+        .probe(
+            &hint,
+            stream,
+            FormatOptions::default(),
+            MetadataOptions::default(),
+        )
+        .map_err(|err| match err {
+            SymphoniaError::IoError(io) if io.kind() == ErrorKind::UnexpectedEof => {
+                CoreError::Decode {
+                    path: path.to_path_buf(),
+                    reason: "the file ends before its audio starts".into(),
+                }
+            }
+            SymphoniaError::IoError(source) => CoreError::ReadFile {
+                path: path.to_path_buf(),
+                source,
+            },
+            SymphoniaError::Unsupported(_) => CoreError::UnsupportedFormat {
+                path: path.to_path_buf(),
+            },
+            other => CoreError::Decode {
+                path: path.to_path_buf(),
+                reason: other.to_string(),
+            },
+        })
 }
 
 /// The decoded audio so far, laid out on the file's timeline.
@@ -259,46 +280,9 @@ fn frame_at(ts: i64, time_base: Option<TimeBase>, rate: u32) -> Option<u64> {
 
 #[cfg(test)]
 mod tests {
-    use std::path::PathBuf;
-
     use super::*;
     use crate::synth::{rms_db, tone_power};
-
-    /// The synthetic test files (see `tests/fixtures/make-fixtures.sh`).
-    fn fixture(name: &str) -> PathBuf {
-        Path::new(env!("CARGO_MANIFEST_DIR"))
-            .join("tests/fixtures")
-            .join(name)
-    }
-
-    /// A scratch folder for one test, removed when dropped (even if the test
-    /// fails), named after the test so parallel tests never share one.
-    struct Scratch(PathBuf);
-
-    impl Scratch {
-        fn new(test: &str) -> Self {
-            let dir = std::env::temp_dir().join(format!("cratekit-{test}-{}", std::process::id()));
-            std::fs::create_dir_all(&dir).expect("create a scratch folder");
-            Self(dir)
-        }
-
-        /// Writes `bytes` to `name` in the folder and returns its path.
-        fn write(&self, name: &str, bytes: &[u8]) -> PathBuf {
-            let path = self.0.join(name);
-            std::fs::write(&path, bytes).expect("write a scratch file");
-            path
-        }
-    }
-
-    impl Drop for Scratch {
-        fn drop(&mut self) {
-            let _ = std::fs::remove_dir_all(&self.0);
-        }
-    }
-
-    fn read_fixture(name: &str) -> Vec<u8> {
-        std::fs::read(fixture(name)).expect("read the fixture")
-    }
+    use crate::testing::{Scratch, fixture, read_fixture};
 
     /// RMS level of a channel in dBFS, ignoring the first and last 50 ms
     /// (lossy codecs fade in and out a little). Lossy codecs keep a tone's
@@ -385,6 +369,8 @@ mod tests {
         assert!(flac == wav, "FLAC is lossless: the same samples as the WAV");
         let aiff = decode_file(&fixture("tone.aiff")).expect("the fixture decodes");
         assert!(aiff == wav, "AIFF holds the same 16-bit samples as the WAV");
+        let alac = decode_file(&fixture("tone-alac.m4a")).expect("the fixture decodes");
+        assert!(alac == wav, "Apple Lossless: the same samples as the WAV");
     }
 
     #[test]

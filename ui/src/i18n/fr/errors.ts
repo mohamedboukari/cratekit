@@ -11,6 +11,9 @@ export const errors: Translation["errors"] = {
     decode: "Ce fichier audio n'a pas pu être décodé.",
     no_audio: "Ce fichier ne contient pas d'audio.",
     audio_processing: "L'audio n'a pas pu être traité.",
+    database: "La base de la bibliothèque n'a pas pu être lue ou écrite.",
+    database_too_new:
+      "Cette bibliothèque vient d'une version plus récente de Cratekit. Mettez l'app à jour pour l'ouvrir.",
   },
   controller: {
     load: "Impossible de charger l'assignation du contrôleur",
