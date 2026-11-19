@@ -33,6 +33,8 @@ function codeDetail(code: string): string | null {
       return i18n.t("errors.codes.audio_device");
     case "invalid_setting":
       return i18n.t("errors.codes.invalid_setting");
+    case "invalid_name":
+      return i18n.t("errors.codes.invalid_name");
     default:
       return null;
   }

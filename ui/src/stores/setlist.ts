@@ -160,8 +160,9 @@ export const useSetList = create<SetListState>()((set, get) => {
       const ids = get().items.map((t) => t.id);
       if (!name.trim() || ids.length === 0) return false;
       try {
-        const crate = await api().crateCreate(name.trim(), "lime");
-        await api().crateAddTracks(crate.id, ids);
+        // One call: Rust creates the crate and adds the set in one step, so
+        // a failure never leaves an empty crate behind.
+        await api().crateCreate(name.trim(), "lime", ids);
         return true;
       } catch (error) {
         notifyError(error, i18n.t("errors.setlist.saveCrate"));

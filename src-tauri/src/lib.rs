@@ -149,6 +149,7 @@ impl AppError {
             cratekit_core::CoreError::NotFound { .. } => "not_found",
             cratekit_core::CoreError::Cancelled => "cancelled",
             cratekit_core::CoreError::InvalidSetting { .. } => "invalid_setting",
+            cratekit_core::CoreError::EmptyName => "invalid_name",
         };
         Self { code, message }
     }
@@ -302,6 +303,9 @@ pub fn run() -> anyhow::Result<()> {
             library::library_counts,
             library::track_detail,
             library::crates_list,
+            library::crate_create,
+            library::crate_add_tracks,
+            library::crate_remove_tracks,
             library::setlist_transitions,
             jobs::analyze_tracks,
             jobs::job_cancel,

@@ -129,6 +129,20 @@ pub enum CueColor {
 }
 
 impl CueColor {
+    /// The name the colour is stored under.
+    fn name(self) -> &'static str {
+        match self {
+            Self::Orange => "orange",
+            Self::Blue => "blue",
+            Self::Pink => "pink",
+            Self::Purple => "purple",
+            Self::Lime => "lime",
+            Self::Yellow => "yellow",
+            Self::Red => "red",
+            Self::Teal => "teal",
+        }
+    }
+
     /// The colour stored as `name`, or orange for anything else.
     fn from_name(name: Option<&str>) -> Self {
         match name {
@@ -558,7 +572,82 @@ impl Library {
         Ok(crates)
     }
 
-    /// The tracks matching `query`, oldest first.
+    /// Makes a crate named `name` (spaces around it removed), placed after
+    /// the other crates, holding `ids` in that order (the set builder's
+    /// "Save as crate"; empty for an empty crate). All or nothing: on an
+    /// error no crate is left behind. Tracks no longer in the library are
+    /// skipped, and a track given twice keeps its first place.
+    ///
+    /// # Errors
+    ///
+    /// [`CoreError::EmptyName`] for an empty name, [`CoreError::Database`]
+    /// if writing fails.
+    pub fn crate_create(
+        &mut self,
+        name: &str,
+        color: CueColor,
+        ids: &[TrackId],
+    ) -> Result<Crate, CoreError> {
+        let name = name.trim();
+        if name.is_empty() {
+            return Err(CoreError::EmptyName);
+        }
+        let transaction = self.connection.transaction()?;
+        transaction.execute(
+            "INSERT INTO crates (name, color, sort) \
+             VALUES (?1, ?2, (SELECT coalesce(max(sort), 0) + 1 FROM crates))",
+            params![name, color.name()],
+        )?;
+        let id = transaction.last_insert_rowid();
+        let track_count = append_to_crate(&transaction, id, ids)?;
+        transaction.commit()?;
+        Ok(Crate {
+            id,
+            name: name.to_owned(),
+            color,
+            track_count,
+        })
+    }
+
+    /// Adds tracks to the end of a crate, in the order given. A track already
+    /// in the crate keeps its place; a track no longer in the library is
+    /// skipped. All or nothing: on an error no track is added.
+    ///
+    /// # Errors
+    ///
+    /// [`CoreError::NotFound`] when the crate does not exist,
+    /// [`CoreError::Database`] if writing fails.
+    pub fn crate_add_tracks(&mut self, crate_id: i64, ids: &[TrackId]) -> Result<(), CoreError> {
+        let transaction = self.connection.transaction()?;
+        require_crate(&transaction, crate_id)?;
+        append_to_crate(&transaction, crate_id, ids)?;
+        transaction.commit()?;
+        Ok(())
+    }
+
+    /// Takes tracks out of a crate (the tracks stay in the library). Ids not
+    /// in the crate are ignored.
+    ///
+    /// # Errors
+    ///
+    /// [`CoreError::NotFound`] when the crate does not exist,
+    /// [`CoreError::Database`] if writing fails.
+    pub fn crate_remove_tracks(&mut self, crate_id: i64, ids: &[TrackId]) -> Result<(), CoreError> {
+        let transaction = self.connection.transaction()?;
+        require_crate(&transaction, crate_id)?;
+        {
+            let mut delete = transaction
+                .prepare("DELETE FROM crate_tracks WHERE crate_id = ?1 AND track_id = ?2")?;
+            for &id in ids {
+                delete.execute(params![crate_id, id])?;
+            }
+        }
+        transaction.commit()?;
+        Ok(())
+    }
+
+    /// The tracks matching `query`: in the crate's order when the query
+    /// names a crate, else oldest first.
     ///
     /// # Errors
     ///
@@ -579,7 +668,9 @@ impl Library {
              AND (?3 IS NULL OR a.bpm <= ?3) \
              AND (?4 IS NULL OR abs(a.bpm - ?4) <= ?5) \
              AND (?6 = 0 OR EXISTS (SELECT 1 FROM stems s WHERE s.track_id = t.id)) \
-             ORDER BY t.id"
+             ORDER BY (SELECT sort FROM crate_tracks WHERE crate_id = ?1 AND track_id = t.id) \
+               IS NULL, \
+               (SELECT sort FROM crate_tracks WHERE crate_id = ?1 AND track_id = t.id), t.id"
         ))?;
         let rows = statement.query_map(
             params![
@@ -844,6 +935,50 @@ fn stored_key(tonic: Option<u8>, mode: Option<&str>) -> Option<Key> {
     })
 }
 
+/// [`CoreError::NotFound`] unless crate `id` exists.
+fn require_crate(connection: &Connection, id: i64) -> Result<(), CoreError> {
+    let exists: bool = connection.query_row(
+        "SELECT EXISTS (SELECT 1 FROM crates WHERE id = ?1)",
+        [id],
+        |row| row.get(0),
+    )?;
+    if exists {
+        Ok(())
+    } else {
+        Err(CoreError::NotFound { what: "crate", id })
+    }
+}
+
+/// Appends `ids` to crate `crate_id` after its last track, skipping tracks
+/// already in it or no longer in the library. Returns how many tracks the
+/// crate holds afterwards.
+fn append_to_crate(
+    connection: &Connection,
+    crate_id: i64,
+    ids: &[TrackId],
+) -> Result<u32, CoreError> {
+    let mut last: i64 = connection.query_row(
+        "SELECT coalesce(max(sort), 0) FROM crate_tracks WHERE crate_id = ?1",
+        [crate_id],
+        |row| row.get(0),
+    )?;
+    let mut insert = connection.prepare(
+        "INSERT INTO crate_tracks (crate_id, track_id, sort) \
+         SELECT ?1, id, ?3 FROM tracks WHERE id = ?2 \
+         ON CONFLICT DO NOTHING",
+    )?;
+    for &id in ids {
+        if insert.execute(params![crate_id, id, last + 1])? > 0 {
+            last += 1;
+        }
+    }
+    let count = connection.query_row(
+        "SELECT count(*) FROM crate_tracks WHERE crate_id = ?1",
+        [crate_id],
+        |row| row.get(0),
+    )?;
+    Ok(count)
+}
 /// Chroma as stored: 12 little-endian `f32`.
 fn chroma_to_bytes(chroma: &[f32; 12]) -> Vec<u8> {
     chroma

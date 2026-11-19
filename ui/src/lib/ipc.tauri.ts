@@ -54,7 +54,7 @@ export function createTauriApi(): CratekitApi {
     libraryCounts: () => call("library_counts"),
     trackDetail: (id) => call("track_detail", { id }),
     cratesList: () => call("crates_list"),
-    crateCreate: (name, color) => call("crate_create", { name, color }),
+    crateCreate: (name, color, ids) => call("crate_create", { name, color, ids }),
     crateAddTracks: (crateId, ids) => call("crate_add_tracks", { crateId, ids }),
     crateRemoveTracks: (crateId, ids) => call("crate_remove_tracks", { crateId, ids }),
     setlistTransitions: (ids) => call("setlist_transitions", { ids }),

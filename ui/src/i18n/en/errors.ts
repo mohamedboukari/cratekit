@@ -21,6 +21,7 @@ export const errors = {
     no_audio_device: "No audio output was found. Connect speakers or headphones.",
     audio_device: "The audio output could not be used.",
     invalid_setting: "This setting cannot take that value.",
+    invalid_name: "The name cannot be empty.",
   },
   controller: {
     load: "Could not load the controller mapping",
