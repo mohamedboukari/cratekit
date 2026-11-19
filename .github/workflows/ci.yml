@@ -102,6 +102,12 @@ jobs:
       - name: Clippy (all features)
         run: cargo clippy --workspace --all-targets --all-features --locked -- -D warnings
 
+      # ts-rs only writes files, never deletes them: start from an empty folder so a
+      # binding the tests no longer produce shows up as deleted in the check below.
+      - name: Clear generated TypeScript bindings
+        if: matrix.os == 'ubuntu-24.04'
+        run: rm -rf ui/src/lib/bindings
+
       - name: Tests
         run: cargo nextest run --workspace --all-features --profile ci --locked
 
@@ -117,6 +123,17 @@ jobs:
       - name: Unused dependencies (cargo-shear)
         if: matrix.os == 'ubuntu-24.04'
         run: cargo shear
+
+      # The tests rewrite ui/src/lib/bindings (ts-rs, #16): it must match what is committed.
+      - name: TypeScript bindings up to date
+        if: matrix.os == 'ubuntu-24.04'
+        run: |
+          if [ -n "$(git status --porcelain -- ui/src/lib/bindings)" ]; then
+            git status --short -- ui/src/lib/bindings
+            git diff -- ui/src/lib/bindings
+            echo "::error::ui/src/lib/bindings is out of date: run 'bun run test:rust' and commit the result."
+            exit 1
+          fi
 
   typos:
     name: Spelling (typos)

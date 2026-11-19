@@ -73,6 +73,7 @@ fn internal(err: tauri::Error) -> AppError {
 /// A browser row as the UI's `TrackRow`: the core row plus the live job
 /// activity, which the job queue (#15) will fill in.
 #[derive(Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export))]
 pub(crate) struct TrackRowDto {
     #[serde(flatten)]
     row: TrackRow,
@@ -91,6 +92,7 @@ impl From<TrackRow> for TrackRowDto {
 /// One track as the UI's `TrackDetail`, with the waveform overview when the
 /// analysis stored one.
 #[derive(Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export))]
 pub(crate) struct TrackDetailDto {
     track: TrackRowDto,
     analysis: Option<Analysis>,

@@ -28,6 +28,7 @@ const SETTINGS_URL: &str = "index.html#settings";
 /// (`app_set_menu_labels`); Rust keeps the latest in managed state so a
 /// Settings window opened later gets the right title too.
 #[derive(Debug, Clone, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export))]
 #[serde(rename_all = "camelCase")]
 struct MenuLabels {
     settings: String,
@@ -118,6 +119,7 @@ fn current_labels<R: Runtime>(app: &AppHandle<R>) -> MenuLabels {
 
 /// The error every Tauri command returns, serialized to the UI as `{ code, message }`.
 #[derive(Debug, Clone, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export))]
 pub struct AppError {
     /// Stable machine-readable code the UI can switch on, e.g. `"io"`.
     pub code: &'static str,

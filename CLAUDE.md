@@ -70,6 +70,7 @@ The maintainer stays in the loop and in control at every step. Never bypass the 
 | Database | SQLite via `rusqlite` (bundled feature) |
 | Errors | `thiserror` in library crates, `anyhow` only in the Tauri app crate |
 | Async / jobs | `tokio` for IPC and jobs, `rayon` for CPU-heavy batch work |
+| IPC types | `ts-rs` generates `ui/src/lib/bindings/` from the Rust payload structs (`ts` feature, test builds only) |
 | Dependency policy | `cargo-deny` (licenses, advisories, duplicates), `cargo-shear` (unused crates), `knip` (unused JS deps/exports) |
 | Tooling | Rust: rustfmt, clippy, cargo-nextest, cargo-llvm-cov, taplo, typos, bacon, sccache (local). JS: TS 7 `tsc`, oxlint + tsgolint (type-aware), Prettier, knip. Git: husky + lint-staged + commitlint. CI: GitHub Actions |
 
@@ -131,6 +132,7 @@ Git hooks: **pre-commit** runs lint-staged on staged files (prettier, oxlint --f
 
 - TypeScript strict, no `any`, no unsafe `as` casts.
 - Function components only, `.tsx`, PascalCase file names, in `ui/src/components/`. Hooks in `ui/src/hooks/`.
+- **Payload types are generated from Rust** (ts-rs, `ts` feature) into `ui/src/lib/bindings/`: never edit them by hand; after changing a Rust payload type run `bun run test:rust` and commit the bindings. `ui/src/lib/bindings.test.ts` checks `types.ts` against them; add a line there for every new payload type.
 - **All IPC goes through `ui/src/lib/ipc.ts`.** Components, hooks and stores call `api()` (the typed `CratekitApi`); only `ui/src/lib/ipc.tauri.ts` calls `invoke()` / `listen()`. In a browser, `api()` is the fake-data mock in `ui/src/mock/` (never in production builds).
 - **High-frequency visuals stay outside React renders.** Waveform, playhead and meters are drawn on `<canvas>` through refs and `requestAnimationFrame`. Events like `playback_position` and `meter` (30 Hz) update a ref, not React state.
 - UI components come from shadcn (`bunx --bun shadcn add <component>` from `ui/`); they use the shared tokens in `ui/src/index.css` (`ck-*` palette mapped onto shadcn's semantic colours). State: Zustand stores per domain in `ui/src/stores/`.

@@ -46,6 +46,7 @@ const MAX_PROBE_THREADS: usize = 8;
 /// One row of the track browser (the UI's `TrackRow`, without the live job
 /// activity, which the app adds).
 #[derive(Debug, Clone, PartialEq, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export))]
 #[serde(rename_all = "camelCase")]
 pub struct TrackRow {
     /// The track's id.
@@ -76,6 +77,7 @@ pub struct TrackRow {
 
 /// The browser's filters (the UI's `LibraryQuery`).
 #[derive(Debug, Clone, Default, PartialEq, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export))]
 #[serde(rename_all = "camelCase")]
 pub struct LibraryQuery {
     /// Only tracks in this crate.
@@ -96,6 +98,7 @@ pub struct LibraryQuery {
 
 /// The sidebar's counts (the UI's `LibraryCounts`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export))]
 #[serde(rename_all = "camelCase")]
 pub struct LibraryCounts {
     /// Every track.
@@ -108,6 +111,7 @@ pub struct LibraryCounts {
 
 /// Hot cue colours (the UI's `CueColor`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export))]
 #[serde(rename_all = "lowercase")]
 pub enum CueColor {
     /// Orange, the default.
@@ -160,9 +164,12 @@ impl CueColor {
 
 /// A hot cue (the UI's `Cue`).
 #[derive(Debug, Clone, PartialEq, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export))]
 #[serde(rename_all = "camelCase")]
 pub struct Cue {
-    /// Pad 1 to 8.
+    /// Pad 1 to 8 (only these are read back from the database).
+    // A hand-written TS type: change it together with this field's type.
+    #[cfg_attr(feature = "ts", ts(type = "1 | 2 | 3 | 4 | 5 | 6 | 7 | 8"))]
     pub slot: u8,
     /// Position in seconds.
     pub position_sec: f64,
@@ -176,6 +183,7 @@ pub struct Cue {
 /// Everything derived (key name, Camelot code, scale, mixing partners) is
 /// computed here, not in the UI.
 #[derive(Debug, Clone, PartialEq, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export))]
 #[serde(rename_all = "camelCase")]
 pub struct Analysis {
     /// Tempo, or `None` for a track with no steady beat.
@@ -225,6 +233,7 @@ pub struct TrackDetail {
 
 /// A crate: a user-made list of tracks (the UI's `Crate`).
 #[derive(Debug, Clone, PartialEq, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export))]
 #[serde(rename_all = "camelCase")]
 pub struct Crate {
     /// The crate's id.
@@ -239,6 +248,7 @@ pub struct Crate {
 
 /// How two neighbours in the set list fit (the UI's `Transition`).
 #[derive(Debug, Clone, PartialEq, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export))]
 #[serde(rename_all = "camelCase")]
 pub struct Transition {
     /// The track played first.

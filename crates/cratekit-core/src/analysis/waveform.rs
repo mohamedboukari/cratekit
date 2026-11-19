@@ -30,6 +30,7 @@ pub struct Waveform {
 
 /// What the deck draws: one peak and one RMS value per column, 0 to 1.
 #[derive(Debug, Clone, PartialEq, serde::Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export))]
 pub struct WaveformView {
     /// Highest absolute level per column.
     pub peaks: Vec<f32>,
