@@ -309,7 +309,7 @@ Decided in #29 (research: ONNX Runtime per target, CoreML, DirectML and Windows 
 | Target | Library | Execution providers, in order | Notes |
 | --- | --- | --- | --- |
 | macOS arm64 | ONNX Runtime 1.32 (`libonnxruntime.dylib`, about 13 MB compressed) | CoreML, then CPU | `minos` 14.0, under the app's 14.2 |
-| macOS x86_64 | ONNX Runtime 1.23.2, the last Intel macOS build (about 11 MB) | CPU | `minos` 13.4; frozen since Oct 2025; a source build is the follow-up (#114) |
+| macOS x86_64 | ONNX Runtime 1.23.2, the last Intel macOS build (about 11 MB) | CPU | `minos` 13.4; frozen since Oct 2025. Loads and runs a model on `macos-15-intel` in CI (#114). A source build of a newer version is a possible follow-up |
 | Windows x64, ARM64 | ONNX Runtime 1.32 CPU (`onnxruntime.dll`, about 7 MB) | CPU | No GPU in v0.1: every DirectML route (also Windows ML) ships Microsoft's proprietary `DirectML.dll`, whose licence includes data collection |
 | Linux x64, arm64 | ONNX Runtime 1.32 (`libonnxruntime.so`, about 11 to 13 MB) | CPU | Needs glibc 2.28, fine on Ubuntu 22.04. ROCm was removed from ONNX Runtime, CUDA is far over budget; WebGPU (Vulkan) is the only GPU path worth a later test |
 
@@ -373,7 +373,7 @@ Native dependencies per target:
 | symphonia, rubato, rustfft, ebur128 | Pure Rust | Yes (rustfft picks SIMD at run time) |
 | ONNX Runtime (stems), planned | Prebuilt C++ library, loaded at run time | Yes, with Microsoft's builds: 1.32 everywhere except Intel Macs (1.23.2, the last Intel build). See Stems notes |
 
-Stems and ONNX Runtime: decided in #29, see **Stems notes** (Microsoft's builds loaded at run time, bundled per target). Still to prove on CI runners and real hardware: the Intel Mac library (#114) and the CPU, glibc and Windows 10 checks (#115).
+Stems and ONNX Runtime: decided in #29, see **Stems notes** (Microsoft's builds loaded at run time, bundled per target). The `Stems runtime` workflow proves every library on its target, including 1.23.2 on the Intel Mac (#114), Ubuntu 22.04 (glibc) and Windows Server 2022 (#115). Still to check on real hardware: a Windows 10 22H2 machine and a CPU without AVX2.
 
 Rules:
 
