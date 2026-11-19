@@ -23,6 +23,7 @@ use crate::CoreError;
 use crate::analysis::ANALYZER_VERSION;
 use crate::analysis::key::{Camelot, Key, Mode, PitchClass};
 use crate::analysis::track::TrackAnalysis;
+use crate::analysis::waveform::{OVERVIEW_COLUMNS, Waveform, WaveformView};
 use crate::audio::{FileInfo, probe_file};
 use crate::settings::Settings;
 
@@ -193,7 +194,7 @@ pub struct Analysis {
     pub mix_out_sec: Option<f64>,
 }
 
-/// One track with everything stored about it. The waveform joins with #13.
+/// One track with everything stored about it.
 #[derive(Debug, Clone, PartialEq)]
 pub struct TrackDetail {
     /// The browser row.
@@ -202,6 +203,8 @@ pub struct TrackDetail {
     pub path: PathBuf,
     /// The stored analysis, if any.
     pub analysis: Option<Analysis>,
+    /// The waveform overview to draw, if the analysis has one.
+    pub waveform: Option<WaveformView>,
     /// Hot cues, by slot.
     pub cues: Vec<Cue>,
 }
@@ -680,8 +683,27 @@ impl Library {
             track,
             path: PathBuf::from(path),
             analysis: self.analysis(id)?,
+            waveform: self.waveform(id)?,
             cues,
         })
+    }
+
+    /// The waveform overview of a track (at most `OVERVIEW_COLUMNS` columns;
+    /// fewer for tracks under a minute), if its analysis stored one in the
+    /// current format.
+    fn waveform(&self, id: TrackId) -> Result<Option<WaveformView>, CoreError> {
+        let bytes: Option<Option<Vec<u8>>> = self
+            .connection
+            .query_row(
+                "SELECT waveform FROM analysis WHERE track_id = ?1",
+                [id],
+                |row| row.get(0),
+            )
+            .optional()?;
+        Ok(bytes
+            .flatten()
+            .and_then(|bytes| Waveform::from_bytes(&bytes))
+            .map(|waveform| waveform.overview(OVERVIEW_COLUMNS)))
     }
 
     /// The stored analysis of a track, if any.
@@ -745,8 +767,8 @@ impl Library {
         transaction.execute(
             "INSERT OR REPLACE INTO analysis (track_id, bpm, bpm_confidence, key_tonic, key_mode, \
              camelot, key_confidence, energy, lufs, true_peak_db, first_beat_sec, chroma, \
-             analyzer_version, analyzed_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, \
-             ?11, ?12, ?13, strftime('%Y-%m-%dT%H:%M:%SZ', 'now'))",
+             waveform, analyzer_version, analyzed_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, \
+             ?9, ?10, ?11, ?12, ?13, ?14, strftime('%Y-%m-%dT%H:%M:%SZ', 'now'))",
             params![
                 id,
                 found.tempo.map(|tempo| f64::from(tempo.bpm)),
@@ -767,6 +789,7 @@ impl Library {
                     .and_then(|tempo| tempo.first_beat_sec)
                     .map(f64::from),
                 key.map(|key| chroma_to_bytes(&key.chroma)),
+                found.waveform.to_bytes(),
                 ANALYZER_VERSION,
             ],
         )?;

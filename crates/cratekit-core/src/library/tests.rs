@@ -7,6 +7,7 @@ use crate::analysis::key::{Key, Mode, PitchClass};
 use crate::analysis::key_detect::KeyEstimate;
 use crate::analysis::loudness::Loudness;
 use crate::analysis::tempo::TempoEstimate;
+use crate::analysis::waveform::Waveform;
 use crate::settings::Settings;
 use crate::testing::{Scratch, fixture, read_fixture};
 
@@ -414,6 +415,13 @@ fn found_analysis() -> TrackAnalysis {
             true_peak_dbtp: -0.4,
         }),
         energy: Some(8),
+        waveform: Waveform::of(
+            &crate::audio::AudioBuffer::new(
+                44_100,
+                vec![crate::synth::sine(440.0, -6.0, 3.0, 44_100)],
+            )
+            .expect("a valid buffer"),
+        ),
     }
 }
 
@@ -447,6 +455,10 @@ fn a_stored_analysis_comes_back_with_everything_the_analyze_tab_shows() {
     );
     assert!(detail.track.analyzed);
     assert_eq!(detail.track.camelot.as_deref(), Some("8A"));
+    // Three seconds of waveform: 60 stored columns, drawn as they are.
+    let waveform = detail.waveform.expect("the waveform is stored");
+    assert_eq!((waveform.peaks.len(), waveform.rms.len()), (60, 60));
+    assert!(waveform.peaks.iter().all(|&p| (p - 0.5).abs() < 0.02));
     assert_eq!(library.counts().expect("counts").needs_analysis, 0);
 
     // A track with no beat, no key and no sound stores empty fields.

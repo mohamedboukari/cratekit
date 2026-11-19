@@ -7,6 +7,7 @@ use crate::analysis::energy::energy_score;
 use crate::analysis::key_detect::{KeyDetector, KeyEstimate, ProfileKey};
 use crate::analysis::loudness::{Loudness, measure_loudness_with};
 use crate::analysis::tempo::{OnsetTempo, TempoDetector, TempoEstimate};
+use crate::analysis::waveform::Waveform;
 use crate::audio::{AudioBuffer, decode_file_with};
 use crate::progress::{CancellationToken, ProgressSink};
 
@@ -35,6 +36,8 @@ pub struct TrackAnalysis {
     pub loudness: Option<Loudness>,
     /// Energy 1 to 10, unless the track is silent or too short.
     pub energy: Option<u8>,
+    /// The waveform columns of the whole track.
+    pub waveform: Waveform,
 }
 
 /// Decodes `path` and analyzes it: loudness and energy over the whole track,
@@ -100,6 +103,7 @@ pub fn analyze_buffer(
     cancel.check()?;
 
     let key = ProfileKey.detect_key(section, rate);
+    let waveform = Waveform::of(audio);
     progress.progress(1.0);
     Ok(TrackAnalysis {
         duration_sec: audio.duration_seconds(),
@@ -109,6 +113,7 @@ pub fn analyze_buffer(
         key,
         loudness,
         energy,
+        waveform,
     })
 }
 

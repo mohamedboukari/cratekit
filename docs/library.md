@@ -33,7 +33,7 @@
 | `crates()` | Every crate with its track count, by `sort` (unsorted last), then id |
 | `list(query)` | Tracks matching every filter, oldest first. Crate, BPM range, near BPM (within `NEAR_BPM_TOLERANCE` = 3 BPM) and has-stems run in SQL; the search (every word must appear in the title, artist or album, any case, Unicode-aware) and the key match (`Camelot::matches`: the same code, one step either side, or the relative key) run in Rust |
 | `counts()` | All tracks, added in the last 7 days, and needing analysis (none stored, or from an older `ANALYZER_VERSION`) |
-| `track(id)` | The row, the file path, the stored `Analysis` (as the Analyze tab shows it: key name, Camelot code, scale flags and mixing partners computed here) and the hot cues (slots 1 to 8); `NotFound` for an unknown id |
+| `track(id)` | The row, the file path, the waveform overview (up to 1200 columns, when the analysis stored one), the stored `Analysis` (as the Analyze tab shows it: key name, Camelot code, scale flags and mixing partners computed here) and the hot cues (slots 1 to 8); `NotFound` for an unknown id |
 | `remove_tracks(ids)` | Deletes the rows in one transaction; returns how many existed |
 | `store_analysis(id, analysis)` | Stores a `TrackAnalysis` (replacing an older one, with `ANALYZER_VERSION` and the time) and updates the track's length, sample rate and channels from the decoded audio; `NotFound` when the track was removed meanwhile |
 
@@ -44,7 +44,7 @@
 
 ## In the app
 
-`src-tauri/src/library.rs` opens `cratekit.db` in the app data folder at startup. If that fails, every library command returns the reason (`database`, `database_too_new`, `io`, or `window` when the app data folder cannot be found) instead of the app failing to start. Commands: `library_add_paths` (returns the new ids; holds the library only to read the known paths and to store; unreadable files are skipped, but when nothing was added and some files failed, the first failure is the error so the user sees why), `library_list`, `library_counts`, `track_detail` (with the stored analysis; the waveform is `null` until #13) and `crates_list`. The UI's `TrackRow.activity` stays `null`: running jobs report their tracks through `job_progress` instead. Creating and filling crates come later.
+`src-tauri/src/library.rs` opens `cratekit.db` in the app data folder at startup. If that fails, every library command returns the reason (`database`, `database_too_new`, `io`, or `window` when the app data folder cannot be found) instead of the app failing to start. Commands: `library_add_paths` (returns the new ids; holds the library only to read the known paths and to store; unreadable files are skipped, but when nothing was added and some files failed, the first failure is the error so the user sees why), `library_list`, `library_counts`, `track_detail` (with the stored analysis and the waveform overview, `null` when the analysis has none) and `crates_list`. The UI's `TrackRow.activity` stays `null`: running jobs report their tracks through `job_progress` instead. Creating and filling crates come later.
 
 ## Tests
 

@@ -1,6 +1,6 @@
 # Cratekit: analysis module
 
-`crates/cratekit-core/src/analysis/`: track analysis (SPEC, Module 2). Pure Rust, no Tauri; tested with `cargo nextest run -p cratekit-core --all-features` (the `stratum` wrappers need the feature). Detectors arrive task by task: key and Camelot (#11), tempo and key detection (#10), loudness and energy (#12) and the whole-track analysis `analyze_file` (#15) now; waveform columns (#13) later.
+`crates/cratekit-core/src/analysis/`: track analysis (SPEC, Module 2). Pure Rust, no Tauri; tested with `cargo nextest run -p cratekit-core --all-features` (the `stratum` wrappers need the feature). Detectors arrive task by task: key and Camelot (#11), tempo and key detection (#10), loudness and energy (#12), the whole-track analysis `analyze_file` (#15) and the waveform columns (#13).
 
 ## Layout
 
@@ -13,6 +13,7 @@
 | `loudness.rs` | `measure_loudness`: integrated LUFS and true peak, through the `ebur128` crate (#12) |
 | `energy.rs` | `energy_score`: the 1 to 10 energy score (#12) |
 | `track.rs` | `analyze_file` / `analyze_buffer`: a whole track, with progress and cancellation (#15) |
+| `waveform.rs` | `Waveform`: min, max and RMS columns of the whole track, stored with the analysis (#13) |
 | `stratum.rs` | `StratumTempo` and `StratumKey`: `stratum-dsp` behind the same traits, `stratum` cargo feature (off by default) (#10) |
 
 ## `key.rs`: keys and the Camelot wheel
@@ -105,10 +106,17 @@ On the synthetic audio: a quiet 80 Hz tone scores 1, kicks alone 3, the SPEC tes
 
 1. Loudness (`measure_loudness`) on every channel of the whole track.
 2. Energy (`energy_score`) on the whole track in mono.
-3. Tempo (`OnsetTempo`) and key (`ProfileKey`) on the middle `SECTION_SECONDS` (90 s; the whole track when shorter): intros and outros are often beatless or in another key, and it is faster. The first beat found in the section is moved to track time (the same grid, within one beat of 0).
+3. Waveform columns (`Waveform::of`) of the whole track, every channel.
+4. Tempo (`OnsetTempo`) and key (`ProfileKey`) on the middle `SECTION_SECONDS` (90 s; the whole track when shorter): intros and outros are often beatless or in another key, and it is faster. The first beat found in the section is moved to track time (the same grid, within one beat of 0).
 
-`TrackAnalysis { duration_sec, sample_rate, channels, tempo, key, loudness, energy }`: a track with no beat, no notes or no sound is not an error, those fields are `None`. Progress goes 0 to 1: decoding is the first 40% (reported every 64 packets when the file announces its length), loudness the next 15% (fed to the meter 10 s at a time, `measure_loudness_with`). `cancel` is checked between steps, every 64 packets while decoding and every 10 s of audio while measuring loudness, and stops the task with `CoreError::Cancelled`. Memory: the decoded track plus a mono copy; the onset envelopes use sliding sums, so they add little (about 5 MB for 10 minutes). `progress::ProgressSink` is any `Fn(f32)` (or `NoProgress`); `progress::CancellationToken` is a shared flag.
+`TrackAnalysis { duration_sec, sample_rate, channels, tempo, key, loudness, energy, waveform }`: a track with no beat, no notes or no sound is not an error, those fields are `None`. Progress goes 0 to 1: decoding is the first 40% (reported every 64 packets when the file announces its length), loudness the next 15% (fed to the meter 10 s at a time, `measure_loudness_with`). `cancel` is checked between steps, every 64 packets while decoding and every 10 s of audio while measuring loudness, and stops the task with `CoreError::Cancelled`. Memory: the decoded track plus a mono copy; the onset envelopes use sliding sums, so they add little (about 5 MB for 10 minutes). `progress::ProgressSink` is any `Fn(f32)` (or `NoProgress`); `progress::CancellationToken` is a shared flag.
 
 **Speed** (release): a 6 minute stereo track (the SPEC loop) in about 1 s, decoding excluded; the SPEC asks for under 5 s on a 2020 laptop CPU. The test enforces the limit on a 6 minute track in release builds (`cargo nextest run --release`); debug builds (CI), many times slower and machine-dependent, analyze a 1 minute track with no time limit.
 
 **Tests:** the SPEC loop gives its tempo, first beat, key, loudness and energy; the first beat of a track whose analyzed section starts 5 s in is still reported near the start; a tone has a key but no beat, silence has nothing; progress runs from 0 to 1 in order; a cancelled token stops the analysis.
+
+## Waveform (`waveform.rs`)
+
+`Waveform::of(audio)` computes one column per 50 ms (`COLUMNS_PER_SECOND` = 20) over every channel: the lowest and highest sample and the RMS. Each value is stored as one byte (min and max as signed bytes, 127 = full scale; RMS as an unsigned byte, 255 = full scale), so six minutes take about 22 KB. `to_bytes` / `from_bytes` write and read the `analysis.waveform` column: a format byte, the column count, then every min, every max and every RMS; bytes in another format read as no waveform until the track is analyzed again. `overview(columns)` gives what the deck draws (`WaveformView { peaks, rms }`, 0 to 1): `track_detail` asks for `OVERVIEW_COLUMNS` (1200) columns (a track under a minute has fewer stored columns and sends them all), each the loudest peak and the power-averaged RMS of the stored columns it covers. `analyze_buffer` computes it, so it is cached with the analysis; `ANALYZER_VERSION` is 2 since then, so older analyses count as needing analysis again.
+
+**Tests:** a full-scale sine reads peaks of 1 and RMS 0.707 in every column; silence reads zero and kicks show as peaks; the bytes round-trip, and other formats or cut data read as nothing; the overview keeps the loudest peak of each group; empty and very short audio work.
