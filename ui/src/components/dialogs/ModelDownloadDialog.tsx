@@ -48,6 +48,9 @@ export function ModelDownloadDialog({
         <DialogDescription>
           {t("dialogs.modelDownload.description", { size })}
         </DialogDescription>
+        <p className="text-sm text-muted-foreground">
+          {t("dialogs.modelDownload.licence")}
+        </p>
         {job && (
           <div className="grid gap-1.5">
             <div className="flex justify-between">

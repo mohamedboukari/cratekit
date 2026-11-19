@@ -22,6 +22,11 @@ export const errors: Translation["errors"] = {
     audio_device: "La sortie audio n'a pas pu être utilisée.",
     invalid_setting: "Ce réglage ne peut pas prendre cette valeur.",
     invalid_name: "Le nom ne peut pas être vide.",
+    download:
+      "Le téléchargement n'a pas abouti. Vérifiez la connexion et réessayez : il reprendra là où il s'est arrêté.",
+    checksum:
+      "Le fichier téléchargé n'était pas celui attendu et a été supprimé. Réessayez.",
+    busy: "Attendez la fin du téléchargement.",
   },
   controller: {
     load: "Impossible de charger l'assignation du contrôleur",

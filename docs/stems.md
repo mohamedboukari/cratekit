@@ -2,7 +2,7 @@
 
 Stem separation (SPEC, Module 4): vocals, drums, bass and other with htdemucs on ONNX Runtime. The decisions behind it (runtime, libraries per target, model and its licence, CoreML) are in `docs/ARCHITECTURE.md`, Stems notes (#29). This page covers the code.
 
-So far: loading ONNX Runtime (#115) and downloading the model (#30, the core part). The app commands for the download, the separator (#31) and backend selection (#32) come next.
+So far: loading ONNX Runtime (#115) and downloading the model (#30). The separator (#31) and backend selection (#32) come next.
 
 ## Loading ONNX Runtime (`stems::runtime`)
 
@@ -33,6 +33,10 @@ The only network call in the app. The model is never bundled or hosted by Cratek
 HTTPS is `ureq` with `rustls` and `ring`, trusting the operating system's certificates (`rustls-platform-verifier`): no certificate bundle and no OpenSSL. Errors: `CoreError::Download { url, reason }` (no connection, an HTTP status, a connection closed early) and `CoreError::Checksum { file }` (the file was deleted); the app codes are `download` and `checksum`.
 
 Not handled yet: a connection that stalls without closing blocks until the operating system gives up on it (there is no idle timeout per read), and cancel takes effect only when the next bytes arrive.
+
+### In the app
+
+`models_status`, `models_download(name)` and `models_delete(name)` (src-tauri `models.rs`); the models live in `models/` in the app data folder. The download is a job (`kind: model-download`, stages `download` then `verify`, 1000 steps) on its own thread, so it never waits behind an analysis; `job_cancel` stops it, and asking again while it runs returns the same job id (two downloads would write the same files). Deleting is refused (`busy`) during a download. The download dialog says where the model comes from and that the licence of its weights is unclear (personal use).
 
 ## Getting the library
 
