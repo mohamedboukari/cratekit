@@ -74,6 +74,9 @@ Stems
 - [ ] Cancel + progress; cache per track (#33)
 - [ ] Stem mixer in the audio engine (gain, mute, solo) (#34)
 - [ ] UI: Stems tab; export WAVs (#35)
+- [ ] **Research:** stems on Intel Macs, where no ONNX Runtime build exists (#114)
+- [ ] ONNX Runtime linking (run-time load or static) and the CPU (AVX2), glibc and Windows 10 checks for stems (#115)
+- [ ] CI: unsigned installer builds on every target that check the minimum OS versions and installer sizes (#113)
 
 **Gate:** the DJ uses at least one master or one acapella in a real set or edit.
 
@@ -88,6 +91,7 @@ Stems
 - [ ] **Research:** document the VirtualDJ database format from the DJ's real file (song entries, BPM, key, cue points); write findings in `docs/virtualdj-format.md` (#42)
 - [ ] VirtualDJ export with backup + dry-run (#43)
 - [ ] Installers via Tauri bundler: macOS universal dmg, Windows msi (x86_64 + ARM64), Linux AppImage (x86_64 + arm64); installer size checked against the 60 MB budget per target (#44)
+- [ ] Launch smoke tests on the minimum OS versions (VMs: macOS 14.2 and 13, Windows 10 22H2, Ubuntu 22.04, Debian 12) (#116)
 - [ ] `release` Claude skill (version bump, CHANGELOG cut, tag, signed installers)
 - [ ] README in BunMail's style: pitch, "Why Cratekit?" comparison table, quick start, honest "How good is the mastering?" section, screenshots (#45)
 - [ ] Launch: Show HN, r/DJs, r/WeAreTheMusicMakers, VirtualDJ forum (#46)
@@ -139,3 +143,5 @@ Toward replacing VirtualDJ (SPEC Module 8). Starts after v0.1 ships.
 - Multi-screen: detach panels into their own windows (#93)
 - Karaoke mode (#94)
 - Playlist export and import (M3U), the offline alternative to cloud sharing (#95)
+- Plan for the retiring Intel macOS CI runner (fall 2027): cross-compile and test on owned hardware (#117)
+- **Research:** lower the macOS minimum if cpal weak-links its process-tap functions (#118)

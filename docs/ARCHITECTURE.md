@@ -334,9 +334,9 @@ Native dependencies per target:
 | midir (CoreMIDI, WinMM, ALSA), planned | OS MIDI API | Yes |
 | SQLite (rusqlite `bundled`) | C, compiled by `cc` | Yes |
 | symphonia, rubato, rustfft, ebur128 | Pure Rust | Yes (rustfft picks SIMD at run time) |
-| ONNX Runtime (stems), planned | Prebuilt C++ library | No build for `x86_64-apple-darwin`; prebuilt `ort` binaries need x86-64-v3 (AVX2) and glibc 2.39. Decided in #29 |
+| ONNX Runtime (stems), planned | Prebuilt C++ library | No build for `x86_64-apple-darwin`; prebuilt `ort` binaries need x86-64-v3 (AVX2) and glibc 2.39. Decided in #114 and #115 |
 
-Stems and ONNX Runtime, open in #29:
+Stems and ONNX Runtime, open in #114 (Intel Macs) and #115 (linking and checks):
 
 - **Intel Macs:** Microsoft stopped shipping x86_64 macOS builds in ONNX Runtime 1.24, and `ort` has no prebuilt binary for it (a link error since rc.13). The universal build must not link `ort` statically into the x86_64 slice. Options: build ONNX Runtime from source in CI, the last universal2 release (1.22), a pure-Rust backend on Intel only, or stems unavailable on Intel Macs in v0.1 with a clear message.
 - **CPU and glibc baseline:** `ort`'s prebuilt binaries need an x86-64-v3 CPU (AVX2, Haswell or later) and, on Linux, glibc 2.39 (Ubuntu 24.04+). Loading ONNX Runtime at run time (`ort` `load-dynamic`, after checking for AVX2 and FMA) would keep the app starting on every supported system, with stems reporting why they are unavailable. Microsoft's own builds (manylinux_2_28, runtime SIMD choice) are the other route.
@@ -347,7 +347,7 @@ Rules:
 - **Native dependencies must exist for every target.** Before adopting a crate with prebuilt binaries, check the binaries per target, their minimum OS and glibc, and their CPU baseline (for example x86-64-v3), and record the result in the table above. SQLite (rusqlite `bundled`) compiles from source, so it works everywhere.
 - **Floating point:** do not rely on CPU-specific flush-to-zero modes; flush denormals in code inside the DSP and audio callback paths.
 - **CI builds and tests natively on each architecture** (GitHub-hosted macOS arm64 and Intel, Windows x64 and ARM64, Linux x64 and arm64 runners), not only cross-compiles. The Intel macOS runner (`macos-15-intel`) is GitHub's last one and retires around fall 2027; after that, Intel builds are cross-compiled.
-- **Not tested in CI yet:** packaged installers and their size, launching on the minimum OS versions, real audio output (runners have no audio device) and GPU providers. The release build job tracked in the installers issue covers the first two.
+- **Not tested in CI yet:** packaged installers and their size, launching on the minimum OS versions, real audio output (runners have no audio device) and GPU providers. CI installer builds (#113) cover the first two; launch tests on the minimum OS versions are manual (#116).
 
 ## MIDI notes
 
