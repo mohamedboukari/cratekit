@@ -58,7 +58,7 @@ src/
     stratum.rs         StratumTempo, StratumKey: stratum-dsp behind the same traits (`stratum` feature, off)
     loudness.rs        integrated LUFS, true peak (ebur128 crate)
     energy.rs          1 to 10 score (loudness, onset density, brightness)
-    waveform.rs        min/max/RMS columns for the UI
+    waveform.rs        min/max/RMS columns (20 per second, one byte each), stored with the analysis; a 1200-column overview for the deck
   mastering/
     mod.rs             master() -> MasterResult
     presets.rs         Preset structs (see table below)
@@ -211,7 +211,7 @@ CREATE TABLE analysis (
   key_tonic INTEGER, key_mode TEXT, camelot TEXT, key_confidence REAL,
   energy INTEGER, lufs REAL, true_peak_db REAL,
   first_beat_sec REAL,
-  waveform BLOB,                     -- compressed columns
+  waveform BLOB,                     -- min/max/RMS columns, one byte each (analysis/waveform.rs)
   analyzer_version INTEGER NOT NULL,
   analyzed_at TEXT NOT NULL,
   chroma BLOB                        -- migration 2: 12 little-endian f32, C to B
@@ -252,7 +252,6 @@ cratekit.db
 models/htdemucs/...          downloaded once, checksum verified
 stems/<track_id>/{vocals,drums,bass,other}.wav
 masters/<track_id>/<timestamp>-<preset>.wav
-waveforms/ (optional cache if not in DB)
 backups/virtualdj/<timestamp>/  copies made before any export
 ```
 

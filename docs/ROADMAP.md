@@ -40,7 +40,7 @@ v0.1 in about 8 weeks of part-time work. Each phase ends with a gate: the test D
 - [x] `TempoDetector` + `KeyDetector` traits; stratum-dsp implementation; fallback implementation (#10). Our own detectors are the default; stratum-dsp is behind the `stratum` feature
 - [x] Camelot mapping + `matches()` with tests for every key (#11)
 - [x] Loudness (LUFS, true peak) + energy score (#12)
-- [ ] Waveform columns (#13)
+- [x] Waveform columns (#13)
 - [x] SQLite (rusqlite, WAL, single writer) schema + migrations; add files/folders; tag reading (#14)
 - [x] Background analysis queue with progress events (#15)
 - [x] UI: typed IPC layer (`ui/src/lib/ipc.ts`) (#16)

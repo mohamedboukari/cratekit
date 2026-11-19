@@ -9,6 +9,7 @@ use std::path::PathBuf;
 use std::sync::{Mutex, PoisonError};
 
 use cratekit_core::CoreError;
+use cratekit_core::analysis::waveform::WaveformView;
 use cratekit_core::library::{
     Analysis, Crate, Cue, Library, LibraryCounts, LibraryQuery, TrackId, TrackRow, Transition,
     prepare_add,
@@ -87,13 +88,14 @@ impl From<TrackRow> for TrackRowDto {
     }
 }
 
-/// One track as the UI's `TrackDetail`. The waveform arrives with #13.
+/// One track as the UI's `TrackDetail`, with the waveform overview when the
+/// analysis stored one.
 #[derive(Serialize)]
 pub(crate) struct TrackDetailDto {
     track: TrackRowDto,
     analysis: Option<Analysis>,
     cues: Vec<Cue>,
-    waveform: Option<()>,
+    waveform: Option<WaveformView>,
 }
 
 /// Adds files and folders (searched with their subfolders); returns the new
@@ -165,7 +167,7 @@ pub(crate) async fn track_detail(app: AppHandle, id: TrackId) -> Result<TrackDet
             track: detail.track.into(),
             analysis: detail.analysis,
             cues: detail.cues,
-            waveform: None,
+            waveform: detail.waveform,
         })
     })
     .await
