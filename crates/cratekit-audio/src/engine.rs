@@ -169,13 +169,16 @@ pub fn default_device_id() -> Option<String> {
 }
 
 /// How to open the output.
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, Default, PartialEq)]
 pub struct EngineOptions {
     /// The device to use (an [`OutputDevice::id`]); `None`, or a device that
     /// is gone, means the system default.
     pub device_id: Option<String>,
     /// Buffer size in frames, used when the device allows it.
     pub buffer_size: Option<u32>,
+    /// Where the DJ filter knob starts (-1 to 1, 0 off). The engine starts
+    /// there at once, with no sweep (see [`Engine::set_filter`]).
+    pub filter: f32,
 }
 
 /// The running playback engine. Dropping it closes the output.
@@ -374,6 +377,22 @@ impl Engine {
         self.send(deck, Command::Seek(frame))
     }
 
+    /// Turns the DJ filter of `deck`: -1 full low-pass, 0 off, 1 full
+    /// high-pass. Out-of-range values are clamped, and one that is not a
+    /// number counts as 0. The change is smoothed on the audio thread.
+    ///
+    /// # Errors
+    ///
+    /// [`EngineError::Busy`] if the audio thread does not take commands.
+    pub fn set_filter(&self, deck: DeckId, value: f32) -> Result<(), EngineError> {
+        let value = if value.is_finite() {
+            value.clamp(-1.0, 1.0)
+        } else {
+            0.0
+        };
+        self.send(deck, Command::SetFilter(value))
+    }
+
     /// Position, playing state and meters, read from the audio thread's
     /// atomics. Reading resets the peak, so each status has the peak since
     /// the previous one.
@@ -473,6 +492,7 @@ fn open_stream(
         shared,
         usize::from(config.channels),
         rate,
+        options.filter,
     );
     let stream = match format {
         SampleFormat::F32 => build::<f32>(&device, config, renderer, device_error),

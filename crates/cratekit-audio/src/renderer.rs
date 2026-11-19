@@ -11,6 +11,8 @@ use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering};
 
 use rtrb::{Consumer, Producer};
 
+use crate::filter::DjFilter;
+
 /// Replaced tracks kept in the renderer when the garbage queue is full.
 const RETIRED_SLOTS: usize = 4;
 
@@ -75,6 +77,9 @@ pub enum Command {
     Pause,
     /// Jump to a frame (with a fade out and in).
     Seek(u64),
+    /// Turn the DJ filter knob: -1 full low-pass, 0 off, 1 full high-pass
+    /// (smoothed, so it never clicks).
+    SetFilter(f32),
 }
 
 /// What the audio thread publishes, read by other threads.
@@ -118,10 +123,12 @@ pub struct Renderer {
     gain: f32,
     target: f32,
     pending_seek: Option<usize>,
+    filter: DjFilter,
 }
 
 impl Renderer {
-    /// A renderer for a device with `channels` outputs at `sample_rate`.
+    /// A renderer for a device with `channels` outputs at `sample_rate`,
+    /// its DJ filter already at `filter` (-1 to 1).
     #[must_use]
     pub fn new(
         commands: Consumer<(DeckId, Command)>,
@@ -129,7 +136,10 @@ impl Renderer {
         shared: Arc<Shared>,
         channels: usize,
         sample_rate: u32,
+        filter: f32,
     ) -> Self {
+        let mut dj_filter = DjFilter::new(sample_rate);
+        dj_filter.jump(filter);
         let fade_frames = (FADE_SECONDS * sample_rate as f32).max(1.0);
         Self {
             commands,
@@ -145,6 +155,7 @@ impl Renderer {
             gain: 0.0,
             target: 0.0,
             pending_seek: None,
+            filter: dj_filter,
         }
     }
 
@@ -164,6 +175,7 @@ impl Renderer {
         let mut blocks = out.chunks_exact_mut(channels);
         for frame in &mut blocks {
             let (left, right) = self.next_frame();
+            let (left, right) = self.filter.process(left, right);
             match frame {
                 [only] => *only = 0.5 * (left + right),
                 [first, second, rest @ ..] => {
@@ -224,6 +236,7 @@ impl Renderer {
                 self.pending_seek = Some(usize::try_from(frame).unwrap_or(usize::MAX));
                 self.target = 0.0;
             }
+            Command::SetFilter(value) => self.filter.set(value),
         }
     }
 

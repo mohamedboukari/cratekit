@@ -47,7 +47,7 @@ v0.1 in about 8 weeks of part-time work. Each phase ends with a gate: the test D
 - [x] UI: window layout (sidebar, deck, tabs, track browser, status bar) (#17)
 - [x] UI: Analyze tab (key, chroma bars, mixes-well-with chips) (#18)
 - [ ] Set builder: side list to stage tracks and build a set (#55)
-- [ ] DJ filter knob on the deck (#56)
+- [x] DJ filter knob on the deck (#56)
 - [x] Playback: load, play/pause, seek, waveform playhead (canvas, outside React renders) (#19)
 - [x] Audio output device selection + hot-plug fallback to the system default (#20)
 - [x] UI: Settings screen (audio output, watched folders, output folder) (#21)

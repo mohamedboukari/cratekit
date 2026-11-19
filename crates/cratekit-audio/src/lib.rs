@@ -7,6 +7,7 @@
 //! logging or panics. See docs/playback.md.
 
 mod engine;
+pub mod filter;
 pub mod renderer;
 
 pub use engine::{

@@ -20,8 +20,9 @@ export function formatDuration(sec: number): string {
 
 /** Filter knob text: "Off", "Low-pass 40%" or "High-pass 25%", in the UI language. */
 export function filterText(value: number): string {
+  // Below 2% Rust leaves the sound untouched (DEAD_ZONE in filter.rs).
+  if (Math.abs(value) < 0.02) return i18n.t("common.format.filterOff");
   const pct = Math.round(Math.abs(value) * 100);
-  if (pct < 2) return i18n.t("common.format.filterOff");
   return value < 0
     ? i18n.t("common.format.lowPass", { pct })
     : i18n.t("common.format.highPass", { pct });

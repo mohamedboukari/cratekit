@@ -70,6 +70,11 @@ struct Rig {
 }
 
 fn rig(channels: usize) -> Rig {
+    rig_with_filter(channels, 0.0)
+}
+
+/// A rig whose renderer starts with the DJ filter at `filter`.
+fn rig_with_filter(channels: usize, filter: f32) -> Rig {
     let (commands, command_queue) = RingBuffer::new(16);
     let (garbage_queue, garbage) = RingBuffer::new(4);
     let shared = Arc::new(Shared::default());
@@ -80,6 +85,7 @@ fn rig(channels: usize) -> Rig {
             Arc::clone(&shared),
             channels,
             RATE,
+            filter,
         ),
         commands,
         garbage,
@@ -313,6 +319,50 @@ fn publishes_peak_and_rms() {
 }
 
 #[test]
+fn the_filter_knob_shapes_what_is_heard_and_the_meters() {
+    let frames = RATE as usize / 2;
+    let mut rig = rig(2);
+    let track = sine(RATE as usize * 4, 0.5);
+    let wave: Vec<f32> = track.samples().to_vec();
+    rig.send(Command::Load(track));
+    rig.send(Command::Play);
+    let opened = rig.render(frames);
+    let open = opened.iter().fold(0.0_f32, |p, x| p.max(x.abs()));
+
+    // Full high-pass removes most of a 440 Hz tone, and the meters see it.
+    rig.send(Command::SetFilter(1.0));
+    rig.render(frames);
+    rig.shared.peak.swap(0, Ordering::Relaxed);
+    let filtered = rig.render(frames);
+    let heard = filtered.iter().fold(0.0_f32, |p, x| p.max(x.abs()));
+    let metered = f32::from_bits(rig.shared.peak.load(Ordering::Relaxed));
+    assert!(heard < 0.1 * open, "open {open}, filtered {heard}");
+    assert!(
+        (metered - heard).abs() < 1e-6,
+        "meter {metered}, heard {heard}"
+    );
+
+    // Back to the centre: once settled, the output is the track exactly.
+    rig.send(Command::SetFilter(0.0));
+    rig.render(frames);
+    let start = rig.position() as usize * 2;
+    let back = rig.render(frames);
+    assert_eq!(back, wave[start..start + frames * 2]);
+}
+
+#[test]
+fn a_renderer_can_start_with_the_filter_already_set() {
+    let mut rig = rig_with_filter(2, 1.0);
+    rig.send(Command::Load(sine(RATE as usize, 0.5)));
+    rig.send(Command::Play);
+    let out = rig.render(4_800);
+    // Right after the 5 ms fade in, the tone is already filtered away: no
+    // sweep from an open filter.
+    let peak = out[2 * FADE..].iter().fold(0.0_f32, |p, x| p.max(x.abs()));
+    assert!(peak < 0.1, "peak {peak}");
+}
+
+#[test]
 fn render_never_allocates_or_frees() {
     let mut rig = rig(2);
     let mut out = vec![0.0_f32; 512 * 2];
@@ -323,8 +373,10 @@ fn render_never_allocates_or_frees() {
         Command::Seek(10_000),
         Command::Pause,
         Command::Play,
+        Command::SetFilter(-0.7),
         Command::Load(ramp(48_000)),
         Command::Play,
+        Command::SetFilter(0.4),
     ] {
         rig.send(command);
         count += allocations_during(|| {
