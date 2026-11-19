@@ -259,8 +259,16 @@ export interface AudioDevice {
 }
 
 export interface AudioDeviceChanged {
+  /** The device now in use; for "lost", the one that failed; for "list-changed", the default. */
   id: string;
-  reason: "selected" | "unplugged" | "default-changed";
+  /**
+   * selected: picked by the user, or the picked device came back. unplugged:
+   * the device in use failed or disappeared, playback moved to the default.
+   * default-changed: the app follows the system default and it changed.
+   * lost: the output failed and no other could open. list-changed: devices
+   * were plugged or unplugged (reload the list only).
+   */
+  reason: "selected" | "unplugged" | "default-changed" | "lost" | "list-changed";
 }
 
 /** Split stems of one track (null from `stems_info` when not split yet). */

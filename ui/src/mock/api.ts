@@ -582,12 +582,6 @@ export function createMockApi(): CratekitApi {
       ch.audioDevice.emit({ id, reason: "selected" });
       return resolve(undefined);
     },
-    audioSetBufferSize: (frames) => {
-      settings.bufferSize = frames;
-      saveSettings(settings);
-      ch.settings.emit(structuredClone(settings));
-      return resolve(undefined);
-    },
 
     settingsGet: () => resolve(structuredClone(settings)),
     settingsSet: (key, value) => {

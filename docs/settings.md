@@ -24,9 +24,13 @@ The UI's `Settings` (`ui/src/lib/types.ts`), with the defaults of `ui/src/lib/de
 - **Storage:** the library's `settings` table holds one JSON value per key (`Library::set_setting` stores one row; `Library::settings` reads them over the defaults). A stored value that no longer loads (written by another version, or damaged) keeps its default, and the rest still load.
 - **In the app:** `settings_get` returns every setting; `settings_set(key, value)` stores one and sends `settings_changed` with all of them to every window, so the main window and the Settings window agree.
 
+## Applied at once
+
+A change to `bufferSize` or `audioDeviceId` restarts a running playback engine on the new buffer or device, keeping the track playing (see docs/playback.md); the value is saved even when applying it fails (the UI then gets an `audio_device_changed` notice). `audio_set_device(id)` is the same as setting `audioDeviceId`, plus an `audio_device_changed` event with the device actually opened. Setting `audioDeviceId` to null follows the system default again.
+
 ## Not yet
 
-Applying the buffer size and the chosen device to the audio output (#20), and watching folders for new files (SPEC Module 1).
+Watching folders for new files (SPEC Module 1).
 
 ## Tests
 

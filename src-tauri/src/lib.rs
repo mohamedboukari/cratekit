@@ -310,6 +310,8 @@ pub fn run() -> anyhow::Result<()> {
             playback::playback_play,
             playback::playback_pause,
             playback::playback_seek,
+            playback::audio_list_devices,
+            playback::audio_set_device,
             settings::settings_get,
             settings::settings_set
         ])

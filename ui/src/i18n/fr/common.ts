@@ -60,5 +60,8 @@ export const common: Translation["common"] = {
     modelReady: "Modèle de stems prêt",
     deviceUnplugged: "Appareil audio déconnecté",
     deviceUnpluggedDetail: "La lecture est passée sur la sortie par défaut du système.",
+    deviceLost: "Aucune sortie audio",
+    deviceLostDetail:
+      "La sortie audio s'est arrêtée et aucune autre n'a pu s'ouvrir. Vérifiez vos enceintes ou votre casque.",
   },
 };

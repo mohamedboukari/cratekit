@@ -61,9 +61,16 @@ export function useIpcEvents(): void {
         else if (event.target === "pad-page") useUi.getState().togglePadPage();
       }),
       api().onAudioDeviceChanged((change) => {
+        // The list and its default may have changed (plugged, unplugged, picked).
+        void useDevices.getState().load();
         if (change.reason === "unplugged") {
           toast.warning(i18n.t("common.events.deviceUnplugged"), {
             description: i18n.t("common.events.deviceUnpluggedDetail"),
+          });
+        }
+        if (change.reason === "lost") {
+          toast.error(i18n.t("common.events.deviceLost"), {
+            description: i18n.t("common.events.deviceLostDetail"),
           });
         }
       }),

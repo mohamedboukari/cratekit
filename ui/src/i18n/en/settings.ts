@@ -22,7 +22,7 @@ export const settings = {
       "Where Cratekit plays. If the device is unplugged, playback moves to the system default.",
     device: "Output device",
     noDevices: "No output devices found",
-    systemDefault: "{{name}} (system default)",
+    systemDefault: "System default ({{name}})",
     bufferSize: "Buffer size",
     bufferHint: "Smaller is more responsive; raise it if you hear clicks.",
     samples: "{{frames}} samples",
