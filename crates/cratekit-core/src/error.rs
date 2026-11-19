@@ -89,6 +89,24 @@ pub enum CoreError {
     #[error("a name cannot be empty")]
     EmptyName,
 
+    /// A download failed: no connection, an HTTP error, or the connection
+    /// closed early.
+    #[error("could not download {url}: {reason}")]
+    Download {
+        /// What was being downloaded.
+        url: String,
+        /// Why it failed.
+        reason: String,
+    },
+
+    /// A downloaded file is not the expected one (its SHA-256 differs); it
+    /// was deleted.
+    #[error("{file} did not match its checksum and was deleted")]
+    Checksum {
+        /// The file's name.
+        file: String,
+    },
+
     /// A track, crate or other item asked for by id does not exist.
     #[error("no {what} with id {id}")]
     NotFound {

@@ -70,7 +70,7 @@ src/
     mod.rs             trait StemSeparator; split() -> StemSet
     runtime.rs         load ONNX Runtime at run time; CPU check; why stems are unavailable (docs/stems.md)
     htdemucs.rs        impl on `ort` (load-dynamic), our own chunking and STFT
-    models.rs          download + checksum + cache path
+    models.rs          the pinned model; download (resume, SHA-256, rename when verified), status, delete; the only network call
   library/
     mod.rs             Library: open (WAL, foreign keys), add_paths, list, counts, track, remove_tracks; see docs/library.md
     schema.rs          the schema as numbered migrations (PRAGMA user_version)
@@ -319,7 +319,7 @@ Decided in #29 (research: ONNX Runtime per target, CoreML, DirectML and Windows 
 **CoreML (Apple Silicon).** MLProgram format, compute units `CPUAndGPU` (the Neural Engine was slower than the GPU), static input shapes, and a model cache folder in Cratekit's data folder (a cold CoreML compile takes about 27 s, about 7 s with the cache). It works only with a "split" export: the STFT and inverse STFT run in Rust, outside the graph, and the time-branch convolutions are tiled to at most 16,384 samples so the whole graph is one CoreML partition. Measured (Charon, M4 Pro, 193 s track): 16.6 s on CPU, 5.6 s on CoreML, CoreML within 1.3e-5 of PyTorch.
 
 **Model.** htdemucs, 4 stems (vocals, drums, bass, other; 2-stem mode sums the other three), as a split ONNX export of about 170 to 185 MB. Not htdemucs_ft (4 models, 4 times slower) and not htdemucs_6s (its weights are likely non-commercial).
-- **Licence (decided 2026-11-19).** The Demucs code is MIT, but its author states that "the license of the weights is not clear" (part of the training data was for research use only). So Cratekit **never bundles or hosts the weights**. Stems stay off until the user chooses to download the model; the dialog says where it comes from and that its licence is unclear (personal use), and the download is verified against a pinned SHA-256 (#30). The exact source (an existing split export, or the official weights converted on the device) is settled in #30.
+- **Licence (decided 2026-11-19).** The Demucs code is MIT, but its author states that "the license of the weights is not clear" (part of the training data was for research use only). So Cratekit **never bundles or hosts the weights**. Stems stay off until the user chooses to download the model; the dialog says where it comes from and that its licence is unclear (personal use), and the download is verified against a pinned SHA-256 (#30). The source, settled in #30: **Intel's split export** on Hugging Face (Intel/demucs-openvino, `htdemucs_v4/htdemucs_fwd.onnx` plus `htdemucs_fwd.onnx.data`, 171 MB, labelled MIT by its uploader), pinned to one revision. In a spike on an M4 Pro it was the only export fast on both backends: 0.25 s per 7.8 s segment on CoreML (ONNX Runtime 1.32) and 0.85 s on CPU (1.23.2); the single-file StemSplitio export took 53 s per segment on CoreML.
 - **Input layout our chunking implements** (from adefossez/demucs `apply.py`, `htdemucs.py`, `spec.py`):
   - 44.1 kHz stereo (resample with rubato; mono is duplicated).
   - Whole-track normalization: subtract the mean of the mono mix and divide by its standard deviation (plus 1e-8); undone on the output.

@@ -152,6 +152,8 @@ impl AppError {
             cratekit_core::CoreError::Cancelled => "cancelled",
             cratekit_core::CoreError::InvalidSetting { .. } => "invalid_setting",
             cratekit_core::CoreError::EmptyName => "invalid_name",
+            cratekit_core::CoreError::Download { .. } => "download",
+            cratekit_core::CoreError::Checksum { .. } => "checksum",
         };
         Self { code, message }
     }
