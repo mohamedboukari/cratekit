@@ -185,6 +185,11 @@ fn agent() -> Agent {
         .tls_config(tls)
         .timeout_connect(Some(Duration::from_secs(30)))
         .timeout_recv_response(Some(Duration::from_secs(60)))
+        // A connection that stalls mid-file (Wi-Fi gone, laptop asleep) would
+        // block a read forever, and cancel with it: give up after 30 s
+        // without data. A slow download is fine, the timer restarts on every
+        // read.
+        .timeout_per_read(Some(Duration::from_secs(30)))
         .http_status_as_error(false)
         .user_agent(concat!("Cratekit/", env!("CARGO_PKG_VERSION")))
         .build()
@@ -249,10 +254,19 @@ fn receive(
         .call()
         .map_err(|err| download_error(file, err.to_string()))?;
     let status = response.status().as_u16();
-    // 206: the server sends the rest. 200: it ignored the range and sends the
-    // whole file, so start over.
+    // 206 from where we asked: the server sends the rest. 200: it ignored the
+    // range and sends the whole file, so start over.
     let (mut out, mut have) = match status {
-        206 if have > 0 => (OpenOptions::new().append(true).open(part_path)?, have),
+        206 if have > 0 && resumes_at(&response, have) => {
+            (OpenOptions::new().append(true).open(part_path)?, have)
+        }
+        // A 206 from somewhere else, or 416 (the server cannot serve that
+        // range): the partial file is of no use. Start over without a range.
+        206 | 416 if have > 0 => {
+            drop(response);
+            fs::remove_file(part_path)?;
+            return receive(agent, file, part_path, 0, report, cancel);
+        }
         200 => (File::create(part_path)?, 0),
         _ => return Err(download_error(file, format!("HTTP status {status}"))),
     };
@@ -279,6 +293,19 @@ fn receive(
     }
     out.sync_all()?;
     Ok(have)
+}
+
+/// Whether a 206 response starts at byte `have` (`Content-Range: bytes
+/// <have>-<end>/<size>`).
+fn resumes_at(response: &ureq::http::Response<ureq::Body>, have: u64) -> bool {
+    response
+        .headers()
+        .get("content-range")
+        .and_then(|value| value.to_str().ok())
+        .and_then(|value| value.strip_prefix("bytes "))
+        .and_then(|range| range.split('-').next())
+        .and_then(|start| start.trim().parse::<u64>().ok())
+        == Some(have)
 }
 
 fn download_error(file: &ModelFile, reason: String) -> CoreError {
@@ -327,6 +354,10 @@ mod tests {
         IgnoreRanges,
         /// Close the connection after this many bytes of the first response.
         CutFirstAfter(usize),
+        /// Answer a Range with 206 but send the whole file from byte 0.
+        WrongStart,
+        /// Answer a Range with 416, a request without one with 200.
+        Unsatisfiable,
     }
 
     /// A tiny HTTP server for the test files: `/<name>` serves that body.
@@ -370,14 +401,27 @@ mod tests {
                     );
                     continue;
                 };
-                let (status, payload) = match (mode, range_start) {
-                    (Serve::Ranges | Serve::CutFirstAfter(_), Some(start)) => {
-                        ("206 Partial Content", body.get(start..).unwrap_or_default())
-                    }
-                    _ => ("200 OK", body.as_slice()),
+                let len = body.len();
+                let (status, from, payload) = match (mode, range_start) {
+                    (Serve::Ranges | Serve::CutFirstAfter(_), Some(start)) => (
+                        "206 Partial Content",
+                        start,
+                        body.get(start..).unwrap_or_default(),
+                    ),
+                    (Serve::WrongStart, Some(_)) => ("206 Partial Content", 0, body.as_slice()),
+                    (Serve::Unsatisfiable, Some(_)) => ("416 Range Not Satisfiable", 0, &[][..]),
+                    _ => ("200 OK", 0, body.as_slice()),
+                };
+                let range = if status.starts_with("206") {
+                    format!(
+                        "content-range: bytes {from}-{}/{len}\r\n",
+                        len.saturating_sub(1)
+                    )
+                } else {
+                    String::new()
                 };
                 let head = format!(
-                    "HTTP/1.1 {status}\r\ncontent-length: {}\r\nconnection: close\r\n\r\n",
+                    "HTTP/1.1 {status}\r\ncontent-length: {}\r\n{range}connection: close\r\n\r\n",
                     payload.len()
                 );
                 let _ = stream.write_all(head.as_bytes());
@@ -533,6 +577,46 @@ mod tests {
         let server = serve(vec![("weights", body.clone())], Serve::IgnoreRanges);
         let model = model(&server, &[("weights", &body)]);
         let dir = temp_dir("norange");
+        fs::create_dir_all(model.dir(&dir)).expect("dir");
+        fs::write(model.dir(&dir).join("weights.part"), &body[..1000]).expect("partial");
+
+        model
+            .download(&dir, &|_: Stage, _: f32| {}, &CancellationToken::new())
+            .expect("download");
+
+        assert_eq!(
+            fs::read(model.dir(&dir).join("weights")).expect("read"),
+            body
+        );
+        fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn a_resume_that_starts_at_the_wrong_place_starts_over() {
+        let body = content(300_000, 9);
+        let server = serve(vec![("weights", body.clone())], Serve::WrongStart);
+        let model = model(&server, &[("weights", &body)]);
+        let dir = temp_dir("wrongstart");
+        fs::create_dir_all(model.dir(&dir)).expect("dir");
+        fs::write(model.dir(&dir).join("weights.part"), &body[..1000]).expect("partial");
+
+        model
+            .download(&dir, &|_: Stage, _: f32| {}, &CancellationToken::new())
+            .expect("download");
+
+        assert_eq!(
+            fs::read(model.dir(&dir).join("weights")).expect("read"),
+            body
+        );
+        fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn a_range_the_server_cannot_serve_starts_over() {
+        let body = content(300_000, 10);
+        let server = serve(vec![("weights", body.clone())], Serve::Unsatisfiable);
+        let model = model(&server, &[("weights", &body)]);
+        let dir = temp_dir("416");
         fs::create_dir_all(model.dir(&dir)).expect("dir");
         fs::write(model.dir(&dir).join("weights.part"), &body[..1000]).expect("partial");
 

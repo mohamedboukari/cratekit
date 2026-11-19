@@ -32,7 +32,7 @@ The only network call in the app. The model is never bundled or hosted by Cratek
 
 HTTPS is `ureq` with `rustls` and `ring`, trusting the operating system's certificates (`rustls-platform-verifier`): no certificate bundle and no OpenSSL. Errors: `CoreError::Download { url, reason }` (no connection, an HTTP status, a connection closed early) and `CoreError::Checksum { file }` (the file was deleted); the app codes are `download` and `checksum`.
 
-Not handled yet: a connection that stalls without closing blocks until the operating system gives up on it (there is no idle timeout per read), and cancel takes effect only when the next bytes arrive.
+A connection that stalls mid-file (no data for 30 s) fails the download, keeping the partial file for the next attempt; this also bounds how long cancel takes (it is checked between reads). A resumed request must come back from the byte asked for (`Content-Range`); a server that resumes elsewhere or answers 416 gets a fresh start.
 
 ### In the app
 
@@ -46,7 +46,7 @@ Not handled yet: a connection that stalls without closing blocks until the opera
 
 ## Tests
 
-- Download tests against a small HTTP server inside the test (no internet): every file verified and progress moving forward to `Verify` 1.0; a wrong checksum deletes the file; a connection cut halfway keeps the partial file and the next call resumes it with a Range request; a server that ignores ranges starts over; a downloaded model makes no request; cancel before any request; an HTTP 404; delete. `the_real_model_downloads_and_verifies` (ignored, 171 MB) downloads the pinned model from Hugging Face: about 80 s, both checksums match.
+- Download tests against a small HTTP server inside the test (no internet): every file verified and progress moving forward to `Verify` 1.0; a wrong checksum deletes the file; a connection cut halfway keeps the partial file and the next call resumes it with a Range request; a server that ignores ranges, resumes at the wrong place or answers 416 starts over; a downloaded model makes no request; cancel before any request; an HTTP 404; delete. `the_real_model_downloads_and_verifies` (ignored, 171 MB) downloads the pinned model from Hugging Face: about 80 s, both checksums match.
 - Unit tests: the CPU verdict for every AVX2 and FMA combination, a missing file, a relative path, a file that is not ONNX Runtime, reading a version string, the wording of the reasons.
 - `a_real_onnx_runtime_loads_and_runs_a_model` (ignored by default): loads a real library from `CRATEKIT_ONNXRUNTIME` and runs a tiny model (`y = x * x`, written as protobuf bytes in the test, so there is no model file), then checks that a second `load` returns the same runtime and that another library is refused. Locally:
 
