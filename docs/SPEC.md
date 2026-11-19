@@ -191,6 +191,6 @@ The step from prep tool to VirtualDJ replacement. Built after v0.1 ships; the v0
 | Linux | Ubuntu 22.04+ or Debian 12+ (glibc 2.35, WebKitGTK 4.1) | x86_64 + arm64 | deb and AppImage |
 
 - Windows needs the WebView2 runtime. It ships with Windows 10 (1803+) and 11; the installer fetches it only if it is missing.
-- Stem separation runs on the same minimums where ONNX Runtime allows it. Known gaps, decided in #114 and #115: Intel Macs have no ONNX Runtime build, and the prebuilt `ort` binaries need an x86_64 CPU with AVX2 (and glibc 2.39 on Linux). Where stems cannot run, every other feature still works and stems show a clear message.
+- Stem separation runs on the same minimums, with Microsoft's ONNX Runtime builds loaded at run time (1.32, and 1.23.2 on Intel Macs, the last Intel build; both proven in CI). An x86_64 CPU needs AVX2 and FMA for stems. Where stems cannot run, every other feature still works and stems show a clear message.
 
 - The GPU is optional: every feature works on CPU only. Only stem separation uses the GPU.
