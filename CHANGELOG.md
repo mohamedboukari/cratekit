@@ -45,3 +45,7 @@ All notable changes to Cratekit are documented here. The format follows [Keep a 
 - Database notes: SQLite through rusqlite in WAL mode with a single writer connection.
 - Platforms: macOS universal (arm64 + x86_64), Windows x86_64 + ARM64, Linux x86_64 + arm64, all tested in CI. Stems use the GPU when available (CoreML / DirectML) with CPU fallback.
 - Hot cues: 8 per track (pads page 1 to 4 / 5 to 8). New Settings module (audio output device, folders, processing backend).
+
+### Fixed
+
+- Desktop app: a control whose Rust command is not built yet (for example the Original, Mastered and Stems switch) shows a calm "Not built yet" note instead of an error saying the command was not found.

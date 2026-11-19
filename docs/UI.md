@@ -4,7 +4,7 @@ The UI is a real React app in `ui/`. In the desktop app it talks to Rust; in a b
 
 - **Live demo:** <https://mohamedboukari.github.io/cratekit/> (mock data, rebuilt on every push to `main`)
 - **Locally:** `bun run --cwd ui dev`, then open <http://localhost:5173> (mock mode)
-- **Desktop:** `bun run tauri dev` (real Rust; commands that are not implemented yet show an error toast)
+- **Desktop:** `bun run tauri dev` (real Rust; a command not built in Rust yet shows a calm "Not built yet" note, not an error)
 
 Stack: **React 19 + TypeScript 7 + Vite 8**, package manager **bun**, tests with **Vitest**. Components: **Tailwind CSS v4 + shadcn/ui** (style `base-mira`: compact, Base UI primitives, Lucide icons). State: **Zustand**. Track table: **TanStack Table v9 + TanStack Virtual**. The UI renders state and sends commands; all domain logic lives in Rust (see `docs/ARCHITECTURE.md`, section "UI").
 
@@ -89,7 +89,7 @@ The UI is translated with **i18next + react-i18next** (#80). **English is the de
 - **Files:** `ui/src/i18n/en/` is the source, one file per UI area (`common`, `deck`, `layout`, `browser`, `dialogs`, `tools`, `settings`, `shortcuts`, `errors`); `ui/src/i18n/fr/` mirrors it. French is typed against English, so a missing or extra key fails `tsc`; a test also checks every value is real text with no em or en dash.
 - **Keys:** nested by area and sub-area, short camelCase (`deck.transport.play`, `browser.setList.saveAsCrate`). Plurals use `_one` / `_other` and `t(key, { count })`; values use `{{name}}` interpolation.
 - **In code:** components call `const { t } = useTranslation()`; code outside React (stores, `lib/`) calls `i18n.t` from `@/i18n`. Label maps store keys and translate when rendering, so a language switch updates them.
-- **Errors:** the toast title is the translated context; the detail is translated by `AppError.code` when known, else Rust's message. Rust stays language-neutral.
+- **Errors:** the toast title is the translated context; the detail is translated by `AppError.code` when known, else Rust's message. Rust stays language-neutral. A command Rust does not have yet becomes the `not_built` code in `ipc.tauri.ts` and shows an info toast ("Not built yet") instead of an error.
 - **Background jobs:** named by `jobLabel()` from the job's `kind`, `stage` and track count, never from Rust's English `label`. Lists in sentences (the supported formats) use `Intl.ListFormat` in the current language.
 - **Not translated:** music data (titles, artists, crates), key names and Camelot codes, and units (BPM, LUFS, dBTP, dB, CUE). **DJ numbers keep the dot format in every language** (124.0 BPM, -8.0 LUFS, m:ss), like DJ software and hardware; counts, plurals and durations in sentences follow the language.
 - **Adding a string:** add it to the English area file, then the same key in every other language (tsc tells you which). Adding a language: see #82.
