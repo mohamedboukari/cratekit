@@ -3,10 +3,11 @@
 //! The library is not linked into the app: [`load`] opens it at run time from
 //! a path (the installer bundles Microsoft's build next to the app). So the
 //! app starts on every supported system, and when stems cannot run here,
-//! [`Unavailable`] says why: the CPU is too old, the library is missing or
-//! does not load, or it is too old.
+//! [`Unavailable`] says why: the CPU, a missing or unloadable library, or one
+//! that is too old.
 
 use std::path::{Path, PathBuf};
+use std::sync::{Mutex, OnceLock, PoisonError};
 
 use ort::environment::Environment;
 
@@ -14,11 +15,18 @@ use ort::environment::Environment;
 /// for Intel Macs). It matches the `api-23` feature of `ort`.
 pub const MIN_MINOR_VERSION: u32 = 23;
 
+/// The runtime once loaded: ONNX Runtime allows one per process.
+static RUNTIME: OnceLock<Runtime> = OnceLock::new();
+
+/// Makes two first calls to [`load`] at the same time load only once.
+static LOADING: Mutex<()> = Mutex::new(());
+
 /// Why stems cannot run on this computer.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 #[non_exhaustive]
 pub enum Unavailable {
-    /// An x86_64 CPU without AVX2 or FMA (before Intel Haswell, 2013).
+    /// An x86_64 CPU without AVX2 or FMA (most Intel CPUs before 2013, and
+    /// low-cost Pentium, Celeron and Atom chips).
     #[error("stems need a newer CPU (this one has no {missing})")]
     CpuTooOld {
         /// The first missing instruction set.
@@ -35,7 +43,8 @@ pub enum Unavailable {
     LibraryFailed {
         /// The file.
         path: PathBuf,
-        /// What the loader said.
+        /// What the loader said (a missing dependency, another CPU
+        /// architecture, not ONNX Runtime at all).
         reason: String,
     },
     /// The library is older than [`MIN_MINOR_VERSION`].
@@ -49,11 +58,18 @@ pub enum Unavailable {
 /// A loaded ONNX Runtime, ready to create sessions.
 #[derive(Debug)]
 pub struct Runtime {
+    library: PathBuf,
     minor_version: u32,
     environment: Environment,
 }
 
 impl Runtime {
+    /// The library file it was loaded from.
+    #[must_use]
+    pub fn library(&self) -> &Path {
+        &self.library
+    }
+
     /// The library's minor version (32 for ONNX Runtime 1.32).
     #[must_use]
     pub fn minor_version(&self) -> u32 {
@@ -67,8 +83,10 @@ impl Runtime {
     }
 }
 
-/// Checks that this CPU can run the ONNX Runtime builds we ship: on x86_64
-/// they need AVX2 and FMA; every arm64 CPU we support can.
+/// Checks that this CPU can run stems: on x86_64 it needs AVX2 and FMA;
+/// every arm64 CPU we support passes. Microsoft's builds choose their SIMD
+/// code at run time, so they may also run without AVX2, slowly; until that is
+/// tested on such a CPU, stems are refused there rather than risk a crash.
 ///
 /// # Errors
 ///
@@ -102,48 +120,86 @@ fn cpu_verdict(avx2: bool, fma: bool) -> Result<(), Unavailable> {
     Ok(())
 }
 
-/// Loads ONNX Runtime from `library` (`libonnxruntime.dylib`,
-/// `libonnxruntime.so` or `onnxruntime.dll`), with telemetry off.
+/// Loads ONNX Runtime from `library`, an absolute path to
+/// `libonnxruntime.dylib`, `libonnxruntime.so` or `onnxruntime.dll`, with
+/// telemetry off.
 ///
-/// ONNX Runtime can be loaded once per process: later calls reuse the first
-/// library, whatever their path.
+/// ONNX Runtime can be loaded once per process, so the runtime is kept: later
+/// calls with the same path return it. A failed load leaves nothing behind,
+/// so it can be tried again (for example once the library is in place).
 ///
 /// # Errors
 ///
 /// [`Unavailable`]: the CPU is too old, the file is missing, it does not load
-/// as ONNX Runtime 1.x, or it is older than [`MIN_MINOR_VERSION`].
-pub fn load(library: &Path) -> Result<Runtime, Unavailable> {
+/// as ONNX Runtime (the reason says why), it is older than
+/// [`MIN_MINOR_VERSION`], or ONNX Runtime is already loaded from another file.
+pub fn load(library: &Path) -> Result<&'static Runtime, Unavailable> {
+    let _loading = LOADING.lock().unwrap_or_else(PoisonError::into_inner);
+    if let Some(runtime) = RUNTIME.get() {
+        if runtime.library == library {
+            return Ok(runtime);
+        }
+        return Err(Unavailable::LibraryFailed {
+            path: library.to_path_buf(),
+            reason: format!(
+                "ONNX Runtime is already loaded from {}",
+                runtime.library.display()
+            ),
+        });
+    }
+    let runtime = open(library)?;
+    Ok(RUNTIME.get_or_init(|| runtime))
+}
+
+/// Checks and loads the library (see [`load`]).
+fn open(library: &Path) -> Result<Runtime, Unavailable> {
     check_cpu()?;
+    let failed = |reason: String| Unavailable::LibraryFailed {
+        path: library.to_path_buf(),
+        reason,
+    };
+    // A relative path would be searched for, and on Windows could find the
+    // system's own older copy.
+    if !library.is_absolute() {
+        return Err(failed("the path must be absolute".to_owned()));
+    }
     if !library.is_file() {
         return Err(Unavailable::LibraryMissing {
             path: library.to_path_buf(),
         });
     }
-    // Reads the version without committing to this library, so a library
-    // that is too old gets its own reason instead of a loader error.
-    let minor_version = ort::util::probe(library).ok_or_else(|| Unavailable::LibraryFailed {
-        path: library.to_path_buf(),
-        reason: "not an ONNX Runtime 1.x library".to_owned(),
+    // `init_from` keeps the library only when it loads and is new enough, and
+    // its error says why not (it also refuses versions below `api-23`).
+    let builder = ort::init_from(library).map_err(|err| match err {
+        ort::LoadDynamicError::BadVersion {
+            ref version_str, ..
+        } => minor_of(version_str).map_or_else(
+            || failed(err.to_string()),
+            |found| Unavailable::TooOld { found },
+        ),
+        other => failed(other.to_string()),
     })?;
-    if minor_version < MIN_MINOR_VERSION {
-        return Err(Unavailable::TooOld {
-            found: minor_version,
-        });
-    }
-    let failed = |reason: String| Unavailable::LibraryFailed {
-        path: library.to_path_buf(),
-        reason,
-    };
-    let environment = ort::init_from(library)
-        .map_err(|err| failed(err.to_string()))?
+    let environment = builder
         .with_name("cratekit")
         .with_telemetry(false)
         .build()
         .map_err(|err| failed(err.to_string()))?;
+    let minor_version = ort::util::probe(library)
+        .ok_or_else(|| failed("its version could not be read".to_owned()))?;
     Ok(Runtime {
+        library: library.to_path_buf(),
         minor_version,
         environment,
     })
+}
+
+/// The minor version in an ONNX Runtime version string ("1.22.0" gives 22).
+fn minor_of(version: &str) -> Option<u32> {
+    let mut parts = version.split('.');
+    match (parts.next(), parts.next()) {
+        (Some("1"), Some(minor)) => minor.parse().ok(),
+        _ => None,
+    }
 }
 
 #[cfg(test)]
@@ -199,6 +255,26 @@ mod tests {
     }
 
     #[test]
+    fn a_relative_path_is_refused() {
+        if check_cpu().is_err() {
+            return;
+        }
+        let result = load(Path::new("onnxruntime.dll")).map(|_| ());
+        assert!(
+            matches!(result, Err(Unavailable::LibraryFailed { ref reason, .. }) if reason.contains("absolute")),
+            "{result:?}"
+        );
+    }
+
+    #[test]
+    fn reads_the_minor_version() {
+        assert_eq!(minor_of("1.22.0"), Some(22));
+        assert_eq!(minor_of("1.32.0"), Some(32));
+        assert_eq!(minor_of("2.0.0"), None);
+        assert_eq!(minor_of("garbage"), None);
+    }
+
+    #[test]
     fn reasons_read_as_sentences() {
         assert_eq!(
             Unavailable::TooOld { found: 20 }.to_string(),
@@ -218,8 +294,17 @@ mod tests {
     #[ignore = "needs CRATEKIT_ONNXRUNTIME, the path to an ONNX Runtime library"]
     fn a_real_onnx_runtime_loads_and_runs_a_model() {
         let library = std::env::var_os("CRATEKIT_ONNXRUNTIME").expect("set CRATEKIT_ONNXRUNTIME");
-        let runtime = load(Path::new(&library)).expect("load ONNX Runtime");
+        let library = Path::new(&library);
+        let runtime = load(library).expect("load ONNX Runtime");
         assert!(runtime.minor_version() >= MIN_MINOR_VERSION);
+        assert_eq!(runtime.library(), library);
+        // Loaded once per process: the same path gives the same runtime, and
+        // another library is refused with the one in use.
+        assert!(std::ptr::eq(runtime, load(library).expect("load again")));
+        let other = library.with_file_name("another-onnxruntime");
+        assert!(
+            matches!(load(&other), Err(Unavailable::LibraryFailed { ref reason, .. }) if reason.contains("already loaded")),
+        );
 
         let model = square_model();
         let mut session = ort::session::Session::builder(runtime.environment())
