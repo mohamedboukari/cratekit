@@ -54,9 +54,25 @@ const SHORTER_LAG_SHARE: f64 = 0.9;
 /// division (1/2, 1/3, 1/4) of the strongest one to count as its beat.
 const DIVISION_TOLERANCE: f64 = 0.04;
 /// Weakest beat worth reporting: the average rise in log energy at the beats
-/// (about a 15% energy jump). A steady tone still ripples a little in a 20 ms
-/// window (up to about 13% for a 30 Hz drone); real hits rise far more.
-const MIN_ONSET_STRENGTH: f64 = 0.15;
+/// (about a 10% energy jump). Steady tones, drones and noise stay below it
+/// at every length from 3 to 90 s at 44.1 and 48 kHz (a 36 Hz sub tone at
+/// 48 kHz reaches 0.081: its ripple lines up exactly with a 120 BPM grid).
+const MIN_ONSET_STRENGTH: f64 = 0.10;
+/// Beats at least this strong are reported on strength alone. Weaker ones
+/// (0.10 up to this) need a clear grid too (`WEAK_BEAT_CONFIDENCE`): soft
+/// real tracks (orchestral, light acoustic) beat there, but so do vinyl
+/// crackle, rain and speech-like sounds, whose grids are much less clear.
+const CLEAR_STRENGTH: f64 = 0.15;
+/// The confidence a weak beat (below `CLEAR_STRENGTH`) needs. Soft real
+/// tracks measured 0.79; crackle, rain and speech-like sounds 0.42 to 0.70,
+/// a 36 Hz tone 0.66 to 0.68.
+const WEAK_BEAT_CONFIDENCE: f64 = 0.75;
+/// On a short clip the best of many grids can line up with ripple by chance
+/// (a 30 Hz drone scores 0.13 over 10 s but 0.05 over 30 s), so the floor
+/// is also at least this divided by the square root of the beats in the
+/// clip: about 0.17 for 10 s at 54 BPM, below `MIN_ONSET_STRENGTH` from
+/// 25 beats on.
+const CHANCE_STRENGTH: f64 = 0.5;
 /// The fine search looks this far either side of the coarse tempo.
 const FINE_SPAN: f64 = 0.03;
 /// Moving-average width (frames) applied before the autocorrelation: 35 ms.
@@ -96,7 +112,11 @@ impl TempoDetector for OnsetTempo {
         }
         let coarse_bpm = coarse_bpm(&envelope, frame_seconds)?;
         let fit = refine_bpm(&envelope, frame_seconds, coarse_bpm);
-        if fit.strength < MIN_ONSET_STRENGTH {
+        let beats = samples.len() as f64 / f64::from(sample_rate) * fit.bpm / 60.0;
+        let floor = MIN_ONSET_STRENGTH.max(CHANCE_STRENGTH / beats.max(1.0).sqrt());
+        if fit.strength < floor
+            || (fit.strength < CLEAR_STRENGTH && fit.confidence < WEAK_BEAT_CONFIDENCE)
+        {
             return None;
         }
         let bpm = fold_into_range(fit.bpm);
@@ -520,6 +540,22 @@ mod tests {
     }
 
     #[test]
+    fn sub_bass_tones_have_no_beat_at_either_common_rate() {
+        // At 48 kHz a 5 ms hop makes a 120 BPM grid exactly 100 frames, and
+        // the ripple of a 36 Hz tone repeats exactly on it.
+        for rate in [44_100, 48_000] {
+            for hz in [30.0, 32.0, 35.0, 36.0, 36.5, 37.0, 38.0, 40.0, 45.0] {
+                let tone = synth::sine(hz, -3.0, 30.0, rate);
+                assert_eq!(
+                    OnsetTempo.detect_tempo(&tone, rate),
+                    None,
+                    "{hz} Hz at {rate} Hz"
+                );
+            }
+        }
+    }
+
+    #[test]
     fn confidence_does_not_depend_on_clip_length() {
         let short = detect(&synth::kick(124.0, 4.0, RATE)).unwrap().confidence;
         let long = detect(&synth::kick(124.0, 30.0, RATE)).unwrap().confidence;
@@ -563,5 +599,19 @@ mod tests {
         assert_eq!(fold_into_range(46.0), 92.0);
         assert_eq!(fold_into_range(180.0), 180.0);
         assert_eq!(fold_into_range(70.0), 70.0);
+    }
+
+    #[test]
+    fn soft_beats_under_a_pad_are_still_found() {
+        let seconds = 30.0;
+        let key = Key {
+            tonic: PitchClass::A,
+            mode: Mode::Minor,
+        };
+        let pad = synth::normalize(synth::chords(key, 96.0, seconds, RATE), -8.0);
+        let beat = synth::normalize(synth::kick(96.0, seconds, RATE), -14.0);
+        let audio = synth::normalize(synth::mix(&[&pad, &beat]), -1.0);
+        let found = detect(&audio).unwrap();
+        assert!((found.bpm - 96.0).abs() <= 0.5, "got {}", found.bpm);
     }
 }

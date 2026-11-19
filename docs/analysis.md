@@ -49,13 +49,13 @@ Both detectors take mono `f32` samples and a sample rate, and analyze whatever t
 | Item | What it is |
 | --- | --- |
 | `TempoDetector::detect_tempo(samples, rate)` | `Option<TempoEstimate { bpm, confidence, first_beat_sec }>`: BPM folded into 70 to 180 (`BPM_RANGE`), confidence 0 to 1, and the first beat within one beat of the start of the samples (`None` from `stratum-dsp`) (the UI's `bpm`, `bpmConfidence`, `firstBeatSec`) |
-| `OnsetTempo` | Ours. 1: onset envelope, the rise in log energy every 5 ms, smoothed by two 20 ms box averages (a 40 ms triangle, so steady tones and drones do not ripple it). 2: autocorrelation over 55 to 210 BPM, peaks refined with a parabola; the strongest peak is the beat unless a peak at a half, third or quarter of it scores at least 90% (then that is the beat), so off-beat hi-hats never halve or double the tempo. 3: a beat-grid fit every 0.01 BPM within 3%, scored over every onset in the clip, for sub-frame precision. 4: fold into the range. 5: the first beat from the winning grid's phase, minus a measured 6 ms latency of the log-energy rise (`ONSET_LATENCY_SECONDS`). On synthetic kicks at full level the first beat is within 2 ms at every tempo and start time; kicks 12 or 20 dB quieter, or over a sustained pad, land up to about 12 ms late. To re-check on real tracks in #22. No estimate when the beats rise by less than 0.15 in log energy (about a 15% jump). Confidence: how far the best placement of the winning grid scores above an average placement (independent of clip length) |
+| `OnsetTempo` | Ours. 1: onset envelope, the rise in log energy every 5 ms, smoothed by two 20 ms box averages (a 40 ms triangle, so steady tones and drones do not ripple it). 2: autocorrelation over 55 to 210 BPM, peaks refined with a parabola; the strongest peak is the beat unless a peak at a half, third or quarter of it scores at least 90% (then that is the beat), so off-beat hi-hats never halve or double the tempo. 3: a beat-grid fit every 0.01 BPM within 3%, scored over every onset in the clip, for sub-frame precision. 4: fold into the range. 5: the first beat from the winning grid's phase, minus a measured 6 ms latency of the log-energy rise (`ONSET_LATENCY_SECONDS`). On synthetic kicks at full level the first beat is within 2 ms at every tempo and start time; kicks 12 or 20 dB quieter, or over a sustained pad, land up to about 12 ms late. To re-check on real tracks in #22. No estimate when the beats rise by less than 0.10 in log energy (about a 10% jump, `MIN_ONSET_STRENGTH`); weak beats from 0.10 to 0.15 (`CLEAR_STRENGTH`) also need a confidence of at least 0.75 (`WEAK_BEAT_CONFIDENCE`), and on short clips the floor is at least 0.5 divided by the square root of the beats in the clip (`CHANCE_STRENGTH`: with few beats the best grid can line up with ripple by chance, a 30 Hz drone scores 0.13 over 10 s). Soft real tracks beat at 0.10 to 0.16 with a confidence near 0.8; steady tones stay under 0.10 at 44.1 and 48 kHz (a 36 Hz tone at 48 kHz reaches 0.081, its ripple repeating exactly on a 120 BPM grid of 5 ms frames); crackle, rain and speech-like sounds that reach 0.10 have confidences of 0.42 to 0.70. Confidence: how far the best placement of the winning grid scores above an average placement (independent of clip length) |
 | `KeyDetector::detect_key(samples, rate)` | `Option<KeyEstimate { key, confidence, chroma }>`: chroma C to B as loudness relative to the loudest note, 0 to 1 (the UI's `keyName`, `camelot` via `key.camelot()`, `keyConfidence`, `chroma`) |
 | `ProfileKey` | Ours. Chroma: Hann-windowed frames of 0.186 s, a Goertzel filter per note from C3 to B6, power summed per pitch class. Key: Pearson correlation with the 24 rotations of the Krumhansl-Kessler (1982) major and minor profiles. Confidence: lead over the runner-up relative to the lead over the average key |
 
-**Speed** (release, 90 s of audio): tempo about 30 ms, key about 330 ms.
+**Speed** (release, 90 s of audio): tempo about 30 ms, key about 330 ms. A whole 3 to 4 minute MP3 (decode, loudness, energy, tempo, key, waveform) takes under 1 s.
 
-**Tests:** slow grooves (75, 85 and 88 BPM, kick, snare and eighth-note hats at two levels) keep their tempo; steady tones from 30 to 440 Hz give no tempo; confidence is the same for 4 s and 30 s of the same beat; SPEC acceptance on `synth::test_loop` in C major, A minor, F# major and D# minor at 92, 124, 128 and 140 BPM (BPM within 0.5, key and Camelot correct); kicks alone at the four tempos; folding (60 BPM reads 120, 200 reads 100); every one of the 24 keys from its chords; chroma normalized and strongest in the tonic triad; a single note on its own pitch class; confidences in 0 to 1; no estimate for silence, short, broken or zero-rate input; the same input always gives the same answer.
+**Tests:** slow grooves (75, 85 and 88 BPM, kick, snare and eighth-note hats at two levels) keep their tempo; a soft kick under a louder chord pad is found; sub-bass tones from 30 to 45 Hz give no tempo at 44.1 and 48 kHz; steady tones from 30 to 440 Hz give no tempo; confidence is the same for 4 s and 30 s of the same beat; SPEC acceptance on `synth::test_loop` in C major, A minor, F# major and D# minor at 92, 124, 128 and 140 BPM (BPM within 0.5, key and Camelot correct); kicks alone at the four tempos; folding (60 BPM reads 120, 200 reads 100); every one of the 24 keys from its chords; chroma normalized and strongest in the tonic triad; a single note on its own pitch class; confidences in 0 to 1; no estimate for silence, short, broken or zero-rate input; the same input always gives the same answer.
 
 ## Ours versus `stratum-dsp`
 
@@ -71,52 +71,17 @@ Both detectors take mono `f32` samples and a sample rate, and analyze whatever t
 
 Our detectors are the default and the app does not ship `stratum-dsp`. Synthetic loops are not real music: re-run this comparison on the test DJ's tracks (#22) before deciding again. Enable it with `--features stratum` (CI and `bun run check` build and test with all features).
 
-## Loudness (`loudness.rs`)
+## Real tracks (#22)
 
-`measure_loudness(channels, rate) -> Option<Loudness { integrated_lufs, true_peak_dbtp }>` (the UI's `lufs` and `truePeakDb`). It takes the whole track, one slice per channel (planar), and wraps the `ebur128` crate (MIT, a pure Rust port of the reference libebur128), so it can be swapped.
+The Phase 1 gate compares our BPM and key with VirtualDJ on real tracks. Until those references are in, a first check used 14 Creative Commons tracks by Kevin MacLeod (incompetech.com, CC BY 4.0, kept outside the repository), 10 of which carry a BPM tag from the publisher. Each takes under 1 s to analyze in release.
 
-- **Integrated loudness:** ITU-R BS.1770 / EBU R128. K-weighted power in 400 ms blocks (75% overlap), the -70 LUFS absolute gate, then the relative gate 10 LU below the level of the remaining blocks.
-- **True peak:** the highest level between samples, by 4x oversampling below 96 kHz (2x below 192 kHz), maximum over all channels, in dBTP. Never below the highest sample.
-- **Channels:** mono, stereo, or 5.1 in the usual order (the LFE is not counted). A mono track counts as one channel: a mono tone reads 3 LU below the same tone on both stereo channels, as BS.1770 says.
-- **No answer** (`None`): no channels, channels of different lengths, a sample rate outside 16 Hz to 2.8 MHz, non-finite samples, audio shorter than one 400 ms gating block, or audio entirely below the -70 LUFS gate (silence).
+| Track | Tag | Ours | Result |
+| --- | --- | --- | --- |
+| Disco con Tutti, Electrodoodle, Funkorama, Monkeys Spinning Monkeys, Pamgaea | 115, 120, 101, 144, 94 | the same | exact |
+| Carefree | 96 | 96.0 | exact (before: no tempo; its soft beats rose 0.10 with a clear grid, under the old 0.15 floor) |
+| Pixelland | 230 | 115.0 | octave: 230 is folded into 70 to 180 by design |
+| Cut and Run | 109 | 107.0 | the tag looks wrong: a grid at 107.00 fits the whole 90 s (strength 0.69, confidence 0.92); at 109 it would drift 3 beats over the same span |
+| Hitman | 76 | none | orchestral, weak beat (0.14) with an unclear grid (confidence 0.61): no tempo rather than a guess |
+| Local Forecast - Elevator | 82 | 109.3 | 4/3 too fast: accents every dotted eighth over a quieter beat repeat more regularly than the beat. A grid at 3/4 of the first guess scores 1.45 times higher here, but a rule built on that flipped correct tempos on synthetic music with loud triplet hi-hats or soft beats under bar-line chord changes (120 read as 90), so it is not used until more real references exist |
 
-**Tests** (synthetic tones modelled on EBU Tech 3341): a 997 Hz sine at -23 dBFS on both channels reads -23.0 LUFS (within 0.1) at 48 and 44.1 kHz, and -26.0 in mono; added silence and a part 30 dB quieter are gated out; levels move 1 to 1; a quarter-rate sine with every sample at -3 dBFS reads about 0 dBTP; a plain tone's true peak is its peak; the loudest channel sets the true peak; no answer for each unusable input, including audio shorter than 400 ms.
-
-## Energy (`energy.rs`)
-
-`energy_score(samples, rate, integrated_lufs) -> Option<u8>`, 1 (calm) to 10 (peak time), the UI's `energy`. Mono samples, plus the loudness from `measure_loudness`. **A heuristic for ranking tracks, not a measurement:** the ranges and weights below are first guesses checked on synthetic audio, to re-tune on the test DJ's tracks (#22).
-
-| Feature | Weight | 0 | 1 | How |
-| --- | --- | --- | --- | --- |
-| Loudness | 0.4 | -30 LUFS | -6 LUFS | Integrated loudness, linear between the two |
-| Onset density | 0.35 | 0 per second | 8 per second | Peaks of the tempo detector's onset envelope where the log energy rises by at least 0.7 (about +3 dB) within 40 ms. Found twice and merged, at least 50 ms apart: in the signal (kicks, bass notes, chord changes) and in its sample-to-sample difference, which favours highs, so hi-hats over a full mix count too |
-| Brightness | 0.25 | 100 Hz | 4 kHz | The RMS frequency (it averages the square of the frequency, weighted by power, so it leans toward the highs), from the RMS of the sample-to-sample difference over the RMS of the signal (for a sine of frequency f the ratio is 2 sin(pi f / rate)); on a log scale; no FFT, a tone reads the same at any sample rate |
-
-Score: `1 + round(9 * weighted sum)`, each feature clamped to 0 to 1. No answer for silence, under 3 s, non-finite samples or loudness, or a zero sample rate.
-
-On the synthetic audio: a quiet 80 Hz tone scores 1, kicks alone 3, the SPEC test loop 6, the loop with off-beat hats 7.
-
-**Speed** (release, 90 s of stereo): loudness and energy together about 0.1 s.
-
-**Tests:** the score stays within 1 to 10; brightness reads the frequency of 100 Hz, 1 kHz and 4 kHz tones within 1% at 44.1, 48 and 96 kHz; one onset per kick at 90, 124 and 174 BPM and at most one (the tone starting) for steady tones from 40 to 440 Hz; 16th-note hats mixed under the full loop count as onsets; a calm tone scores lowest, then kicks alone, then the full loop; hats raise brightness and the score; faster kicks raise the density; a louder copy scores higher with the same brightness; no score for unusable input.
-
-## Whole track (`track.rs`)
-
-`analyze_file(path, progress, cancel) -> Result<TrackAnalysis, CoreError>` decodes the file (`audio::decode_file_with`) and runs `analyze_buffer`:
-
-1. Loudness (`measure_loudness`) on every channel of the whole track.
-2. Energy (`energy_score`) on the whole track in mono.
-3. Waveform columns (`Waveform::of`) of the whole track, every channel.
-4. Tempo (`OnsetTempo`) and key (`ProfileKey`) on the middle `SECTION_SECONDS` (90 s; the whole track when shorter): intros and outros are often beatless or in another key, and it is faster. The first beat found in the section is moved to track time (the same grid, within one beat of 0).
-
-`TrackAnalysis { duration_sec, sample_rate, channels, tempo, key, loudness, energy, waveform }`: a track with no beat, no notes or no sound is not an error, those fields are `None`. Progress goes 0 to 1: decoding is the first 40% (reported every 64 packets when the file announces its length), loudness the next 15% (fed to the meter 10 s at a time, `measure_loudness_with`). `cancel` is checked between steps, every 64 packets while decoding and every 10 s of audio while measuring loudness, and stops the task with `CoreError::Cancelled`. Memory: the decoded track plus a mono copy; the onset envelopes use sliding sums, so they add little (about 5 MB for 10 minutes). `progress::ProgressSink` is any `Fn(f32)` (or `NoProgress`); `progress::CancellationToken` is a shared flag.
-
-**Speed** (release): a 6 minute stereo track (the SPEC loop) in about 1 s, decoding excluded; the SPEC asks for under 5 s on a 2020 laptop CPU. The test enforces the limit on a 6 minute track in release builds (`cargo nextest run --release`); debug builds (CI), many times slower and machine-dependent, analyze a 1 minute track with no time limit.
-
-**Tests:** the SPEC loop gives its tempo, first beat, key, loudness and energy; the first beat of a track whose analyzed section starts 5 s in is still reported near the start; a tone has a key but no beat, silence has nothing; progress runs from 0 to 1 in order; a cancelled token stops the analysis.
-
-## Waveform (`waveform.rs`)
-
-`Waveform::of(audio)` computes one column per 50 ms (`COLUMNS_PER_SECOND` = 20) over every channel: the lowest and highest sample and the RMS. Each value is stored as one byte (min and max as signed bytes, 127 = full scale; RMS as an unsigned byte, 255 = full scale), so six minutes take about 22 KB. `to_bytes` / `from_bytes` write and read the `analysis.waveform` column: a format byte, the column count, then every min, every max and every RMS; bytes in another format read as no waveform until the track is analyzed again. `overview(columns)` gives what the deck draws (`WaveformView { peaks, rms }`, 0 to 1): `track_detail` asks for `OVERVIEW_COLUMNS` (1200) columns (a track under a minute has fewer stored columns and sends them all), each the loudest peak and the power-averaged RMS of the stored columns it covers. `analyze_buffer` computes it, so it is cached with the analysis; `ANALYZER_VERSION` is 2 since then, so older analyses count as needing analysis again.
-
-**Tests:** a full-scale sine reads peaks of 1 and RMS 0.707 in every column; silence reads zero and kicks show as peaks; the bytes round-trip, and other formats or cut data read as nothing; the overview keeps the loudest peak of each group; empty and very short audio work.
+6 exact, 1 octave, 1 disputed tag, 2 misses. Key: only Funkorama has a key tag (C); we read D minor (7A). Publisher tags are not ground truth: VirtualDJ's own readings on these and on club tracks are still needed for the gate.
