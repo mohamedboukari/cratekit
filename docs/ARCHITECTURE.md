@@ -312,18 +312,42 @@ Intensity `k` (0 to 1): EQ gain × k, ratio = 1 + (ratio − 1) × k, makeup int
 
 ## Platforms and portability
 
-| OS | Rust targets | Package |
+| OS | Rust targets (tier) | Minimum OS | Package |
+| --- | --- | --- | --- |
+| macOS | `aarch64-apple-darwin` (1) + `x86_64-apple-darwin` (2), combined as `universal-apple-darwin` | 14.2 | dmg |
+| Windows | `x86_64-pc-windows-msvc` (1), `aarch64-pc-windows-msvc` (1) | 10 22H2 (x86_64), 11 (ARM64) | msi |
+| Linux | `x86_64-unknown-linux-gnu` (1), `aarch64-unknown-linux-gnu` (1) | Ubuntu 22.04, Debian 12 | AppImage |
+
+Why these minimums:
+
+- **macOS 14.2:** cpal 0.18 links Core Audio process-tap functions that exist only from 14.2. With a deployment target of 12 or later they bind at launch, so an older macOS would refuse to start the app with "Symbol not found". ONNX Runtime also needs 14.0. `bundle.macOS.minimumSystemVersion` in `tauri.conf.json` is `14.2`; Tauri passes it to release builds as `MACOSX_DEPLOYMENT_TARGET`, and macOS shows a clear "needs a newer macOS" message instead of crashing.
+- **Windows:** Rust's MSVC targets need Windows 10. WebView2 is part of Windows 10 (1803+) and 11, and Microsoft updates it on 10 22H2 until at least October 2028. The installer keeps Tauri's default WebView2 mode (download only if missing); the offline WebView2 installer would add about 127 MB and break the 60 MB budget. Windows on ARM devices run Windows 11 in practice.
+- **Linux:** Tauri 2 needs WebKitGTK 4.1 (Ubuntu 22.04+, Debian 12+; not Debian 11). An AppImage needs a glibc at least as new as the build machine's, so **release builds run on `ubuntu-22.04` and `ubuntu-22.04-arm`**, the oldest base we support (CI tests run on 24.04).
+
+Native dependencies per target:
+
+| Dependency | Kind | All six targets? |
 | --- | --- | --- |
-| macOS | `aarch64-apple-darwin` + `x86_64-apple-darwin`, combined as `universal-apple-darwin` | dmg |
-| Windows | `x86_64-pc-windows-msvc`, `aarch64-pc-windows-msvc` | msi |
-| Linux | `x86_64-unknown-linux-gnu`, `aarch64-unknown-linux-gnu` | AppImage |
+| Tauri 2 (WKWebView, WebView2, WebKitGTK 4.1) | OS webview | Yes |
+| tauri-plugin-dialog (AppKit, common controls, GTK3) | OS dialogs | Yes |
+| cpal (CoreAudio, WASAPI, ALSA) | OS audio API | Yes (ALSA reaches PipeWire and PulseAudio through their ALSA bridge) |
+| midir (CoreMIDI, WinMM, ALSA), planned | OS MIDI API | Yes |
+| SQLite (rusqlite `bundled`) | C, compiled by `cc` | Yes |
+| symphonia, rubato, rustfft, ebur128 | Pure Rust | Yes (rustfft picks SIMD at run time) |
+| ONNX Runtime (stems), planned | Prebuilt C++ library | No build for `x86_64-apple-darwin`; prebuilt `ort` binaries need x86-64-v3 (AVX2) and glibc 2.39. Decided in #29 |
+
+Stems and ONNX Runtime, open in #29:
+
+- **Intel Macs:** Microsoft stopped shipping x86_64 macOS builds in ONNX Runtime 1.24, and `ort` has no prebuilt binary for it (a link error since rc.13). The universal build must not link `ort` statically into the x86_64 slice. Options: build ONNX Runtime from source in CI, the last universal2 release (1.22), a pure-Rust backend on Intel only, or stems unavailable on Intel Macs in v0.1 with a clear message.
+- **CPU and glibc baseline:** `ort`'s prebuilt binaries need an x86-64-v3 CPU (AVX2, Haswell or later) and, on Linux, glibc 2.39 (Ubuntu 24.04+). Loading ONNX Runtime at run time (`ort` `load-dynamic`, after checking for AVX2 and FMA) would keep the app starting on every supported system, with stems reporting why they are unavailable. Microsoft's own builds (manylinux_2_28, runtime SIMD choice) are the other route.
 
 Rules:
 
 - **Portable code only.** No architecture-specific intrinsics (`std::arch::x86_64::*`, NEON) unless behind runtime feature detection with a scalar fallback, and with a test for both paths. Prefer plain loops over slices (`chunks_exact`, iterators) that the compiler auto-vectorizes on both x86_64 and arm64.
-- **Native dependencies must exist for every target**: check ONNX Runtime prebuilt binaries per target before adopting a version. SQLite (rusqlite `bundled`) compiles from source, so it works everywhere.
+- **Native dependencies must exist for every target.** Before adopting a crate with prebuilt binaries, check the binaries per target, their minimum OS and glibc, and their CPU baseline (for example x86-64-v3), and record the result in the table above. SQLite (rusqlite `bundled`) compiles from source, so it works everywhere.
 - **Floating point:** do not rely on CPU-specific flush-to-zero modes; flush denormals in code inside the DSP and audio callback paths.
-- **CI builds and tests natively on each architecture** (GitHub-hosted macOS arm64, Windows ARM64 and Linux arm64 runners exist), not only cross-compiles.
+- **CI builds and tests natively on each architecture** (GitHub-hosted macOS arm64 and Intel, Windows x64 and ARM64, Linux x64 and arm64 runners), not only cross-compiles. The Intel macOS runner (`macos-15-intel`) is GitHub's last one and retires around fall 2027; after that, Intel builds are cross-compiled.
+- **Not tested in CI yet:** packaged installers and their size, launching on the minimum OS versions, real audio output (runners have no audio device) and GPU providers. The release build job tracked in the installers issue covers the first two.
 
 ## MIDI notes
 

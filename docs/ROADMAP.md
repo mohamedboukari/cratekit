@@ -34,7 +34,7 @@ v0.1 in about 8 weeks of part-time work. Each phase ends with a gate: the test D
 - [x] Choose (license check, ask first): state library and table virtualization: Zustand, TanStack Table + Virtual (#6)
 - [x] `deny.toml` (license allow-list, see the `license-check` skill)
 - [x] CI: fmt, clippy, tests, `cargo deny check`, UI type-check + Vitest, run natively on macOS arm64 + x86_64, Windows x86_64 + ARM64, Linux x86_64 + arm64 (GitHub Actions; every PR on all six targets)
-- [ ] Confirm minimum OS versions (Tauri 2, ONNX Runtime) and that every native dependency has builds for all six targets (#7)
+- [x] Confirm minimum OS versions (Tauri 2, ONNX Runtime) and that every native dependency has builds for all six targets (#7)
 - [x] Decode any supported file to `AudioBuffer` (symphonia) + resample (rubato) (#8)
 - [x] Synthetic audio test helpers (kick at BPM, chords in a key, sine at level) (#9)
 - [x] `TempoDetector` + `KeyDetector` traits; stratum-dsp implementation; fallback implementation (#10). Our own detectors are the default; stratum-dsp is behind the `stratum` feature
