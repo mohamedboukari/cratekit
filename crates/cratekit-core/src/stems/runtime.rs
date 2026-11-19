@@ -228,12 +228,13 @@ mod tests {
         if check_cpu().is_err() {
             return; // The CPU reason comes first on such a machine.
         }
-        let path = Path::new("/nowhere/libonnxruntime.so");
+        // Absolute on every OS (a path like "/nowhere" has no drive on Windows).
+        let path = std::env::temp_dir()
+            .join("cratekit-no-such-folder")
+            .join("libonnxruntime.so");
         assert_eq!(
-            load(path).map(|_| ()),
-            Err(Unavailable::LibraryMissing {
-                path: path.to_path_buf()
-            })
+            load(&path).map(|_| ()),
+            Err(Unavailable::LibraryMissing { path })
         );
     }
 
