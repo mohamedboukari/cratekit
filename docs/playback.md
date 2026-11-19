@@ -7,6 +7,7 @@
 | File | Contents |
 | --- | --- |
 | `crates/cratekit-audio/src/renderer.rs` | `Renderer::render` (the audio callback), `Command`, `Track`, `Shared` |
+| `crates/cratekit-audio/src/filter.rs` | `DjFilter`: the deck's DJ filter (one knob, low-pass left, high-pass right) |
 | `crates/cratekit-audio/src/engine.rs` | `Engine`: the output device, track preparation, commands, `Status` |
 | `src-tauri/src/playback.rs` | `PlayerState`, the playback commands and the 30 Hz poller |
 
@@ -14,7 +15,7 @@
 
 ```
 playback_load ── decode_file + resample (blocking worker) ── Command::Load(Box<Track>) ──► rtrb ──► Renderer
-play / pause / seek ─────────────────────────────────────── Command ──────────────────────► rtrb ──► Renderer
+play / pause / seek / set_filter ────────────────────────── Command ──────────────────────► rtrb ──► Renderer
 Renderer ── replaced Box<Track> ──► rtrb ──► cleanup thread (frees it)
 Renderer ── position, playing, ends, peak, rms ──► atomics ──► poller (33 ms) ──► playback_position, meter, playback_state
 ```
@@ -24,6 +25,7 @@ Renderer ── position, playing, ends, peak, rms ──► atomics ──► p
 - **Decks.** Commands and status carry a `DeckId` (only `A` in v0.1), so Performance mode (v0.2) can add a second deck without changing the engine's interface.
 - **Latest load wins.** The app counts load requests: a load that finishes decoding after a newer one was asked for is dropped, and the counter is checked again under a lock right before the track is sent.
 - **Click-free.** Play, pause, seek and load fade over 5 ms (`FADE_SECONDS`): pause fades out then holds the position; seek fades out, jumps, fades back in; a load fades the old track out and waits at the new one's start, stopped. A seek while paused moves at once. A seek or load during the last fade of a track is not counted as its end.
+- **DJ filter (#56).** `playback_set_filter(value)`: -1 full low-pass, 0 off, 1 full high-pass (clamped). Inside the callback, `DjFilter` runs every frame before the meters, so the meters show what is heard. It is a 12 dB per octave state-variable filter in the topology-preserving form (Zavalishin, Simper), whose cutoff can move every sample without clicks; Butterworth Q, so no resonance peak and no clipping on loud tracks. Low-pass sweeps 20 kHz down to 80 Hz, high-pass 20 Hz up to 8 kHz, on an exponential curve. Within 2% of the centre (`DEAD_ZONE`) the output is the input exactly. The knob value follows a change with a 20 ms time constant (95% of the way after 60 ms), and the filtered signal blends in over the first 10% of travel, so crossing the centre from low-pass to high-pass never clicks. Filter state below 1e-20 is flushed to zero. The app keeps the knob value and every engine starts with it already set (`EngineOptions::filter`, no sweep after a device change); after waiting for a restart, a call sends the stored value, so the engine always ends on the newest one. The UI keeps one `playback_set_filter` call in flight during a drag and sends the newest value when it returns; a failure rolls the knob back to the last value Rust accepted. MIDI control comes with the controller targets (#38).
 - **Any device.** Any callback size and channel count: stereo goes to the first two outputs (extra outputs silent), a mono device gets the average. A partial frame at the end of a buffer stays silent.
 - **Sample format.** The renderer works in `f32`. The engine uses the device's default format when it is `f32`, else an `f32` format the device also offers, else converts to its integer format (`i16`, `i32`, `u16`) at the output, through a scratch buffer allocated before the stream starts.
 - **The cpal stream lives on its own thread** (on some systems it cannot move between threads). `Engine::close` stops it and waits for its threads even while other handles to the engine exist; dropping the last handle closes it too. The device's error callback sets `Status::device_error` only for errors that mean the output is gone (`is_fatal`: not an xrun, a refused real-time priority, a busy device, or the system rerouting the default output, which cpal follows by itself); see Unplugging below.
@@ -37,11 +39,12 @@ Renderer ── position, playing, ends, peak, rms ──► atomics ──► p
 
 ## Not yet
 
-Tempo (`playback_set_rate`), the DJ filter (#56), Original / Mastered / Stems modes and level matching come in their own tasks.
+Tempo (`playback_set_rate`), Original / Mastered / Stems modes and level matching come in their own tasks.
 
 ## Tests
 
 - Renderer (synthetic tracks, no device): silence with nothing loaded; play fades in and then outputs the track exactly; pause fades out without a click and holds the position, play resumes there; seeking while playing fades out, jumps and fades in with no sample-to-sample step above a sine's own (no click), and lands where expected; seeking while paused moves at once, clamped to the end; the end stops playback and is counted once; a seek or load in the last 5 ms of a track keeps playing instead of ending; loading while playing fades out, waits at the new start and hands the old track back; any callback size (1 to 4096 frames) on mono, stereo and 6-channel devices; peak and RMS of a full-scale sine; **no allocation or free in `render`** through play, seek, pause and load.
+- DJ filter (synthetic sines): within the dead zone the output equals the input exactly; full low-pass cuts 5 kHz by more than 24 dB and keeps 40 Hz; full high-pass cuts 60 Hz by more than 24 dB and keeps 15 kHz; turning further cuts more on both sides; jumping the knob from centre to full left, full right and back never steps more than 1.5 times a plain sine's own largest step; stable at 44.1 to 192 kHz; out-of-range values clamp and NaN is off; silence settles to exact zero; `jump` sets the knob with no sweep. Through the renderer: full high-pass removes a 440 Hz tone and the peak meter reads the filtered level; back at the centre the output equals the track sample for sample; a renderer created with the filter set is filtered from the end of its first fade in; `SetFilter` is part of the no-allocation test. UI: during a drag only one call is in flight and the last value is sent; a failure rolls back to the last accepted value.
 - Engine: tracks are prepared as stereo at the device rate (mono doubled, extra channels dropped); NaN and infinite samples are silenced.
 - App: position, meter and end events from status changes, dB conversion, which device to move to (the chosen one when available, else the default; none when already right), what a restart puts back (position and playing only for the track really on the deck), and the JSON the UI expects (`AudioDevice`, `AudioDeviceChanged` with every reason).
 - Engine: which stream errors are fatal; which device ids are unstable.

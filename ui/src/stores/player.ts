@@ -9,6 +9,14 @@ import type { CueColor, CueSlot, PlaybackMode, TrackDetail, TrackId } from "@/li
 let loadSeq = 0;
 /** Only the newest mode request may roll back on failure. */
 let modeSeq = 0;
+/**
+ * Filter knob: one call to Rust at a time. A drag sends many values; while
+ * a call is in flight the store only keeps the newest, and the running loop
+ * sends it when the call returns, so Rust always ends on the last value.
+ */
+let filterSending = false;
+/** The last filter value Rust accepted (where a failure rolls back to). */
+let filterAccepted = 0;
 
 /**
  * Deck state that changes at human speed. The playhead position and meters
@@ -115,14 +123,24 @@ export const usePlayer = create<PlayerState>()((set, get) => {
     },
 
     setFilter: async (value) => {
-      const clamped = Math.max(-1, Math.min(1, value));
-      const previous = get().filter;
-      set({ filter: clamped });
+      set({ filter: Math.max(-1, Math.min(1, value)) });
+      if (filterSending) return;
+      filterSending = true;
+      // Sends the newest value, then again if the knob moved meanwhile.
+      const sendNewest = async (): Promise<void> => {
+        const sending = get().filter;
+        if (sending === filterAccepted) return;
+        await api().playbackSetFilter(sending);
+        filterAccepted = sending;
+        await sendNewest();
+      };
       try {
-        await api().playbackSetFilter(clamped);
+        await sendNewest();
       } catch (error) {
-        set({ filter: previous });
+        set({ filter: filterAccepted });
         notifyError(error, i18n.t("errors.player.filter"));
+      } finally {
+        filterSending = false;
       }
     },
 

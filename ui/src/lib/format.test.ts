@@ -18,6 +18,8 @@ describe("display formatting", () => {
   it("describes the filter knob", () => {
     expect(filterText(0)).toBe("Off");
     expect(filterText(0.01)).toBe("Off");
+    expect(filterText(-0.019)).toBe("Off");
+    expect(filterText(0.02)).toBe("High-pass 2%");
     expect(filterText(-0.4)).toBe("Low-pass 40%");
     expect(filterText(0.25)).toBe("High-pass 25%");
   });

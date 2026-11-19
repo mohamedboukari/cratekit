@@ -70,9 +70,17 @@ pub(crate) struct PlayerState {
     /// that is being replaced, and an older load never lands after a newer
     /// one.
     load_gate: Mutex<()>,
+    /// The DJ filter knob (-1 to 1), given again to every engine that
+    /// starts, so it survives a device change.
+    filter: Mutex<f32>,
 }
 
 impl PlayerState {
+    /// The DJ filter knob position.
+    fn filter(&self) -> f32 {
+        *lock(&self.filter)
+    }
+
     /// The engine if it is running.
     fn running(&self) -> Option<Arc<Engine>> {
         lock(&self.engine).clone()
@@ -110,6 +118,7 @@ fn engine_options<R: Runtime>(app: &AppHandle<R>) -> EngineOptions {
     EngineOptions {
         device_id: settings.audio_device_id,
         buffer_size: Some(settings.buffer_size),
+        filter: app.state::<PlayerState>().filter(),
     }
 }
 
@@ -616,6 +625,27 @@ pub(crate) async fn playback_pause(app: AppHandle) -> Result<(), AppError> {
 #[tauri::command]
 pub(crate) async fn playback_seek(app: AppHandle, sec: f64) -> Result<(), AppError> {
     with_engine(app, false, move |engine| engine.seek(DeckId::A, sec)).await
+}
+
+/// Turns the DJ filter knob: -1 full low-pass, 0 off, 1 full high-pass
+/// (clamped; the engine smooths the change). Kept for engines started later.
+#[tauri::command]
+pub(crate) async fn playback_set_filter(app: AppHandle, value: f32) -> Result<(), AppError> {
+    let value = if value.is_finite() {
+        value.clamp(-1.0, 1.0)
+    } else {
+        0.0
+    };
+    // Stored first, so an engine that starts meanwhile starts there. The
+    // engine then gets the stored value read under the gate, not `value`:
+    // when several calls wait for a restart, whichever runs last still
+    // sends the newest knob position.
+    *lock(&app.state::<PlayerState>().filter) = value;
+    let reader = app.clone();
+    with_engine(app, false, move |engine| {
+        engine.set_filter(DeckId::A, reader.state::<PlayerState>().filter())
+    })
+    .await
 }
 
 /// An output device as the UI's `AudioDevice`.

@@ -85,4 +85,58 @@ describe("stores ignore stale responses", () => {
 
     expect(usePlayer.getState().detail?.track.id).toBe(2);
   });
+
+  it("filter knob keeps one call in flight and ends on the newest value", async () => {
+    const mock = createMockApi();
+    const sent: number[] = [];
+    let inFlight = 0;
+    let most = 0;
+    const gates: Array<() => void> = [];
+    setApiForTests({
+      ...mock,
+      playbackSetFilter: (value) => {
+        sent.push(value);
+        inFlight += 1;
+        most = Math.max(most, inFlight);
+        return new Promise<void>((resolve) => {
+          gates.push(() => {
+            inFlight -= 1;
+            resolve();
+          });
+        });
+      },
+    });
+    const { setFilter } = usePlayer.getState();
+
+    const first = setFilter(-0.2);
+    void setFilter(-0.5);
+    void setFilter(-0.8);
+    expect(sent).toEqual([-0.2]);
+    gates.shift()?.();
+    await Promise.resolve();
+    await Promise.resolve();
+    gates.shift()?.();
+    await first;
+
+    expect(sent).toEqual([-0.2, -0.8]);
+    expect(most).toBe(1);
+    expect(usePlayer.getState().filter).toBe(-0.8);
+  });
+
+  it("filter knob rolls back to the last value Rust accepted when a call fails", async () => {
+    const mock = createMockApi();
+    let fail = false;
+    setApiForTests({
+      ...mock,
+      playbackSetFilter: () =>
+        fail
+          ? Promise.reject({ code: "audio_device", message: "gone" })
+          : Promise.resolve(),
+    });
+    const { setFilter } = usePlayer.getState();
+    await setFilter(0.3);
+    fail = true;
+    await setFilter(0.9);
+    expect(usePlayer.getState().filter).toBe(0.3);
+  });
 });

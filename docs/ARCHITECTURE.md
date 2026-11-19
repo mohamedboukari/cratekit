@@ -91,7 +91,7 @@ src/
   renderer.rs    Renderer::render (the audio callback), Command (sent over rtrb), Track, Shared (atomics).
                  Done (#19)
   mixer.rs       modes: Original | Mastered(preview chain) | Stems(4 gains + mute/solo) (planned)
-  filter.rs      DJ filter (one knob: LP below centre, HP above) (planned)
+  filter.rs      DJ filter (one knob: LP below centre, HP above)
 ```
 
 A/B and mode switches use a 10 ms crossfade to stay click-free.
