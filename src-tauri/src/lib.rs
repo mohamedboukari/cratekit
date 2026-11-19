@@ -5,6 +5,7 @@
 
 mod jobs;
 mod library;
+mod models;
 mod playback;
 mod settings;
 
@@ -152,6 +153,8 @@ impl AppError {
             cratekit_core::CoreError::Cancelled => "cancelled",
             cratekit_core::CoreError::InvalidSetting { .. } => "invalid_setting",
             cratekit_core::CoreError::EmptyName => "invalid_name",
+            cratekit_core::CoreError::Download { .. } => "download",
+            cratekit_core::CoreError::Checksum { .. } => "checksum",
         };
         Self { code, message }
     }
@@ -312,6 +315,9 @@ pub fn run() -> anyhow::Result<()> {
             jobs::analyze_tracks,
             jobs::job_cancel,
             jobs::jobs_set_paused,
+            models::models_status,
+            models::models_download,
+            models::models_delete,
             playback::playback_load,
             playback::playback_play,
             playback::playback_pause,

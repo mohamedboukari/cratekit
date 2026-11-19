@@ -35,6 +35,12 @@ function codeDetail(code: string): string | null {
       return i18n.t("errors.codes.invalid_setting");
     case "invalid_name":
       return i18n.t("errors.codes.invalid_name");
+    case "download":
+      return i18n.t("errors.codes.download");
+    case "checksum":
+      return i18n.t("errors.codes.checksum");
+    case "busy":
+      return i18n.t("errors.codes.busy");
     default:
       return null;
   }

@@ -4,6 +4,18 @@
 
 [graph]
 all-features = true
+# Only the six targets Cratekit ships (docs/ARCHITECTURE.md, Platforms and portability).
+# Dependencies of other platforms (wasm32, Android, iOS) are never built, so they are not
+# checked: for example webpki-root-certs (CDLA-Permissive-2.0), used by
+# rustls-platform-verifier on wasm32 only. Approved by the maintainer 2026-11-19.
+targets = [
+  "aarch64-apple-darwin",
+  "x86_64-apple-darwin",
+  "x86_64-pc-windows-msvc",
+  "aarch64-pc-windows-msvc",
+  "x86_64-unknown-linux-gnu",
+  "aarch64-unknown-linux-gnu",
+]
 
 [advisories]
 # RustSec advisories. Add an entry here only with a reason and the maintainer's approval.

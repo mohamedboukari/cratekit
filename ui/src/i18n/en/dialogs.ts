@@ -27,10 +27,12 @@ export const dialogs = {
   },
   modelDownload: {
     title: "Download the stems model",
-    sizeUnknown: "about 200 MB",
+    sizeUnknown: "about 170 MB",
     size: "{{mb}} MB",
     description:
-      "Stem splitting uses the htdemucs model ({{size}}). It downloads once, its checksum is verified, and it stays on this computer. This is the only time Cratekit goes online.",
+      "Stem splitting uses the htdemucs model ({{size}}), downloaded from Hugging Face (Intel's conversion of Meta's Demucs). It downloads once, its checksum is verified, and it stays on this computer. This is the only time Cratekit goes online.",
+    licence:
+      "The Demucs code is open source, but the licence of the model's trained weights is unclear: they were trained partly on data meant for research. Cratekit does not include them; download them only for your own personal use.",
     cancel: "Cancel download",
     hide: "Hide",
     notNow: "Not now",
