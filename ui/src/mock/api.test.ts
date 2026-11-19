@@ -55,7 +55,6 @@ const MEMBERS: ReadonlyArray<keyof CratekitApi> = [
   "modelsDelete",
   "audioListDevices",
   "audioSetDevice",
-  "audioSetBufferSize",
   "settingsGet",
   "settingsSet",
   "onJobProgress",

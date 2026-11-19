@@ -209,10 +209,18 @@ function AudioSection(): JSX.Element {
   const loadDevices = useDevices((s) => s.load);
   const deviceId = useSettings((s) => s.settings?.audioDeviceId ?? null);
   const bufferSize = useSettings((s) => s.settings?.bufferSize ?? 512);
-  const current =
-    devices.find((d) => d.id === deviceId) ?? devices.find((d) => d.isDefault);
+  const systemDefault = devices.find((d) => d.isDefault);
+  // Empty: follow the system default (the setting is null).
+  const selected =
+    deviceId !== null && devices.some((d) => d.id === deviceId) ? deviceId : "";
+  // The device in use: the chosen one when it is there, else the default.
+  const current = devices.find((d) => d.id === selected) ?? systemDefault;
 
   const pickDevice = (id: string): void => {
+    if (id === "") {
+      void useSettings.getState().set("audioDeviceId", null).then(loadDevices);
+      return;
+    }
     api()
       .audioSetDevice(id)
       .then(loadDevices)
@@ -229,17 +237,19 @@ function AudioSection(): JSX.Element {
           <select
             id={id}
             className={SELECT}
-            value={current?.id ?? ""}
+            value={selected}
             onChange={(e) => pickDevice(e.target.value)}
           >
-            {devices.length === 0 && (
+            {devices.length === 0 ? (
               <option value="">{t("settings.audio.noDevices")}</option>
+            ) : (
+              <option value="">
+                {t("settings.audio.systemDefault", { name: systemDefault?.name ?? "" })}
+              </option>
             )}
             {devices.map((d) => (
               <option key={d.id} value={d.id}>
-                {d.isDefault
-                  ? t("settings.audio.systemDefault", { name: d.name })
-                  : d.name}
+                {d.name}
               </option>
             ))}
           </select>

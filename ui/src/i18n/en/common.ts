@@ -62,5 +62,8 @@ export const common = {
     modelReady: "Stems model ready",
     deviceUnplugged: "Audio device disconnected",
     deviceUnpluggedDetail: "Playback switched to the system default output.",
+    deviceLost: "No audio output",
+    deviceLostDetail:
+      "The audio output stopped and no other one could be opened. Check your speakers or headphones.",
   },
 } as const;

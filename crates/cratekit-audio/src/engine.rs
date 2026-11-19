@@ -7,7 +7,7 @@ use std::thread::{self, JoinHandle};
 use std::time::Duration;
 
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
-use cpal::{FromSample, SampleFormat, SizedSample, StreamConfig};
+use cpal::{BufferSize, FromSample, SampleFormat, SizedSample, StreamConfig, SupportedBufferSize};
 use cratekit_core::CoreError;
 use cratekit_core::audio::{AudioBuffer, resample};
 use rtrb::{Consumer, Producer, RingBuffer};
@@ -58,6 +58,126 @@ pub struct Status {
     pub device_error: bool,
 }
 
+/// An audio output the system offers.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct OutputDevice {
+    /// Stable id, to choose it again later (stored in the settings).
+    pub id: String,
+    /// Name to show.
+    pub name: String,
+    /// Whether it is the system's default output.
+    pub is_default: bool,
+    /// Its default sample rate (0 when the device does not say).
+    pub sample_rate: u32,
+}
+
+/// Every output device, the system default marked.
+///
+/// # Errors
+///
+/// [`EngineError::Device`] when the system cannot list its devices.
+pub fn output_devices() -> Result<Vec<OutputDevice>, EngineError> {
+    let host = cpal::default_host();
+    let default = default_device_id();
+    let devices = host
+        .output_devices()
+        .map_err(|err| EngineError::Device(err.to_string()))?;
+    Ok(devices
+        .filter_map(|device| {
+            let id = device.id().ok()?.to_string();
+            if is_unstable_id(&id) {
+                return None;
+            }
+            let name = device
+                .description()
+                .map_or_else(|_| id.clone(), |description| description.name().to_owned());
+            let sample_rate = device
+                .default_output_config()
+                .map_or(0, |config| config.sample_rate());
+            Some(OutputDevice {
+                is_default: default.as_deref() == Some(id.as_str()),
+                id,
+                name,
+                sample_rate,
+            })
+        })
+        .collect())
+}
+
+/// The ids of the output devices, without opening or probing them (cheap
+/// enough to check every few seconds).
+///
+/// # Errors
+///
+/// [`EngineError::Device`] when the system cannot list its devices.
+pub fn output_device_ids() -> Result<Vec<String>, EngineError> {
+    let devices = cpal::default_host()
+        .output_devices()
+        .map_err(|err| EngineError::Device(err.to_string()))?;
+    Ok(devices
+        .filter_map(|device| device.id().ok().map(|id| id.to_string()))
+        .filter(|id| !is_unstable_id(id))
+        .collect())
+}
+
+/// Whether a device id names a sound card by its number (ALSA's
+/// `hw:CARD=0,DEV=0`): the number can point to another card after a reboot
+/// or a replug, so it must not be stored. Every such card also has a
+/// name-based id (`hw:CARD=USB,DEV=0`), which is kept.
+fn is_unstable_id(id: &str) -> bool {
+    id.split("CARD=").nth(1).is_some_and(|rest| {
+        let card: String = rest.chars().take_while(|c| *c != ',').collect();
+        !card.is_empty() && card.chars().all(|c| c.is_ascii_digit())
+    })
+}
+
+/// Whether a stream error means the output is gone or broken (the engine
+/// must reopen it), as opposed to a passing glitch: an xrun, a refused
+/// real-time priority, a busy device, or the system rerouting the default
+/// output (cpal follows that by itself).
+#[must_use]
+pub fn is_fatal(kind: cpal::ErrorKind) -> bool {
+    !matches!(
+        kind,
+        cpal::ErrorKind::Xrun
+            | cpal::ErrorKind::DeviceChanged
+            | cpal::ErrorKind::RealtimeDenied
+            | cpal::ErrorKind::DeviceBusy
+    )
+}
+
+/// Makes a decoded track ready for an output at `rate`: stereo (a mono
+/// track on both sides, the first two channels of anything wider), at that
+/// rate, with any non-finite sample (from a damaged file) silenced. Needs no
+/// engine, so it can run while the engine restarts.
+///
+/// # Errors
+///
+/// [`EngineError::Audio`] if resampling fails.
+pub fn prepare_track(audio: AudioBuffer, rate: u32) -> Result<Track, EngineError> {
+    Ok(prepare(audio, rate)?)
+}
+
+/// The id of the system's default output, if there is one.
+#[must_use]
+pub fn default_device_id() -> Option<String> {
+    cpal::default_host()
+        .default_output_device()
+        .and_then(|device| device.id().ok())
+        .map(|id| id.to_string())
+        .filter(|id| !is_unstable_id(id))
+}
+
+/// How to open the output.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct EngineOptions {
+    /// The device to use (an [`OutputDevice::id`]); `None`, or a device that
+    /// is gone, means the system default.
+    pub device_id: Option<String>,
+    /// Buffer size in frames, used when the device allows it.
+    pub buffer_size: Option<u32>,
+}
+
 /// The running playback engine. Dropping it closes the output.
 pub struct Engine {
     commands: Mutex<Producer<(DeckId, Command)>>,
@@ -65,14 +185,18 @@ pub struct Engine {
     device_error: Arc<AtomicBool>,
     stopping: Arc<AtomicBool>,
     sample_rate: u32,
+    /// The device actually opened.
+    device_id: String,
+    /// The buffer size asked for.
+    buffer_size: Option<u32>,
     /// Closing this ends the audio thread (which then drops the stream).
-    stop: Option<mpsc::Sender<()>>,
-    threads: Vec<JoinHandle<()>>,
+    stop: Mutex<Option<mpsc::Sender<()>>>,
+    threads: Mutex<Vec<JoinHandle<()>>>,
 }
 
 impl Engine {
-    /// Opens the default output device and starts the audio callback, silent
-    /// until a track is loaded and played.
+    /// Opens the output (the chosen device, else the system default) and
+    /// starts the audio callback, silent until a track is loaded and played.
     ///
     /// The cpal stream lives on its own thread: on some systems it cannot
     /// move between threads, and the app's state must.
@@ -81,7 +205,24 @@ impl Engine {
     ///
     /// [`EngineError::NoDevice`] without an output, [`EngineError::Device`]
     /// when the device cannot be opened.
-    pub fn start() -> Result<Self, EngineError> {
+    pub fn start(options: &EngineOptions) -> Result<Self, EngineError> {
+        match Self::start_on(options) {
+            Ok(engine) => Ok(engine),
+            // The chosen device is there but refuses to open: try the default.
+            Err(err) if options.device_id.is_some() => {
+                let default = EngineOptions {
+                    device_id: None,
+                    ..options.clone()
+                };
+                Self::start_on(&default).map_err(|_| err)
+            }
+            Err(err) => Err(err),
+        }
+    }
+
+    fn start_on(options: &EngineOptions) -> Result<Self, EngineError> {
+        let buffer_size = options.buffer_size;
+        let options = options.clone();
         let (commands, command_queue) = RingBuffer::new(COMMAND_CAPACITY);
         let (garbage_queue, garbage) = RingBuffer::new(GARBAGE_CAPACITY);
         let shared = Arc::new(Shared::default());
@@ -95,9 +236,15 @@ impl Engine {
         let audio = thread::Builder::new()
             .name("cratekit-audio".into())
             .spawn(move || {
-                match open_stream(command_queue, garbage_queue, audio_shared, audio_error) {
-                    Ok((stream, rate)) => {
-                        ready.send(Ok(rate)).ok();
+                match open_stream(
+                    command_queue,
+                    garbage_queue,
+                    audio_shared,
+                    audio_error,
+                    &options,
+                ) {
+                    Ok((stream, opened)) => {
+                        ready.send(Ok(opened)).ok();
                         // Keep the stream until the engine is dropped.
                         stopped.recv().ok();
                         drop(stream);
@@ -108,7 +255,7 @@ impl Engine {
                 }
             })
             .map_err(|err| EngineError::Device(err.to_string()))?;
-        let sample_rate = started
+        let (sample_rate, device_id) = started
             .recv()
             .map_err(|_| EngineError::Device("the audio thread stopped".into()))??;
 
@@ -124,9 +271,51 @@ impl Engine {
             device_error,
             stopping,
             sample_rate,
-            stop: Some(stop),
-            threads: vec![audio, cleanup],
+            device_id,
+            buffer_size,
+            stop: Mutex::new(Some(stop)),
+            threads: Mutex::new(vec![audio, cleanup]),
         })
+    }
+
+    /// The id of the device it opened (the system default when the chosen
+    /// one was missing).
+    #[must_use]
+    pub fn device_id(&self) -> &str {
+        &self.device_id
+    }
+
+    /// The buffer size it was asked to use (the device may not allow it).
+    #[must_use]
+    pub fn buffer_size(&self) -> Option<u32> {
+        self.buffer_size
+    }
+
+    /// Closes the output now, even while other handles to the engine are
+    /// alive: stops the stream and waits for its threads. Commands sent
+    /// afterwards go nowhere. Closing twice does nothing.
+    pub fn close(&self) {
+        self.stopping.store(true, Ordering::Relaxed);
+        // Closing the channel wakes the audio thread, which drops the stream.
+        self.stop
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .take();
+        let threads: Vec<_> = self
+            .threads
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .drain(..)
+            .collect();
+        for thread in threads {
+            thread.join().ok();
+        }
+    }
+
+    /// Whether [`close`](Self::close) was called.
+    #[must_use]
+    pub fn is_closed(&self) -> bool {
+        self.stopping.load(Ordering::Relaxed)
     }
 
     /// The device's sample rate; tracks are resampled to it.
@@ -144,7 +333,7 @@ impl Engine {
     ///
     /// [`EngineError::Audio`] if resampling fails.
     pub fn prepare(&self, audio: AudioBuffer) -> Result<Track, EngineError> {
-        Ok(prepare(audio, self.sample_rate)?)
+        prepare_track(audio, self.sample_rate)
     }
 
     /// Puts a prepared track on `deck`, ready to play from the start:
@@ -213,16 +402,13 @@ impl Engine {
 
 impl Drop for Engine {
     fn drop(&mut self) {
-        self.stopping.store(true, Ordering::Relaxed);
-        // Closing the channel wakes the audio thread, which drops the stream.
-        self.stop.take();
-        for thread in self.threads.drain(..) {
-            thread.join().ok();
-        }
+        self.close();
     }
 }
 
-/// Opens the default output and starts a stream that runs `Renderer::render`.
+/// Opens the output `options` asks for (else the default) and starts a
+/// stream that runs `Renderer::render`. Returns the stream, its sample rate
+/// and the id of the device it opened.
 ///
 /// Renders in `f32`. Uses the device's default format when it is `f32`, else
 /// an `f32` format the device also offers, else converts to its default
@@ -232,11 +418,23 @@ fn open_stream(
     garbage: Producer<Box<Track>>,
     shared: Arc<Shared>,
     device_error: Arc<AtomicBool>,
-) -> Result<(cpal::Stream, u32), EngineError> {
+    options: &EngineOptions,
+) -> Result<(cpal::Stream, (u32, String)), EngineError> {
     let failed = |err: &dyn std::fmt::Display| EngineError::Device(err.to_string());
-    let device = cpal::default_host()
-        .default_output_device()
-        .ok_or(EngineError::NoDevice)?;
+    let host = cpal::default_host();
+    let chosen_device = options.device_id.as_deref().and_then(|wanted| {
+        host.output_devices()
+            .ok()?
+            .find(|device| device.id().is_ok_and(|id| id.to_string() == wanted))
+    });
+    let device = match chosen_device {
+        Some(device) => device,
+        None => host.default_output_device().ok_or(EngineError::NoDevice)?,
+    };
+    let device_id = device
+        .id()
+        .map(|id| id.to_string())
+        .map_err(|err| failed(&err))?;
     let default = device.default_output_config().map_err(|err| failed(&err))?;
     let chosen = if default.sample_format() == SampleFormat::F32 {
         default
@@ -258,7 +456,16 @@ fn open_stream(
             .unwrap_or(default)
     };
     let format = chosen.sample_format();
-    let config = chosen.config();
+    let buffer_range = match chosen.buffer_size() {
+        SupportedBufferSize::Range { min, max } => Some((*min, *max)),
+        SupportedBufferSize::Unknown => None,
+    };
+    let mut config = chosen.config();
+    if let Some(frames) = options.buffer_size
+        && buffer_range.is_some_and(|(min, max)| (min..=max).contains(&frames))
+    {
+        config.buffer_size = BufferSize::Fixed(frames);
+    }
     let rate = config.sample_rate;
     let renderer = Renderer::new(
         commands,
@@ -280,7 +487,7 @@ fn open_stream(
     }
     .map_err(|err| failed(&err))?;
     stream.play().map_err(|err| failed(&err))?;
-    Ok((stream, rate))
+    Ok((stream, (rate, device_id)))
 }
 
 /// Builds an output stream in sample type `T`: the renderer fills a scratch
@@ -307,8 +514,13 @@ where
                 }
             }
         },
-        // Called from an audio context too: only set a flag.
-        move |_| device_error.store(true, Ordering::Relaxed),
+        // Called from an audio context too: only set a flag, and only for an
+        // error that means the output is gone (an xrun is not one).
+        move |err: cpal::Error| {
+            if is_fatal(err.kind()) {
+                device_error.store(true, Ordering::Relaxed);
+            }
+        },
         None,
     )
 }
@@ -378,6 +590,42 @@ mod tests {
                 track.samples().iter().all(|s| s.is_finite()),
                 "at {rate} Hz"
             );
+        }
+    }
+
+    #[test]
+    fn only_errors_that_mean_the_output_is_gone_restart_it() {
+        for kind in [
+            cpal::ErrorKind::DeviceNotAvailable,
+            cpal::ErrorKind::StreamInvalidated,
+            cpal::ErrorKind::HostUnavailable,
+            cpal::ErrorKind::BackendError,
+            cpal::ErrorKind::Other,
+        ] {
+            assert!(is_fatal(kind), "{kind:?}");
+        }
+        for kind in [
+            cpal::ErrorKind::Xrun,
+            cpal::ErrorKind::DeviceChanged,
+            cpal::ErrorKind::RealtimeDenied,
+            cpal::ErrorKind::DeviceBusy,
+        ] {
+            assert!(!is_fatal(kind), "{kind:?}");
+        }
+    }
+
+    #[test]
+    fn card_numbers_are_not_stable_device_ids() {
+        for id in ["alsa:hw:CARD=0,DEV=0", "alsa:plughw:CARD=12,DEV=3"] {
+            assert!(is_unstable_id(id), "{id}");
+        }
+        for id in [
+            "alsa:hw:CARD=USB,DEV=0",
+            "alsa:default",
+            "coreaudio:BuiltInSpeakerDevice",
+            "wasapi:{0.0.0.00000000}.{abc}",
+        ] {
+            assert!(!is_unstable_id(id), "{id}");
         }
     }
 }

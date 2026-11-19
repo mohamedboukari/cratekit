@@ -25,7 +25,7 @@ export const settings: Translation["settings"] = {
       "La sortie où Cratekit joue le son. Si l'appareil est débranché, la lecture passe sur la sortie par défaut du système.",
     device: "Appareil de sortie",
     noDevices: "Aucun appareil de sortie trouvé",
-    systemDefault: "{{name}} (par défaut du système)",
+    systemDefault: "Défaut du système ({{name}})",
     bufferSize: "Taille du tampon",
     bufferHint: "Plus petit, plus réactif. Augmentez-la si vous entendez des clics.",
     samples: "{{frames}} échantillons",

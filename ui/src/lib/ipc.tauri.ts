@@ -82,7 +82,6 @@ export function createTauriApi(): CratekitApi {
 
     audioListDevices: () => invoke("audio_list_devices"),
     audioSetDevice: (id) => invoke("audio_set_device", { id }),
-    audioSetBufferSize: (frames) => invoke("audio_set_buffer_size", { frames }),
 
     settingsGet: () => invoke("settings_get"),
     settingsSet: (key, value) => invoke("settings_set", { key, value }),

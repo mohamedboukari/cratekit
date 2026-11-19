@@ -143,8 +143,8 @@ export interface CratekitApi {
 
   // Audio output
   audioListDevices(): Promise<AudioDevice[]>;
+  /** Chooses the output; Rust saves it and moves playback there. The buffer size is a setting (`settingsSet("bufferSize", ...)`). */
   audioSetDevice(id: string): Promise<void>;
-  audioSetBufferSize(frames: number): Promise<void>;
 
   // Settings
   settingsGet(): Promise<Settings>;

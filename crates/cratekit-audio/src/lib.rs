@@ -9,7 +9,10 @@
 mod engine;
 pub mod renderer;
 
-pub use engine::{Engine, EngineError, Status};
+pub use engine::{
+    Engine, EngineError, EngineOptions, OutputDevice, Status, default_device_id, is_fatal,
+    output_device_ids, output_devices, prepare_track,
+};
 pub use renderer::{DeckId, Track};
 
 /// Number of output channels the engine renders (stereo).
