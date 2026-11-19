@@ -28,10 +28,12 @@ export const dialogs: Translation["dialogs"] = {
   },
   modelDownload: {
     title: "Télécharger le modèle de stems",
-    sizeUnknown: "environ 200 Mo",
+    sizeUnknown: "environ 170 Mo",
     size: "{{mb}} Mo",
     description:
-      "La séparation des stems utilise le modèle htdemucs ({{size}}). Il est téléchargé une seule fois, sa somme de contrôle est vérifiée, et il reste sur cet ordinateur. C'est la seule fois où Cratekit se connecte à Internet.",
+      "La séparation des stems utilise le modèle htdemucs ({{size}}), téléchargé depuis Hugging Face (la conversion par Intel de Demucs de Meta). Il est téléchargé une seule fois, sa somme de contrôle est vérifiée, et il reste sur cet ordinateur. C'est la seule fois où Cratekit se connecte à Internet.",
+    licence:
+      "Le code de Demucs est open source, mais la licence des poids entraînés du modèle n'est pas claire : ils ont été entraînés en partie sur des données réservées à la recherche. Cratekit ne les inclut pas ; téléchargez-les uniquement pour votre usage personnel.",
     cancel: "Annuler le téléchargement",
     hide: "Masquer",
     notNow: "Plus tard",

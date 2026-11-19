@@ -42,6 +42,17 @@ ort = { version = "=2.0.0-rc.15", default-features = false, features = [
   "load-dynamic",
   "api-23",
 ] }
+# HTTPS for the one network call in the app: the opt-in stems model download (#30). Approved
+# 2026-11-19. ureq (blocking; MIT OR Apache-2.0) with rustls (Apache-2.0 OR ISC OR MIT) and ring
+# (Apache-2.0 AND ISC), and the
+# OS's own trusted certificates (rustls-platform-verifier): no certificate bundle, no OpenSSL.
+ureq = { version = "3.5", default-features = false, features = [
+  "rustls-no-provider",
+  "platform-verifier",
+] }
+rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
+# SHA-256 of the downloaded model files (already in the tree through rustls).
+ring = "0.17"
 # Lock-free single-producer single-consumer queues for the audio thread (MIT OR Apache-2.0); the stack's choice.
 rtrb = "0.4"
 # Resampling (MIT OR Apache-2.0; deps MIT or Apache-2.0); approved 2026-11-18.

@@ -27,6 +27,7 @@ import type { LibraryCounts as RustLibraryCounts } from "@/lib/bindings/LibraryC
 import type { LibraryQuery as RustLibraryQuery } from "@/lib/bindings/LibraryQuery";
 import type { MenuLabels as RustMenuLabels } from "@/lib/bindings/MenuLabels";
 import type { Meter } from "@/lib/bindings/Meter";
+import type { ModelStatus as RustModelStatus } from "@/lib/bindings/ModelStatus";
 import type { PlaybackState as RustPlaybackState } from "@/lib/bindings/PlaybackState";
 import type { Position } from "@/lib/bindings/Position";
 import type { Settings as RustSettings } from "@/lib/bindings/Settings";
@@ -50,6 +51,7 @@ import type {
   LibraryQuery,
   MenuLabels,
   MeterReading,
+  ModelStatus,
   PlaybackState,
   Settings,
   TrackDetail,
@@ -77,6 +79,10 @@ describe("IPC contract: Rust payloads fit the UI types", () => {
     expectTypeOf<RustJobDone>().toExtend<JobDone>();
     expectTypeOf<RustJobFailed>().toExtend<JobFailed>();
     expectTypeOf<RustAppError>().toExtend<AppError>();
+  });
+
+  it("models", () => {
+    expectTypeOf<RustModelStatus>().toExtend<ModelStatus>();
   });
 
   it("playback and audio devices", () => {

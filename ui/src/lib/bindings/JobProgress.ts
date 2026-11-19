@@ -11,7 +11,8 @@ export type JobProgress = { jobId: string, kind: JobKind,
  */
 label: string, stage: JobStage | null, trackIds: Array<number>, 
 /**
- * Progress steps (not tracks): analysis counts `STEPS_PER_TRACK` per track.
+ * Progress steps (not tracks): analysis counts `STEPS_PER_TRACK` per
+ * track, the model download `DOWNLOAD_STEPS` in all.
  */
 done: number, total: number, 
 /**

@@ -308,7 +308,7 @@ export const MASTER_PRESETS: MasterPreset[] = [
 ];
 
 export const MODELS: ModelStatus[] = [
-  { name: "htdemucs", sizeBytes: 209_715_200, downloaded: false },
+  { name: "htdemucs", sizeBytes: 170_747_491, downloaded: false },
 ];
 
 /** Demo settings: the real defaults plus a device and folders, so screens look filled. */

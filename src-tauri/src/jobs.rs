@@ -1,5 +1,6 @@
-//! The background job queue: analysis jobs run one at a time on a worker
-//! thread, report progress as events, and can be cancelled or paused.
+//! The background jobs: analysis jobs run one at a time on a worker thread
+//! and can be paused; the model download runs on its own thread. All report
+//! progress as events and can be cancelled.
 //!
 //! Events (see docs/ARCHITECTURE.md, IPC): `job_progress`, `job_done`,
 //! `job_failed`. A cancelled job sends nothing more (the UI already dropped
@@ -15,6 +16,7 @@ use cratekit_core::CoreError;
 use cratekit_core::analysis::track::{TrackAnalysis, analyze_file};
 use cratekit_core::library::{Library, TrackId};
 use cratekit_core::progress::{CancellationToken, ProgressSink};
+use cratekit_core::stems::models::{Model, Stage};
 use serde::Serialize;
 use tauri::{AppHandle, Emitter, Manager, Runtime};
 
@@ -25,23 +27,38 @@ use crate::library::LibraryState;
 /// these, so a single track still moves smoothly).
 const STEPS_PER_TRACK: u32 = 100;
 
-/// What a job does (the UI's `JobKind`). Only analysis exists so far; stems,
-/// mastering, export and the model download add their own.
+/// What a job does (the UI's `JobKind`). Stems, mastering and export add
+/// their own.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export))]
 #[serde(rename_all = "kebab-case")]
 pub(crate) enum JobKind {
     /// Tempo, key, loudness and energy of tracks.
     Analysis,
+    /// The stems model download.
+    ModelDownload,
 }
 
-/// A step inside a multi-step job (the UI's `JobStage`). No job has steps
-/// yet, so this has no variants and `Option<JobStage>` is always `None`; the
-/// model download (#30) adds `Download` and `Verify`.
+/// A step inside a multi-step job (the UI's `JobStage`): the model download
+/// receives the files, then checks their SHA-256.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export))]
 #[serde(rename_all = "kebab-case")]
-pub(crate) enum JobStage {}
+pub(crate) enum JobStage {
+    /// Receiving the files.
+    Download,
+    /// Checking their checksums.
+    Verify,
+}
+
+impl From<Stage> for JobStage {
+    fn from(stage: Stage) -> Self {
+        match stage {
+            Stage::Download => Self::Download,
+            Stage::Verify => Self::Verify,
+        }
+    }
+}
 
 /// `job_progress`: the UI's `JobProgress`.
 #[derive(Debug, Clone, PartialEq, Serialize)]
@@ -54,7 +71,8 @@ pub(crate) struct JobProgress {
     label: String,
     stage: Option<JobStage>,
     track_ids: Vec<TrackId>,
-    /// Progress steps (not tracks): analysis counts `STEPS_PER_TRACK` per track.
+    /// Progress steps (not tracks): analysis counts `STEPS_PER_TRACK` per
+    /// track, the model download `DOWNLOAD_STEPS` in all.
     done: u32,
     total: u32,
     /// Waiting for an earlier job (or a resume), not started yet.
@@ -76,6 +94,40 @@ impl JobProgress {
             queued,
         }
     }
+}
+
+impl JobProgress {
+    /// A model download's progress event (`fraction` of the whole model).
+    fn model_download(job_id: &str, model: &str, stage: Stage, fraction: f32) -> Self {
+        let label = match stage {
+            Stage::Download => format!("Downloading {model}"),
+            Stage::Verify => format!("Verifying {model} checksum"),
+        };
+        Self {
+            job_id: job_id.to_owned(),
+            kind: JobKind::ModelDownload,
+            label,
+            stage: Some(stage.into()),
+            track_ids: Vec::new(),
+            done: step_of(fraction),
+            total: DOWNLOAD_STEPS,
+            queued: false,
+        }
+    }
+}
+
+/// Progress steps of a whole model download.
+const DOWNLOAD_STEPS: u32 = 1000;
+
+/// The step (0 to `DOWNLOAD_STEPS`) a fraction of the download reached.
+fn step_of(fraction: f32) -> u32 {
+    #[expect(
+        clippy::cast_possible_truncation,
+        clippy::cast_sign_loss,
+        reason = "clamped to 0 to DOWNLOAD_STEPS, which u32 holds"
+    )]
+    let step = (fraction.clamp(0.0, 1.0) * DOWNLOAD_STEPS as f32).round() as u32;
+    step
 }
 
 /// `job_done`: the UI's `JobDone`.
@@ -136,6 +188,9 @@ struct Queue {
     waiting: VecDeque<Job>,
     running: Option<Job>,
     paused: bool,
+    /// The model download, which runs on its own thread (not behind the
+    /// analysis queue): its job id and how to cancel it.
+    download: Option<(String, CancellationToken)>,
 }
 
 /// The job queue in the app's state.
@@ -174,6 +229,9 @@ impl Jobs {
         if let Some(job) = queue.running.as_ref().filter(|job| job.id == job_id) {
             job.cancel.cancel();
         }
+        if let Some((_, cancel)) = queue.download.as_ref().filter(|(id, _)| id == job_id) {
+            cancel.cancel();
+        }
         // A running job waiting for a resume wakes up and stops.
         self.queue.1.notify_all();
     }
@@ -183,6 +241,85 @@ impl Jobs {
     pub(crate) fn set_paused(&self, paused: bool) {
         self.lock().paused = paused;
         self.queue.1.notify_all();
+    }
+
+    /// Downloads `model` into `models_dir` on its own thread and returns the
+    /// job id. While a download runs, asking again returns its id instead of
+    /// starting a second one (both would write the same files).
+    pub(crate) fn start_download<E: JobEvents + Clone + 'static>(
+        &self,
+        model: Model,
+        models_dir: PathBuf,
+        events: E,
+    ) -> String {
+        let (id, cancel) = {
+            let mut queue = self.lock();
+            if let Some((id, _)) = &queue.download {
+                return id.clone();
+            }
+            let id = format!("job-{}", self.next_id.fetch_add(1, Ordering::Relaxed) + 1);
+            let cancel = CancellationToken::new();
+            queue.download = Some((id.clone(), cancel.clone()));
+            (id, cancel)
+        };
+        events.progress(JobProgress::model_download(
+            &id,
+            model.name,
+            Stage::Download,
+            0.0,
+        ));
+        let jobs = self.clone();
+        let job_id = id.clone();
+        std::thread::spawn(move || {
+            jobs.run_download(&job_id, model, &models_dir, &events, &cancel);
+            jobs.lock().download = None;
+        });
+        id
+    }
+
+    /// Whether a model download is running.
+    pub(crate) fn is_downloading(&self) -> bool {
+        self.lock().download.is_some()
+    }
+
+    /// Runs one model download and reports it (cancelled: nothing more).
+    fn run_download(
+        &self,
+        job_id: &str,
+        model: Model,
+        models_dir: &Path,
+        events: &dyn JobEvents,
+        cancel: &CancellationToken,
+    ) {
+        // Report whole steps only: about a thousand events for the download.
+        let last = AtomicU64::new(u64::MAX);
+        let progress = |stage: Stage, fraction: f32| {
+            let key = u64::from(step_of(fraction)) | (u64::from(stage == Stage::Verify) << 32);
+            if last.swap(key, Ordering::Relaxed) != key {
+                events.progress(JobProgress::model_download(
+                    job_id, model.name, stage, fraction,
+                ));
+            }
+        };
+        let outcome = catch_unwind(AssertUnwindSafe(|| {
+            model.download(models_dir, &progress, cancel)
+        }))
+        .unwrap_or(Err(CoreError::Download {
+            url: String::new(),
+            reason: "the download stopped unexpectedly".to_owned(),
+        }));
+        match outcome {
+            Ok(()) => events.done(JobDone {
+                job_id: job_id.to_owned(),
+                kind: JobKind::ModelDownload,
+            }),
+            Err(CoreError::Cancelled) => {}
+            Err(err) => events.failed(JobFailed {
+                job_id: job_id.to_owned(),
+                kind: JobKind::ModelDownload,
+                error: err.into(),
+            }),
+        }
     }
 
     /// Waits until the queue is not paused (or `cancel` fires). Returns
@@ -400,6 +537,100 @@ mod tests {
         }
     }
 
+    /// Shares a recorder with the download thread.
+    impl JobEvents for Arc<Recorder> {
+        fn progress(&self, event: JobProgress) {
+            self.as_ref().progress(event);
+        }
+        fn done(&self, event: JobDone) {
+            self.as_ref().done(event);
+        }
+        fn failed(&self, event: JobFailed) {
+            self.as_ref().failed(event);
+        }
+    }
+
+    /// A one-file model fetched from `url` (leaked: tests only).
+    fn model_at(url: String, size: u64) -> Model {
+        let files = vec![cratekit_core::stems::models::ModelFile {
+            name: "graph",
+            url: Box::leak(url.into_boxed_str()),
+            size,
+            sha256: "0000000000000000000000000000000000000000000000000000000000000000",
+        }];
+        Model {
+            name: "test-model",
+            files: Box::leak(files.into_boxed_slice()),
+        }
+    }
+
+    /// Waits until the download thread is done.
+    fn wait_for_download(jobs: &Jobs) {
+        for _ in 0..500 {
+            if !jobs.is_downloading() {
+                return;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(10));
+        }
+        panic!("the download did not finish");
+    }
+
+    #[test]
+    fn a_downloaded_model_finishes_without_the_network() {
+        let dir = std::env::temp_dir().join(format!("cratekit-jobs-dl-{}", std::process::id()));
+        let model = model_at("http://127.0.0.1:9/never".into(), 3);
+        std::fs::create_dir_all(model.dir(&dir)).unwrap();
+        std::fs::write(model.dir(&dir).join("graph"), b"abc").unwrap();
+        let (jobs, recorder) = (Jobs::default(), Arc::new(Recorder::default()));
+
+        let id = jobs.start_download(model, dir.clone(), Arc::clone(&recorder));
+        wait_for_download(&jobs);
+
+        let events = recorder.take();
+        assert_eq!(events.first().map(String::as_str), Some("progress 0/1000"));
+        assert_eq!(events.last(), Some(&format!("done {id}")));
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn a_failed_download_is_reported_with_the_download_code() {
+        // Nothing listens on this port: the connection is refused.
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let url = format!("http://{}/graph", listener.local_addr().unwrap());
+        drop(listener);
+        let dir = std::env::temp_dir().join(format!("cratekit-jobs-fail-{}", std::process::id()));
+        let (jobs, recorder) = (Jobs::default(), Arc::new(Recorder::default()));
+
+        let id = jobs.start_download(model_at(url, 3), dir.clone(), Arc::clone(&recorder));
+        wait_for_download(&jobs);
+
+        let events = recorder.take();
+        let last = events.last().expect("an event");
+        assert!(
+            last.starts_with(&format!("failed {id} download:")),
+            "{last}"
+        );
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn a_second_download_request_joins_the_running_one() {
+        // Accepts connections but never answers, so the download stays running.
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let url = format!("http://{}/graph", listener.local_addr().unwrap());
+        let dir = std::env::temp_dir().join(format!("cratekit-jobs-join-{}", std::process::id()));
+        let (jobs, recorder) = (Jobs::default(), Arc::new(Recorder::default()));
+
+        let first =
+            jobs.start_download(model_at(url.clone(), 3), dir.clone(), Arc::clone(&recorder));
+        let second = jobs.start_download(model_at(url, 3), dir.clone(), Arc::clone(&recorder));
+
+        assert_eq!(first, second);
+        assert!(jobs.is_downloading());
+        drop(listener);
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
     fn fixture(name: &str) -> PathBuf {
         Path::new(env!("CARGO_MANIFEST_DIR"))
             .join("../crates/cratekit-core/tests/fixtures")
@@ -568,6 +799,14 @@ mod tests {
             serde_json::to_value(failed).unwrap(),
             serde_json::json!({
                 "jobId": "job-3", "kind": "analysis", "error": { "code": "io", "message": "x" }
+            })
+        );
+        let download = JobProgress::model_download("job-4", "htdemucs", Stage::Verify, 0.5);
+        assert_eq!(
+            serde_json::to_value(download).unwrap(),
+            serde_json::json!({
+                "jobId": "job-4", "kind": "model-download", "label": "Verifying htdemucs checksum",
+                "stage": "verify", "trackIds": [], "done": 500, "total": 1000, "queued": false
             })
         );
     }
