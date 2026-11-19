@@ -45,7 +45,7 @@ v0.1 in about 8 weeks of part-time work. Each phase ends with a gate: the test D
 - [x] Background analysis queue with progress events (#15)
 - [x] UI: typed IPC layer (`ui/src/lib/ipc.ts`) (#16)
 - [x] UI: window layout (sidebar, deck, tabs, track browser, status bar) (#17)
-- [ ] UI: Analyze tab (key, chroma bars, mixes-well-with chips) (#18)
+- [x] UI: Analyze tab (key, chroma bars, mixes-well-with chips) (#18)
 - [ ] Set builder: side list to stage tracks and build a set (#55)
 - [ ] DJ filter knob on the deck (#56)
 - [x] Playback: load, play/pause, seek, waveform playhead (canvas, outside React renders) (#19)

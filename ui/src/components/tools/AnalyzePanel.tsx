@@ -41,7 +41,7 @@ function analyze(detail: TrackDetail): void {
 }
 
 /**
- * Analyze tab (#18, UI side): key and Camelot, chroma, mixes-well-with chips
+ * Analyze tab (#18): key and Camelot, chroma, mixes-well-with chips
  * that filter the browser, tempo, cue points that seek, and loudness. Every
  * value comes from Rust's analysis; nothing is computed here.
  */
