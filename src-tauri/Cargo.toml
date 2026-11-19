@@ -23,6 +23,11 @@ serde = { workspace = true }
 serde_json = { workspace = true }
 tauri = { workspace = true }
 tauri-plugin-dialog = { workspace = true }
+ts-rs = { workspace = true, optional = true }
+
+[features]
+# TypeScript bindings of the IPC payloads, written to ui/src/lib/bindings by the tests (#16).
+ts = ["dep:ts-rs", "cratekit-core/ts"]
 
 [lints]
 workspace = true

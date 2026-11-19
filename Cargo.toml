@@ -31,6 +31,9 @@ tauri-build = { version = "2.7", features = [] }
 # Native file and folder pickers (MIT OR Apache-2.0, Tauri team); approved 2026-11-15.
 tauri-plugin-dialog = "2.8"
 thiserror = "2"
+# TypeScript types of the IPC payloads, generated from the Rust structs (#16) (MIT; deps MIT or
+# Apache-2.0); approved 2026-11-19. Only behind the `ts` features, used by tests: never in the app.
+ts-rs = "12"
 # Lock-free single-producer single-consumer queues for the audio thread (MIT OR Apache-2.0); the stack's choice.
 rtrb = "0.4"
 # Resampling (MIT OR Apache-2.0; deps MIT or Apache-2.0); approved 2026-11-18.

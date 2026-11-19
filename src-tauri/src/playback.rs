@@ -325,12 +325,14 @@ fn internal(err: tauri::Error) -> AppError {
 
 /// `playback_position`: the UI's position event.
 #[derive(Debug, Clone, Copy, PartialEq, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export))]
 struct Position {
     sec: f64,
 }
 
 /// `meter`: the UI's `MeterReading`.
 #[derive(Debug, Clone, Copy, PartialEq, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export))]
 #[serde(rename_all = "camelCase")]
 struct Meter {
     peak_db: f32,
@@ -339,12 +341,14 @@ struct Meter {
 
 /// `playback_state`: the UI's `PlaybackState`.
 #[derive(Debug, Clone, Copy, PartialEq, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export))]
 struct PlaybackState {
     playing: bool,
 }
 
 /// Why the output device changed (the UI's `AudioDeviceChanged.reason`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export))]
 #[serde(rename_all = "kebab-case")]
 pub(crate) enum DeviceChange {
     /// The user picked it (or the picked device came back).
@@ -361,6 +365,7 @@ pub(crate) enum DeviceChange {
 
 /// `audio_device_changed`: the UI's `AudioDeviceChanged`.
 #[derive(Debug, Clone, PartialEq, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export))]
 pub(crate) struct DeviceChanged {
     id: String,
     reason: DeviceChange,
@@ -650,6 +655,7 @@ pub(crate) async fn playback_set_filter(app: AppHandle, value: f32) -> Result<()
 
 /// An output device as the UI's `AudioDevice`.
 #[derive(Debug, Clone, PartialEq, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export))]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct AudioDeviceDto {
     id: String,

@@ -17,12 +17,15 @@ serde_json = { workspace = true }
 stratum-dsp = { workspace = true, optional = true }
 symphonia = { workspace = true }
 thiserror = { workspace = true }
+ts-rs = { workspace = true, optional = true }
 
 [features]
 # Synthetic test audio (`synth` module) for other crates' tests; never in release builds.
 test-helpers = []
 # The stratum-dsp detectors (`analysis::stratum`); off by default, our own detectors are the default.
 stratum = ["dep:stratum-dsp"]
+# TypeScript bindings of the IPC payloads, written to ui/src/lib/bindings by the tests (#16).
+ts = ["dep:ts-rs"]
 
 [lints]
 workspace = true

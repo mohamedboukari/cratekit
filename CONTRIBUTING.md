@@ -59,6 +59,7 @@ These come from [CLAUDE.md](CLAUDE.md), which holds the full project conventions
 
 - **Rust:** edition 2024, Clippy clean with `-D warnings`. No `unwrap()` or `expect()` in library code (return typed errors with `thiserror`); use `#[expect(lint, reason = "...")]` instead of `#[allow]`. Every DSP function gets a unit test with synthetic audio.
 - **UI:** TypeScript strict, no `any`, no unsafe casts. React function components; all calls to Rust go through `ui/src/lib/ipc.ts`.
+- **IPC payload types:** `ui/src/lib/bindings/` is generated from the Rust structs by the Rust tests (ts-rs). After changing a payload struct, run `bun run test:rust` and commit the updated files; CI fails when they are stale. See `docs/ARCHITECTURE.md`, IPC.
 - **Docs:** update the relevant files in `docs/` and add a `CHANGELOG.md` entry under `[Unreleased]` in the same PR.
 
 ## Reporting bugs and security issues

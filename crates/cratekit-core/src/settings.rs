@@ -16,6 +16,7 @@ pub const BUFFER_SIZES: [u32; 4] = [128, 256, 512, 1024];
 
 /// The UI language. English for everyone until the user picks another.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export))]
 #[serde(rename_all = "lowercase")]
 pub enum Language {
     /// English, the default.
@@ -27,6 +28,7 @@ pub enum Language {
 
 /// Where stems run: the GPU when one is supported, or always the CPU.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export))]
 #[serde(rename_all = "lowercase")]
 pub enum StemsBackend {
     /// The GPU when supported, else the CPU.
@@ -39,6 +41,7 @@ pub enum StemsBackend {
 /// Every setting (the UI's `Settings`). Missing fields take their default,
 /// so a database from an older version still loads.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export))]
 #[serde(rename_all = "camelCase", default)]
 pub struct Settings {
     /// The UI language.
