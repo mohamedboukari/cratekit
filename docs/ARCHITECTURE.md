@@ -307,6 +307,7 @@ Intensity `k` (0 to 1): EQ gain × k, ratio = 1 + (ratio − 1) × k, makeup int
 | UI checks | TypeScript 7 (`tsc`), oxlint + tsgolint, Prettier, knip, Vitest | `ui/tsconfig.json`, `.oxlintrc.json`, `.prettierrc`, `knip.json`, `ui/vite.config.ts` |
 | Git hooks | husky, lint-staged, commitlint | `.husky/`, `package.json` (`lint-staged`), `commitlint.config.ts` |
 | CI | GitHub Actions, actions pinned by SHA | `.github/workflows/ci.yml` |
+| Installers | Unsigned `tauri build` per target, checked against the minimum OS versions and the size budget; manual, weekly and on bundling changes (#113) | `.github/workflows/installers.yml`, `.github/scripts/check-installer.sh` |
 
 `bun run check` runs every gate in the same order as the pre-push hook and CI.
 
@@ -322,7 +323,7 @@ Why these minimums:
 
 - **macOS 14.2:** cpal 0.18 links Core Audio process-tap functions that exist only from 14.2. With a deployment target of 12 or later they bind at launch, so an older macOS would refuse to start the app with "Symbol not found". ONNX Runtime also needs 14.0. `bundle.macOS.minimumSystemVersion` in `tauri.conf.json` is `14.2`; Tauri passes it to release builds as `MACOSX_DEPLOYMENT_TARGET`, and macOS shows a clear "needs a newer macOS" message instead of crashing.
 - **Windows:** Rust's MSVC targets need Windows 10. WebView2 is part of Windows 10 (1803+) and 11, and Microsoft updates it on 10 22H2 until at least October 2028. The installer keeps Tauri's default WebView2 mode (download only if missing); the offline WebView2 installer would add about 127 MB and break the 60 MB budget. Windows on ARM devices run Windows 11 in practice.
-- **Linux:** Tauri 2 needs WebKitGTK 4.1 (Ubuntu 22.04+, Debian 12+; not Debian 11). An AppImage needs a glibc at least as new as the build machine's, so **release builds run on `ubuntu-22.04` and `ubuntu-22.04-arm`**, the oldest base we support (CI tests run on 24.04).
+- **Linux:** Tauri 2 needs WebKitGTK 4.1 (Ubuntu 22.04+, Debian 12+; not Debian 11). An AppImage needs a glibc at least as new as the build machine's, so **installers are built on `ubuntu-22.04` and `ubuntu-22.04-arm`**, the oldest base we support (CI tests run on 24.04).
 
 Native dependencies per target:
 
@@ -347,7 +348,13 @@ Rules:
 - **Native dependencies must exist for every target.** Before adopting a crate with prebuilt binaries, check the binaries per target, their minimum OS and glibc, and their CPU baseline (for example x86-64-v3), and record the result in the table above. SQLite (rusqlite `bundled`) compiles from source, so it works everywhere.
 - **Floating point:** do not rely on CPU-specific flush-to-zero modes; flush denormals in code inside the DSP and audio callback paths.
 - **CI builds and tests natively on each architecture** (GitHub-hosted macOS arm64 and Intel, Windows x64 and ARM64, Linux x64 and arm64 runners), not only cross-compiles. The Intel macOS runner (`macos-15-intel`) is GitHub's last one and retires around fall 2027; after that, Intel builds are cross-compiled.
-- **Not tested in CI yet:** packaged installers and their size, launching on the minimum OS versions, real audio output (runners have no audio device) and GPU providers. CI installer builds (#113) cover the first two; launch tests on the minimum OS versions are manual (#116).
+- **Installer checks (`installers.yml`, #113):** every target builds its installer (macOS universal dmg, msi on x64 and ARM64, AppImage on x64 and arm64), and `check-installer.sh` fails the job when:
+  - macOS: any architecture of the app binary, or `Info.plist`, has a minimum other than `bundle.macOS.minimumSystemVersion`;
+  - Linux: any binary in the AppImage needs a glibc newer than 2.35 (Ubuntu 22.04);
+  - Windows: the app imports a Visual C++ runtime DLL (Tauri links it statically, so users never install a redistributable).
+
+  Each job reports the installer size against the 60 MB budget (a warning above it) and keeps the unsigned installer as a workflow artifact for 14 days. Whether a macOS library uses an API newer than the minimum cannot be checked from the binary; the launch tests cover that.
+- **Not tested in CI yet:** launching on the minimum OS versions (manual, #116), real audio output (runners have no audio device) and GPU providers.
 
 ## MIDI notes
 

@@ -1,0 +1,35 @@
+name: Tauri system dependencies (Linux)
+description: Installs the packages Tauri and cpal need on Ubuntu, with retries against slow mirrors.
+
+# The runner's regional Ubuntu mirror is sometimes extremely slow (it trickles
+# bytes, so apt's own timeouts never fire) and the step hung until the job
+# limit. Each attempt is killed after 4 minutes, and the retries switch to the
+# main Ubuntu mirror. Used by ci.yml and installers.yml.
+
+runs:
+  using: composite
+  steps:
+    - name: Install packages
+      shell: bash
+      run: |
+        APT_OPTS="-o Acquire::Retries=3 -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30"
+        PACKAGES="libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf libasound2-dev"
+        for attempt in 1 2 3; do
+          if [ "$attempt" -gt 1 ]; then
+            echo "Attempt $attempt of 3: switching to the main Ubuntu mirror"
+            # GitHub's images read the mirror from a list (mirror+file:).
+            if [ -f /etc/apt/apt-mirrors.txt ]; then
+              echo "http://archive.ubuntu.com/ubuntu/" | sudo tee /etc/apt/apt-mirrors.txt > /dev/null
+            fi
+            for list in /etc/apt/sources.list /etc/apt/sources.list.d/*.sources; do
+              [ -f "$list" ] && sudo sed -i -E 's#https?://[a-z0-9.-]+\.archive\.ubuntu\.com/ubuntu#http://archive.ubuntu.com/ubuntu#g' "$list"
+            done
+            sudo dpkg --configure -a || true
+          fi
+          if sudo timeout 240 apt-get $APT_OPTS update \
+            && sudo timeout 240 apt-get $APT_OPTS install -y $PACKAGES; then
+            exit 0
+          fi
+          echo "apt failed or was too slow (attempt $attempt of 3)"
+        done
+        exit 1
