@@ -76,7 +76,7 @@ Stems
 - [ ] UI: Stems tab; export WAVs (#35)
 - [ ] **Research:** stems on Intel Macs, where no ONNX Runtime build exists (#114)
 - [ ] ONNX Runtime linking (run-time load or static) and the CPU (AVX2), glibc and Windows 10 checks for stems (#115)
-- [ ] CI: unsigned installer builds on every target that check the minimum OS versions and installer sizes (#113)
+- [x] CI: unsigned installer builds on every target that check the minimum OS versions and installer sizes (#113)
 
 **Gate:** the DJ uses at least one master or one acapella in a real set or edit.
 
