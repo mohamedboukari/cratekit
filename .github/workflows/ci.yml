@@ -45,21 +45,29 @@ jobs:
         with:
           persist-credentials: false
 
-      # The Ubuntu mirror sometimes stalls in the middle of a download, and apt
-      # then waits until the job limit. Time out stalled requests and retry,
-      # and cap the step so the worst case fails in minutes instead of hours.
+      # The runner's regional Ubuntu mirror is sometimes extremely slow (it
+      # trickles bytes, so apt's own timeouts never fire) and the step hung
+      # until the job limit. Each attempt is killed after 4 minutes, and the
+      # retries switch to the main Ubuntu mirror.
       - name: Tauri system dependencies (Linux)
         if: runner.os == 'Linux'
-        timeout-minutes: 10
+        timeout-minutes: 15
         run: |
-          APT_OPTS="-o Acquire::Retries=5 -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30"
+          APT_OPTS="-o Acquire::Retries=3 -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30"
+          PACKAGES="libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf libasound2-dev"
           for attempt in 1 2 3; do
-            if sudo apt-get $APT_OPTS update \
-              && sudo apt-get $APT_OPTS install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf libasound2-dev; then
+            if [ "$attempt" -gt 1 ]; then
+              echo "Attempt $attempt of 3: switching to the main Ubuntu mirror"
+              for list in /etc/apt/sources.list /etc/apt/sources.list.d/*.sources; do
+                [ -f "$list" ] && sudo sed -i -E 's#https?://[a-z0-9.-]+\.archive\.ubuntu\.com/ubuntu#http://archive.ubuntu.com/ubuntu#g' "$list"
+              done
+              sudo dpkg --configure -a || true
+            fi
+            if sudo timeout 240 apt-get $APT_OPTS update \
+              && sudo timeout 240 apt-get $APT_OPTS install -y $PACKAGES; then
               exit 0
             fi
-            echo "apt failed (attempt $attempt of 3); retrying in 15 s"
-            sleep 15
+            echo "apt failed or was too slow (attempt $attempt of 3)"
           done
           exit 1
 

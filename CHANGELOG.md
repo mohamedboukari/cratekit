@@ -38,7 +38,7 @@ All notable changes to Cratekit are documented here. The format follows [Keep a 
 
 ### Changed
 
-- CI: the Linux system packages step now times out stalled downloads (30 s, apt retries 5 times), retries the install up to 3 times and stops after 10 minutes; the Ubuntu mirror had hung the job three times.
+- CI: the Linux system packages step kills each attempt after 4 minutes and retries up to 3 times, switching from the runner's regional Ubuntu mirror to the main one; the slow mirror had hung the job until the time limit.
 - UI stack: React 19 + Vite + TypeScript with bun and Vitest (the first draft said Svelte 5 with pnpm).
 - Database notes: SQLite through rusqlite in WAL mode with a single writer connection.
 - Platforms: macOS universal (arm64 + x86_64), Windows x86_64 + ARM64, Linux x86_64 + arm64, all tested in CI. Stems use the GPU when available (CoreML / DirectML) with CPU fallback.
