@@ -2,7 +2,7 @@
 
 Stem separation (SPEC, Module 4): vocals, drums, bass and other with htdemucs on ONNX Runtime. The decisions behind it (runtime, libraries per target, model and its licence, CoreML) are in `docs/ARCHITECTURE.md`, Stems notes (#29). This page covers the code.
 
-So far: loading ONNX Runtime (#115) and downloading the model (#30). The separator (#31) and backend selection (#32) come next.
+So far: loading ONNX Runtime (#115), downloading the model (#30) and the separator (#31, the core part). Bundling ONNX Runtime in the installers and the stems job in the app (#31, #33), and backend selection (#32) come next.
 
 ## Loading ONNX Runtime (`stems::runtime`)
 
@@ -38,6 +38,21 @@ A connection that stalls mid-file (no data for 30 s) fails the download, keeping
 
 `models_status`, `models_download(name)` and `models_delete(name)` (src-tauri `models.rs`); the models live in `models/` in the app data folder. The download is a job (`kind: model-download`, stages `download` then `verify`, 1000 steps) on its own thread, so it never waits behind an analysis; `job_cancel` stops it, and asking again while it runs returns the same job id (two downloads would write the same files). Deleting is refused (`busy`) during a download. The download dialog says where the model comes from and that the licence of its weights is unclear (personal use).
 
+## The separator (`stems::htdemucs`, `stems::dsp`)
+
+`HtDemucs::new(runtime, model_dir)` loads the model on the CPU; `separate(audio, progress, cancel)` (the `StemSeparator` trait) returns `Stems { drums, bass, other, vocals }`, each 44.1 kHz stereo. The app depends on the trait, not on the model.
+
+Intel's split export runs only the network; `stems::dsp` does the rest, as the reference implementation (adefossez/demucs `spec.py`, `htdemucs.py`, `apply.py`, `api.py`, MIT):
+
+1. Resample to 44.1 kHz (mono is used for both channels). Normalize the whole track by the mean and standard deviation of its mono mix.
+2. Cut it into 7.8 s segments (343,980 samples) every 257,985 samples (25% overlap); a short last segment is centred in a full window, with the track's own samples around it.
+3. Per segment: the STFT (n_fft 4096, hop 1024, periodic Hann, normalized, centred with reflection, plus the model's own padding; the Nyquist bin and two frames at each end dropped), complex values as channels `[1, 4, 2048, 336]`, and the waveform `[1, 2, 343980]`, each normalized by its own mean and standard deviation. The graph has no normalization inside: doubling its input changes its output by about 1.2 times, not 1 or 2.
+4. The outputs `[1, 16, 2048, 336]` and `[1, 8, 343980]`: undo both normalizations, inverse STFT, add the two branches.
+5. Blend the segments with triangular weights, undo the track normalization.
+6. Keep drums, bass and vocals; **"other" is the mix minus those three**, so the four stems sum back to the original exactly (the maintainer's choice: with every pad on, a DJ hears the untouched track). The model alone reaches only about −26 to −30 dB.
+
+Checked against StemSplitio's export of the same weights (STFT inside its graph), run through the same chunking: every stem matches to −64 dB or better, so the processing here is the reference's. Speed on an M4 Pro, ONNX Runtime 1.23.2 on the CPU: a 201 s track in 29 s, a 142 s track in 21 s (1.32 is several times slower on the CPU here; see the Stems notes).
+
 ## Getting the library
 
 `.github/scripts/fetch-onnxruntime.sh <dest dir>` downloads Microsoft's NuGet package for the machine's OS and CPU, checks it against a pinned SHA-256, and copies the library out (1.32.0, or 1.23.2 on Intel Macs). It prints the library's path. CI uses it; the installers will use it to bundle the library (#31).
@@ -47,6 +62,8 @@ A connection that stalls mid-file (no data for 30 s) fails the download, keeping
 ## Tests
 
 - Download tests against a small HTTP server inside the test (no internet): every file verified and progress moving forward to `Verify` 1.0; a wrong checksum deletes the file; a connection cut halfway keeps the partial file and the next call resumes it with a Range request; a server that ignores ranges, resumes at the wrong place or answers 416 starts over; a downloaded model makes no request; cancel before any request; an HTTP 404; delete. `the_real_model_downloads_and_verifies` (ignored, 171 MB) downloads the pinned model from Hugging Face: about 80 s, both checksums match.
+- Signal processing tests (synthetic signals): the constants, reflection padding, the window, a tone in its bin at the normalized level, the STFT round trip (error under 1e-4 away from the dropped edge frames), segments covering a track and centring the last one, blending an identity model back to the track, the track normalization undone, the spectrogram channel layout, and both output branches back to audio.
+- `the_stems_sum_back_to_the_mix` (ignored; needs `CRATEKIT_ONNXRUNTIME` and `CRATEKIT_STEMS_MODEL`): splits a 12 s synthetic mix (kick, bass line, chord) with the real model; the stems sum back exactly and the bass line lands in the bass stem. About 3 s in release on Apple Silicon.
 - Unit tests: the CPU verdict for every AVX2 and FMA combination, a missing file, a relative path, a file that is not ONNX Runtime, reading a version string, the wording of the reasons.
 - `a_real_onnx_runtime_loads_and_runs_a_model` (ignored by default): loads a real library from `CRATEKIT_ONNXRUNTIME` and runs a tiny model (`y = x * x`, written as protobuf bytes in the test, so there is no model file), then checks that a second `load` returns the same runtime and that another library is refused. Locally:
 

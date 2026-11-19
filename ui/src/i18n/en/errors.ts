@@ -26,6 +26,7 @@ export const errors = {
       "The download did not finish. Check the connection and try again: it continues where it stopped.",
     checksum: "The downloaded file was not the expected one and was deleted. Try again.",
     busy: "Wait until the download finishes.",
+    stems: "The stems could not be split.",
   },
   controller: {
     load: "Could not load the controller mapping",

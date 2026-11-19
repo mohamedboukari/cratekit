@@ -41,6 +41,8 @@ function codeDetail(code: string): string | null {
       return i18n.t("errors.codes.checksum");
     case "busy":
       return i18n.t("errors.codes.busy");
+    case "stems":
+      return i18n.t("errors.codes.stems");
     default:
       return null;
   }

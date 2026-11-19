@@ -11,6 +11,7 @@ publish.workspace = true
 [dependencies]
 ebur128 = { workspace = true }
 ort = { workspace = true }
+realfft = { workspace = true }
 ring = { workspace = true }
 rubato = { workspace = true }
 rusqlite = { workspace = true }
