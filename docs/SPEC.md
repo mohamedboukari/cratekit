@@ -179,7 +179,7 @@ The step from prep tool to VirtualDJ replacement. Built after v0.1 ships; the v0
 
 ## Non-functional
 
-- Installer under 60 MB per platform (models download separately). Measure it per target in CI.
+- Installer under 60 MB per platform (models download separately), measured per target in CI. Exception: the Linux AppImage bundles WebKitGTK and its GTK libraries (about 80 MB measured), so its budget is 90 MB; the .deb uses the system's WebKitGTK and stays under 60 MB.
 - Idle RAM under 300 MB; stems job may use up to ~4 GB.
 - No network calls except the model download.
 - Platforms and CPU architectures, all built and tested in CI:
@@ -188,7 +188,7 @@ The step from prep tool to VirtualDJ replacement. Built after v0.1 ships; the v0
 | --- | --- | --- | --- |
 | macOS | 14.2 (Sonoma) or later | arm64 (Apple Silicon) + x86_64 (Intel), one universal binary | dmg |
 | Windows | Windows 10 22H2 or Windows 11 (x86_64); Windows 11 (ARM64) | x86_64 + ARM64 | msi |
-| Linux | Ubuntu 22.04+ or Debian 12+ (glibc 2.35, WebKitGTK 4.1) | x86_64 + arm64 | AppImage |
+| Linux | Ubuntu 22.04+ or Debian 12+ (glibc 2.35, WebKitGTK 4.1) | x86_64 + arm64 | deb and AppImage |
 
 - Windows needs the WebView2 runtime. It ships with Windows 10 (1803+) and 11; the installer fetches it only if it is missing.
 - Stem separation runs on the same minimums where ONNX Runtime allows it. Known gaps, decided in #114 and #115: Intel Macs have no ONNX Runtime build, and the prebuilt `ort` binaries need an x86_64 CPU with AVX2 (and glibc 2.39 on Linux). Where stems cannot run, every other feature still works and stems show a clear message.

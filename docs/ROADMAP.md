@@ -23,7 +23,7 @@ v0.1 in about 8 weeks of part-time work. Each phase ends with a gate: the test D
 - [ ] Send the UI to the test DJ (first the HTML mockup, now the Pages demo) (#2)
 - [ ] Get answers: DJ software, what he pays for, biggest annoyance, mastering habits, how he gets acapellas, laptop specs (OS, RAM, GPU) (#3)
 - [ ] Get a copy of his VirtualDJ database file and 10 tracks he owns, for testing (keep them in `test-data/`, out of git) (#4)
-- [ ] Decide the first module after analysis (mastering or stems) (#5)
+- [x] Decide the first module after analysis (mastering or stems): stems first (#5)
 
 **Gate:** the DJ picks the module he wants most.
 
@@ -58,6 +58,19 @@ v0.1 in about 8 weeks of part-time work. Each phase ends with a gate: the test D
 
 ## Phase 2: Mastering + stems (weeks 4 to 6)
 
+Order (decided 2026-11-19, #5): **stems first**, then mastering. Stems are everyday prep work (in the 2026 Digital DJ Tips census, 73% of DJs use stems and 43% prepare them ahead) and carry the most platform risk (an ML runtime per target), so they start first. Mastering mainly serves the DJ's own edits and recorded mixes.
+
+Stems
+- [ ] **Research:** ONNX Runtime GPU backends for htdemucs via `ort`: CoreML (macOS), DirectML vs Windows ML (Windows); prebuilt binaries per target; record findings in `docs/ARCHITECTURE.md` (#29)
+- [ ] **Research:** stems on Intel Macs, where no ONNX Runtime build exists (#114)
+- [ ] ONNX Runtime linking (run-time load or static) and the CPU (AVX2), glibc and Windows 10 checks for stems (#115)
+- [ ] Model download with progress + checksum (#30)
+- [ ] `StemSeparator` trait; htdemucs implementation (stem-splitter-core) (#31)
+- [ ] Backend selection: GPU provider with CPU fallback, CPU reference check, "CPU only" setting, backend in the status bar; verified on real hardware (Apple Silicon, Windows GPU, a CPU-only machine) (#32)
+- [ ] Cancel + progress; cache per track (#33)
+- [ ] Stem mixer in the audio engine (gain, mute, solo) (#34)
+- [ ] UI: Stems tab; export WAVs (#35)
+
 Mastering
 - [ ] Biquad EQ, compressor, true-peak limiter with tests (#23)
 - [ ] Presets + intensity (#24)
@@ -76,6 +89,7 @@ Stems
 - [ ] UI: Stems tab; export WAVs (#35)
 - [ ] **Research:** stems on Intel Macs, where no ONNX Runtime build exists (#114)
 - [ ] ONNX Runtime linking (run-time load or static) and the CPU (AVX2), glibc and Windows 10 checks for stems (#115)
+Infra
 - [x] CI: unsigned installer builds on every target that check the minimum OS versions and installer sizes (#113)
 
 **Gate:** the DJ uses at least one master or one acapella in a real set or edit.
@@ -90,7 +104,7 @@ Stems
 - [ ] Hot cue editing on the waveform (set, move, colour, name) (#41)
 - [ ] **Research:** document the VirtualDJ database format from the DJ's real file (song entries, BPM, key, cue points); write findings in `docs/virtualdj-format.md` (#42)
 - [ ] VirtualDJ export with backup + dry-run (#43)
-- [ ] Installers via Tauri bundler: macOS universal dmg, Windows msi (x86_64 + ARM64), Linux AppImage (x86_64 + arm64); installer size checked against the 60 MB budget per target (#44)
+- [ ] Installers via Tauri bundler: macOS universal dmg, Windows msi (x86_64 + ARM64), Linux .deb and AppImage (x86_64 + arm64); installer size checked against the 60 MB budget per target (#44)
 - [ ] Launch smoke tests on the minimum OS versions (VMs: macOS 14.2 and 13, Windows 10 22H2, Ubuntu 22.04, Debian 12) (#116)
 - [ ] `release` Claude skill (version bump, CHANGELOG cut, tag, signed installers)
 - [ ] README in BunMail's style: pitch, "Why Cratekit?" comparison table, quick start, honest "How good is the mastering?" section, screenshots (#45)

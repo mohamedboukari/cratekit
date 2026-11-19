@@ -58,7 +58,20 @@ jobs:
           toolchain: "1.100"
           components: rustfmt, clippy
 
-      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+      # Rust build cache (actions/cache, MIT; rust-cache is LGPL-3.0, which our
+      # license policy denies). One cache per runner OS and architecture, keyed on
+      # the lock file and the toolchain; pull requests restore main's cache.
+      - name: Restore the Rust build cache
+        id: cargo-cache
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            target/
+          key: cargo-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('Cargo.lock', 'rust-toolchain.toml') }}
+          restore-keys: cargo-${{ runner.os }}-${{ runner.arch }}-
 
       - uses: taiki-e/install-action@4a76afe23f9e08d2d9550fb56e556444e8611d21 # v2.90.4
         with:
@@ -111,6 +124,23 @@ jobs:
             echo "::error::ui/src/lib/bindings is out of date: run 'bun run test:rust' and commit the result."
             exit 1
           fi
+
+      # Saved from main only (pull requests reuse it), and only for a new key.
+      # Our own crates rebuild on every change anyway: leave them out.
+      - name: Trim the Rust build cache
+        if: github.event_name == 'push' && steps.cargo-cache.outputs.cache-hit != 'true'
+        run: cargo clean -p cratekit -p cratekit-core -p cratekit-audio
+
+      - name: Save the Rust build cache
+        if: github.event_name == 'push' && steps.cargo-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            target/
+          key: ${{ steps.cargo-cache.outputs.cache-primary-key }}
 
   typos:
     name: Spelling (typos)
