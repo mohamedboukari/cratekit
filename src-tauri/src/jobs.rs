@@ -25,15 +25,34 @@ use crate::library::LibraryState;
 /// these, so a single track still moves smoothly).
 const STEPS_PER_TRACK: u32 = 100;
 
+/// What a job does (the UI's `JobKind`). Only analysis exists so far; stems,
+/// mastering, export and the model download add their own.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export))]
+#[serde(rename_all = "kebab-case")]
+pub(crate) enum JobKind {
+    /// Tempo, key, loudness and energy of tracks.
+    Analysis,
+}
+
+/// A step inside a multi-step job (the UI's `JobStage`). No job has steps
+/// yet, so this has no variants and `Option<JobStage>` is always `None`; the
+/// model download (#30) adds `Download` and `Verify`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export))]
+#[serde(rename_all = "kebab-case")]
+pub(crate) enum JobStage {}
+
 /// `job_progress`: the UI's `JobProgress`.
 #[derive(Debug, Clone, PartialEq, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export))]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct JobProgress {
     job_id: String,
-    kind: &'static str,
+    kind: JobKind,
     /// English fallback; the UI names jobs from `kind` and the track count.
     label: String,
-    stage: Option<&'static str>,
+    stage: Option<JobStage>,
     track_ids: Vec<TrackId>,
     /// Progress steps (not tracks): analysis counts `STEPS_PER_TRACK` per track.
     done: u32,
@@ -48,7 +67,7 @@ impl JobProgress {
         let count = u32::try_from(track_ids.len()).unwrap_or(u32::MAX);
         Self {
             job_id: job_id.to_owned(),
-            kind: "analysis",
+            kind: JobKind::Analysis,
             label: format!("Analyzing {count} tracks"),
             stage: None,
             track_ids: track_ids.to_vec(),
@@ -61,18 +80,20 @@ impl JobProgress {
 
 /// `job_done`: the UI's `JobDone`.
 #[derive(Debug, Clone, PartialEq, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export))]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct JobDone {
     job_id: String,
-    kind: &'static str,
+    kind: JobKind,
 }
 
 /// `job_failed`: the UI's `JobFailed`.
 #[derive(Debug, Clone, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export))]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct JobFailed {
     job_id: String,
-    kind: &'static str,
+    kind: JobKind,
     error: AppError,
 }
 
@@ -216,7 +237,7 @@ impl Jobs {
                         Ok(library) => jobs.run_analysis(&job, library, &app, analyze_file),
                         Err(error) => app.failed(JobFailed {
                             job_id: job.id.clone(),
-                            kind: "analysis",
+                            kind: JobKind::Analysis,
                             error,
                         }),
                     }
@@ -224,7 +245,7 @@ impl Jobs {
                 if outcome.is_err() {
                     app.failed(JobFailed {
                         job_id: job.id.clone(),
-                        kind: "analysis",
+                        kind: JobKind::Analysis,
                         error: AppError {
                             code: "internal",
                             message: "the analysis job stopped unexpectedly".into(),
@@ -289,7 +310,7 @@ impl Jobs {
         match failures.into_iter().next() {
             None => events.done(JobDone {
                 job_id: job.id.clone(),
-                kind: "analysis",
+                kind: JobKind::Analysis,
             }),
             Some(first) => {
                 let mut error = AppError::from(first);
@@ -299,7 +320,7 @@ impl Jobs {
                 );
                 events.failed(JobFailed {
                     job_id: job.id.clone(),
-                    kind: "analysis",
+                    kind: JobKind::Analysis,
                     error,
                 });
             }
@@ -520,7 +541,7 @@ mod tests {
     fn events_serialize_as_the_ui_types() {
         let progress = JobProgress {
             job_id: "job-3".into(),
-            kind: "analysis",
+            kind: JobKind::Analysis,
             label: "Analyzing 2 tracks".into(),
             stage: None,
             track_ids: vec![4, 5],
@@ -537,7 +558,7 @@ mod tests {
         );
         let failed = JobFailed {
             job_id: "job-3".into(),
-            kind: "analysis",
+            kind: JobKind::Analysis,
             error: AppError {
                 code: "io",
                 message: "x".into(),
