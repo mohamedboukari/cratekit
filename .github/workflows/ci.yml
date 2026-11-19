@@ -58,6 +58,10 @@ jobs:
           for attempt in 1 2 3; do
             if [ "$attempt" -gt 1 ]; then
               echo "Attempt $attempt of 3: switching to the main Ubuntu mirror"
+              # GitHub's images read the mirror from a list (mirror+file:).
+              if [ -f /etc/apt/apt-mirrors.txt ]; then
+                echo "http://archive.ubuntu.com/ubuntu/" | sudo tee /etc/apt/apt-mirrors.txt > /dev/null
+              fi
               for list in /etc/apt/sources.list /etc/apt/sources.list.d/*.sources; do
                 [ -f "$list" ] && sudo sed -i -E 's#https?://[a-z0-9.-]+\.archive\.ubuntu\.com/ubuntu#http://archive.ubuntu.com/ubuntu#g' "$list"
               done
