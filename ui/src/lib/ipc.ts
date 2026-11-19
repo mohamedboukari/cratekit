@@ -75,7 +75,8 @@ export interface CratekitApi {
   libraryCounts(): Promise<LibraryCounts>;
   trackDetail(id: TrackId): Promise<TrackDetail>;
   cratesList(): Promise<Crate[]>;
-  crateCreate(name: string, color: CueColor): Promise<Crate>;
+  /** A new crate holding `ids` in that order, created in one step. */
+  crateCreate(name: string, color: CueColor, ids: TrackId[]): Promise<Crate>;
   crateAddTracks(crateId: CrateId, ids: TrackId[]): Promise<void>;
   crateRemoveTracks(crateId: CrateId, ids: TrackId[]): Promise<void>;
   /** Key and BPM fit between each pair of neighbours in a set list. */

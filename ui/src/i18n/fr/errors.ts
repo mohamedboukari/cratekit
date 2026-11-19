@@ -21,6 +21,7 @@ export const errors: Translation["errors"] = {
     no_audio_device: "Aucune sortie audio trouvée. Branchez des enceintes ou un casque.",
     audio_device: "La sortie audio n'a pas pu être utilisée.",
     invalid_setting: "Ce réglage ne peut pas prendre cette valeur.",
+    invalid_name: "Le nom ne peut pas être vide.",
   },
   controller: {
     load: "Impossible de charger l'assignation du contrôleur",

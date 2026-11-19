@@ -165,8 +165,7 @@ Rules:
 | `library_list(query)` | Tracks with filters (crate, search, BPM range, near a BPM with the tolerance decided in Rust, key match, has stems) |
 | `library_counts` / `track_detail(id)` / `crates_list` | Sidebar counts; one track with analysis, cues and waveform; all crates |
 | `setlist_transitions(ids)` | Per neighbour pair: `keyCompatible` (same key or a Camelot partner; null when a key is unknown), `bpmChangePct` (one decimal), `bpmJump` (over 6%) |
-| `crate_create / crate_add_tracks / crate_remove_tracks` | Crates |
-| `setlist_transitions(ids)` | Set builder: for each neighbour pair, `keyCompatible` (null when either key is unknown), `bpmChangePct` and `bpmJump` (Rust decides the thresholds) (#55) |
+| `crate_create(name, color, ids)` / `crate_add_tracks(crateId, ids)` / `crate_remove_tracks(crateId, ids)` | Crates: create one holding `ids` in that order in one step (the set builder's "Save as crate"; an empty name is `invalid_name`), add tracks at the end in the given order (a crate lists in that order), take tracks out |
 | `analyze_tracks(ids)` | Queue analysis |
 | `job_cancel(job_id)` / `jobs_set_paused(paused)` | Cancel one job; pause or resume the queue |
 | `playback_load(id) / playback_play / playback_pause / playback_seek(sec) / playback_set_rate(r)` | Deck |

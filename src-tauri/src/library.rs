@@ -11,8 +11,8 @@ use std::sync::{Mutex, PoisonError};
 use cratekit_core::CoreError;
 use cratekit_core::analysis::waveform::WaveformView;
 use cratekit_core::library::{
-    Analysis, Crate, Cue, Library, LibraryCounts, LibraryQuery, TrackId, TrackRow, Transition,
-    prepare_add,
+    Analysis, Crate, Cue, CueColor, Library, LibraryCounts, LibraryQuery, TrackId, TrackRow,
+    Transition, prepare_add,
 };
 use serde::Serialize;
 use tauri::{AppHandle, Manager, Runtime};
@@ -159,6 +159,41 @@ pub(crate) async fn crates_list(app: AppHandle) -> Result<Vec<Crate>, AppError> 
     with_library(app, |library| library.crates()).await
 }
 
+/// Makes a crate holding `ids` in that order, in one step (the set
+/// builder's "Save as crate"; `ids` empty for an empty crate).
+#[tauri::command]
+pub(crate) async fn crate_create(
+    app: AppHandle,
+    name: String,
+    color: CueColor,
+    ids: Vec<TrackId>,
+) -> Result<Crate, AppError> {
+    with_library(app, move |library| library.crate_create(&name, color, &ids)).await
+}
+
+/// Adds tracks to the end of a crate, in the order given.
+#[tauri::command]
+pub(crate) async fn crate_add_tracks(
+    app: AppHandle,
+    crate_id: i64,
+    ids: Vec<TrackId>,
+) -> Result<(), AppError> {
+    with_library(app, move |library| library.crate_add_tracks(crate_id, &ids)).await
+}
+
+/// Takes tracks out of a crate (they stay in the library).
+#[tauri::command]
+pub(crate) async fn crate_remove_tracks(
+    app: AppHandle,
+    crate_id: i64,
+    ids: Vec<TrackId>,
+) -> Result<(), AppError> {
+    with_library(app, move |library| {
+        library.crate_remove_tracks(crate_id, &ids)
+    })
+    .await
+}
+
 /// One track with its cues.
 #[tauri::command]
 pub(crate) async fn track_detail(app: AppHandle, id: TrackId) -> Result<TrackDetailDto, AppError> {
@@ -243,5 +278,22 @@ mod tests {
         assert_eq!(query.search, "tone");
         assert_eq!(query.bpm_min, Some(120.0));
         assert_eq!(query.match_camelot.as_deref(), Some("8A"));
+    }
+
+    #[test]
+    fn crates_match_the_ui_crate_and_colour_names() {
+        let color: CueColor = serde_json::from_value(serde_json::json!("lime")).expect("colour");
+        assert_eq!(color, CueColor::Lime);
+        let json = serde_json::to_value(Crate {
+            id: 4,
+            name: "Friday set".into(),
+            color,
+            track_count: 12,
+        })
+        .expect("serialize");
+        assert_eq!(
+            json,
+            serde_json::json!({ "id": 4, "name": "Friday set", "color": "lime", "trackCount": 12 })
+        );
     }
 }

@@ -607,3 +607,188 @@ fn set_list_transitions_say_how_neighbours_fit() {
             .is_empty()
     );
 }
+
+#[test]
+fn a_saved_set_keeps_its_order_and_lists_in_it() {
+    let mut library = library();
+    let ids = library
+        .add_paths(&[
+            fixture("tagged.mp3"),
+            fixture("tagged.flac"),
+            fixture("tone.wav"),
+        ])
+        .expect("add")
+        .added;
+    // A crate made before, placed high: new crates still go after it.
+    library
+        .connection()
+        .execute(
+            "INSERT INTO crates (id, name, sort) VALUES (50, 'Old', 7)",
+            [],
+        )
+        .expect("an older crate");
+    // The set order, not the library order.
+    let set = [ids[2], ids[0], ids[1]];
+    let first = library
+        .crate_create("  Friday set ", CueColor::Lime, &set)
+        .expect("create");
+    assert_eq!(first.name, "Friday set");
+    assert_eq!(first.color, CueColor::Lime);
+    assert_eq!(first.track_count, 3);
+    let second = library
+        .crate_create("Later", CueColor::Teal, &[])
+        .expect("create");
+
+    let query = LibraryQuery {
+        crate_id: Some(first.id),
+        ..LibraryQuery::default()
+    };
+    let listed: Vec<_> = library
+        .list(&query)
+        .expect("list")
+        .iter()
+        .map(|t| t.id)
+        .collect();
+    assert_eq!(listed, set);
+
+    // New crates go after the others, with their colour and count.
+    let summary: Vec<_> = library
+        .crates()
+        .expect("crates")
+        .iter()
+        .map(|c| (c.id, c.color, c.track_count))
+        .collect();
+    assert_eq!(
+        summary,
+        [
+            (50, CueColor::Orange, 0),
+            (first.id, CueColor::Lime, 3),
+            (second.id, CueColor::Teal, 0)
+        ]
+    );
+}
+
+#[test]
+fn adding_to_a_crate_appends_skips_repeats_and_removed_tracks() {
+    let mut library = library();
+    let ids = library
+        .add_paths(&[
+            fixture("tagged.mp3"),
+            fixture("tagged.flac"),
+            fixture("tone.wav"),
+        ])
+        .expect("add")
+        .added;
+    let set = library
+        .crate_create("Set", CueColor::Orange, &[ids[1]])
+        .expect("create");
+    // ids[1] is already there and keeps its place; 9999 is not in the library.
+    library
+        .crate_add_tracks(set.id, &[ids[2], ids[1], 9999, ids[0], ids[2]])
+        .expect("add more");
+    let query = LibraryQuery {
+        crate_id: Some(set.id),
+        ..LibraryQuery::default()
+    };
+    let listed: Vec<_> = library
+        .list(&query)
+        .expect("list")
+        .iter()
+        .map(|t| t.id)
+        .collect();
+    assert_eq!(listed, [ids[1], ids[2], ids[0]]);
+
+    library
+        .crate_remove_tracks(set.id, &[ids[2], 9999])
+        .expect("remove");
+    let listed: Vec<_> = library
+        .list(&query)
+        .expect("list")
+        .iter()
+        .map(|t| t.id)
+        .collect();
+    assert_eq!(listed, [ids[1], ids[0]]);
+    // The track itself stays in the library.
+    assert!(library.track(ids[2]).is_ok());
+}
+
+#[test]
+fn a_failed_save_leaves_no_crate_behind() {
+    let mut library = library();
+    let ids = library
+        .add_paths(&[fixture("tagged.mp3")])
+        .expect("add")
+        .added;
+    // Make adding the tracks fail after the crate row is written.
+    library
+        .connection()
+        .execute_batch("DROP TABLE crate_tracks")
+        .expect("break the crate tracks");
+    assert!(matches!(
+        library.crate_create("Set", CueColor::Lime, &ids),
+        Err(CoreError::Database(_))
+    ));
+    let left: i64 = library
+        .connection()
+        .query_row("SELECT count(*) FROM crates", [], |row| row.get(0))
+        .expect("count crates");
+    assert_eq!(left, 0);
+}
+
+#[test]
+fn tracks_without_a_place_list_after_the_ordered_ones() {
+    let mut library = library();
+    let ids = library
+        .add_paths(&[fixture("tagged.mp3"), fixture("tagged.flac")])
+        .expect("add")
+        .added;
+    let set = library
+        .crate_create("Set", CueColor::Orange, &[ids[1]])
+        .expect("create");
+    library
+        .connection()
+        .execute(
+            "INSERT INTO crate_tracks (crate_id, track_id) VALUES (?1, ?2)",
+            params![set.id, ids[0]],
+        )
+        .expect("an entry with no place");
+    let query = LibraryQuery {
+        crate_id: Some(set.id),
+        ..LibraryQuery::default()
+    };
+    let listed: Vec<_> = library
+        .list(&query)
+        .expect("list")
+        .iter()
+        .map(|t| t.id)
+        .collect();
+    assert_eq!(listed, [ids[1], ids[0]]);
+}
+
+#[test]
+fn crate_names_and_ids_are_checked() {
+    let mut library = library();
+    let ids = library
+        .add_paths(&[fixture("tagged.mp3")])
+        .expect("add")
+        .added;
+    assert!(matches!(
+        library.crate_create("   ", CueColor::Orange, &ids),
+        Err(CoreError::EmptyName)
+    ));
+    assert!(library.crates().expect("crates").is_empty());
+    assert!(matches!(
+        library.crate_add_tracks(42, &ids),
+        Err(CoreError::NotFound {
+            what: "crate",
+            id: 42
+        })
+    ));
+    assert!(matches!(
+        library.crate_remove_tracks(42, &ids),
+        Err(CoreError::NotFound {
+            what: "crate",
+            id: 42
+        })
+    ));
+}

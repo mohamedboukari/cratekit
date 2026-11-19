@@ -85,6 +85,10 @@ pub enum CoreError {
     #[error("cancelled")]
     Cancelled,
 
+    /// A name (of a crate, for example) is empty or only spaces.
+    #[error("a name cannot be empty")]
+    EmptyName,
+
     /// A track, crate or other item asked for by id does not exist.
     #[error("no {what} with id {id}")]
     NotFound {

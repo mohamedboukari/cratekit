@@ -317,6 +317,11 @@ export function createMockApi(): CratekitApi {
           );
         })
         .map((t) => structuredClone(t.track));
+      // Like Rust: a crate lists its tracks in the order they were added.
+      if (q.crateId !== null) {
+        const order = members.get(q.crateId) ?? [];
+        rows.sort((a, b) => order.indexOf(a.id) - order.indexOf(b.id));
+      }
       return resolve(rows);
     },
     libraryCounts: () =>
@@ -332,10 +337,11 @@ export function createMockApi(): CratekitApi {
         : Promise.reject({ code: "not_found", message: `No track ${id}` });
     },
     cratesList: () => resolve(crates.map((c) => ({ ...c }))),
-    crateCreate: (name, color) => {
-      const crate = { id: crates.length + 1, name, color, trackCount: 0 };
+    crateCreate: (name, color, ids) => {
+      const list = [...new Set(ids)].filter((id) => byId.has(id));
+      const crate = { id: crates.length + 1, name, color, trackCount: list.length };
       crates.push(crate);
-      members.set(crate.id, []);
+      members.set(crate.id, list);
       return resolve({ ...crate });
     },
     crateAddTracks: (crateId, ids) => {
