@@ -67,9 +67,9 @@ Mastering
 - [ ] UI: Master tab (#28)
 
 Stems
-- [ ] **Research:** ONNX Runtime GPU backends for htdemucs via `ort`: CoreML (macOS), DirectML vs Windows ML (Windows); prebuilt binaries per target; record findings in `docs/ARCHITECTURE.md` (#29)
+- [x] **Research:** ONNX Runtime GPU backends for htdemucs via `ort`: CoreML (macOS), DirectML vs Windows ML (Windows); prebuilt binaries per target; record findings in `docs/ARCHITECTURE.md` (#29)
 - [ ] Model download with progress + checksum (#30)
-- [ ] `StemSeparator` trait; htdemucs implementation (stem-splitter-core) (#31)
+- [ ] `StemSeparator` trait; htdemucs implementation on `ort` with our own chunking (#31)
 - [ ] Backend selection: GPU provider with CPU fallback, CPU reference check, "CPU only" setting, backend in the status bar; verified on real hardware (Apple Silicon, Windows GPU, a CPU-only machine) (#32)
 - [ ] Cancel + progress; cache per track (#33)
 - [ ] Stem mixer in the audio engine (gain, mute, solo) (#34)

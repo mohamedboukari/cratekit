@@ -68,7 +68,7 @@ src/
     reference.rs       reference-track spectral matching
   stems/
     mod.rs             trait StemSeparator; split() -> StemSet
-    htdemucs.rs        impl using stem-splitter-core (or ort directly)
+    htdemucs.rs        impl on `ort` (load-dynamic), our own chunking and STFT
     models.rs          download + checksum + cache path
   library/
     mod.rs             Library: open (WAL, foreign keys), add_paths, list, counts, track, remove_tracks; see docs/library.md
@@ -295,17 +295,42 @@ Intensity `k` (0 to 1): EQ gain × k, ratio = 1 + (ratio − 1) × k, makeup int
 
 ## Stems notes
 
-- `stem-splitter-core` (Rust + ONNX Runtime, htdemucs) is the first choice: it handles model download and caching.
-- If it does not fit, use the `ort` crate with an htdemucs ONNX export (Apache-2.0 conversion of Demucs), chunking ~7.8 s windows (343,980 samples at 44.1 kHz) with overlap-add.
-- Backup option: the Burn-based Rust reimplementation of HTDemucs.
-- **Execution providers (GPU with CPU fallback).** At startup, `stems/models.rs` builds a priority list and keeps the first provider that initializes:
-  1. macOS: **CoreML** (GPU and Neural Engine on Apple Silicon).
-  2. Windows: **DirectML** (any DirectX 12 GPU: NVIDIA, AMD, Intel, Qualcomm). Microsoft has moved DirectML to maintenance in favour of Windows ML; re-check which one `ort` supports best in the Phase 2 research.
-  3. **CPU** always last, always available.
-- The first split on a GPU backend is checked against a short CPU reference chunk. If the residual exceeds the SPEC threshold, the app switches to CPU and records why. Settings can force "CPU only"; the status bar shows the active backend.
-- CUDA is not bundled (its libraries are hundreds of MB, far over the installer budget). It could become an optional download later.
-- Verify each provider on real hardware before enabling it by default.
-- Only stems use the GPU. Analysis, mastering and playback run on the CPU.
+Decided in #29 (research: ONNX Runtime per target, CoreML, DirectML and Windows ML, the htdemucs model; 2026-11-19). Linking and checks are #115, Intel Macs #114, the model download #30, the separator #31, backend selection #32.
+
+**Runtime.** The `ort` crate used directly (not `stem-splitter-core`), with `default-features = false`, `load-dynamic` and `api-23`, plus the `coreml` feature on macOS only. Telemetry off (`with_telemetry(false)`).
+- `load-dynamic`: the app starts even when ONNX Runtime is missing or cannot load on this OS or CPU, and stems say why. `ort::util::probe` checks the library's version before loading it.
+- `api-23`: one feature set that works with every library below (the ONNX Runtime C API is backward compatible, so a 1.32 library serves API 23). htdemucs needs nothing newer.
+- Not pyke's prebuilt static binaries: they need an x86-64-v3 CPU and glibc 2.39, and have no Intel macOS build.
+- Not `stem-splitter-core`: it skips the weighted overlap-add and the whole-track normalization (measured 0.2 to 0.3 dB SDR below the reference), pins an old `ort` exactly, and pulls `reqwest` and `clap`.
+
+**ONNX Runtime library per target** (Microsoft's official builds, MIT, **bundled in the installer**, so nothing executable is downloaded):
+
+| Target | Library | Execution providers, in order | Notes |
+| --- | --- | --- | --- |
+| macOS arm64 | ONNX Runtime 1.32 (`libonnxruntime.dylib`, about 13 MB compressed) | CoreML, then CPU | `minos` 14.0, under the app's 14.2 |
+| macOS x86_64 | ONNX Runtime 1.23.2, the last Intel macOS build (about 11 MB) | CPU | `minos` 13.4; frozen since Oct 2025; a source build is the follow-up (#114) |
+| Windows x64, ARM64 | ONNX Runtime 1.32 CPU (`onnxruntime.dll`, about 7 MB) | CPU | No GPU in v0.1: every DirectML route (also Windows ML) ships Microsoft's proprietary `DirectML.dll`, whose licence includes data collection |
+| Linux x64, arm64 | ONNX Runtime 1.32 (`libonnxruntime.so`, about 11 to 13 MB) | CPU | Needs glibc 2.28, fine on Ubuntu 22.04. ROCm was removed from ONNX Runtime, CUDA is far over budget; WebGPU (Vulkan) is the only GPU path worth a later test |
+
+- Bundling adds about 25 MB to the universal dmg, 7 MB to the msi and 11 to 13 MB to the Linux packages. The AppImage then reaches about 90 to 94 MB: its budget is revisited when the library lands (#115).
+- **CPU baseline:** Microsoft's builds pick SIMD at run time, so they should also run on CPUs without AVX2 (slowly); not verified yet. Until it is, check `is_x86_feature_detected!("avx2")` and `"fma"` before loading and report "stems need a newer CPU" (#115).
+
+**CoreML (Apple Silicon).** MLProgram format, compute units `CPUAndGPU` (the Neural Engine was slower than the GPU), static input shapes, and a model cache folder in Cratekit's data folder (a cold CoreML compile takes about 27 s, about 7 s with the cache). It works only with a "split" export: the STFT and inverse STFT run in Rust, outside the graph, and the time-branch convolutions are tiled to at most 16,384 samples so the whole graph is one CoreML partition. Measured (Charon, M4 Pro, 193 s track): 16.6 s on CPU, 5.6 s on CoreML, CoreML within 1.3e-5 of PyTorch.
+
+**Model.** htdemucs, 4 stems (vocals, drums, bass, other; 2-stem mode sums the other three), as a split ONNX export of about 170 to 185 MB. Not htdemucs_ft (4 models, 4 times slower) and not htdemucs_6s (its weights are likely non-commercial).
+- **Licence (decided 2026-11-19).** The Demucs code is MIT, but its author states that "the license of the weights is not clear" (part of the training data was for research use only). So Cratekit **never bundles or hosts the weights**. Stems stay off until the user chooses to download the model; the dialog says where it comes from and that its licence is unclear (personal use), and the download is verified against a pinned SHA-256 (#30). The exact source (an existing split export, or the official weights converted on the device) is settled in #30.
+- **Input layout our chunking implements** (from adefossez/demucs `apply.py`, `htdemucs.py`, `spec.py`):
+  - 44.1 kHz stereo (resample with rubato; mono is duplicated).
+  - Whole-track normalization: subtract the mean of the mono mix and divide by its standard deviation (plus 1e-8); undone on the output.
+  - Segments of 7.8 s (343,980 samples), overlap 25% (stride 257,985), triangular weights; outputs summed with the weights and divided by the summed weight; the last segment is zero-padded and cropped. No random shifts (deterministic).
+  - STFT: n_fft 4096, hop 1024, Hann, normalized, centred with reflect padding, plus the model's own padding; the last bin is dropped (2048 bins, 336 frames), complex values as channels, giving `[1, 4, 2048, 336]`. The inverse STFT output is added to the time-branch output `[1, 4, 2, 343980]`. Stem order: drums, bass, other, vocals.
+- **Memory:** about 3.5 GB peak on CPU and 2.6 GB with CoreML (measured), within the SPEC's 4 GB; to check on an 8 GB machine (#31).
+
+**Speed per 4-minute track** (measured, or scaled from measurements): Apple Silicon about 21 s on CPU and 7 s on CoreML; a modern x86 desktop about 60 s on CPU (inference); older laptops and Intel Macs 2 to 4 minutes (inference). Stems run as a background job with progress, which the DJ research found acceptable at 30 to 60 s per track. Not measured anywhere yet: ONNX Runtime on an x86 laptop and on Linux.
+
+**Backend selection (#32).** At startup, the app tries the providers in the order above and keeps the first that initializes. The first split on CoreML is checked against a short CPU reference chunk; if the difference exceeds the SPEC threshold, the app switches to CPU and records why. Settings can force "CPU only"; the status bar shows the active backend. Only stems use the GPU: analysis, mastering and playback run on the CPU.
+
+**Rust-only alternatives** (to re-check later, mainly for Intel Macs or a GPU on Windows without proprietary files): the Burn port demucs-rs (Apache-2.0, wgpu) still produces NaN on some tracks; candle, tract and burn-onnx have no htdemucs port or import yet.
 
 ## Tooling
 
@@ -344,12 +369,9 @@ Native dependencies per target:
 | midir (CoreMIDI, WinMM, ALSA), planned | OS MIDI API | Yes |
 | SQLite (rusqlite `bundled`) | C, compiled by `cc` | Yes |
 | symphonia, rubato, rustfft, ebur128 | Pure Rust | Yes (rustfft picks SIMD at run time) |
-| ONNX Runtime (stems), planned | Prebuilt C++ library | No build for `x86_64-apple-darwin`; prebuilt `ort` binaries need x86-64-v3 (AVX2) and glibc 2.39. Decided in #114 and #115 |
+| ONNX Runtime (stems), planned | Prebuilt C++ library, loaded at run time | Yes, with Microsoft's builds: 1.32 everywhere except Intel Macs (1.23.2, the last Intel build). See Stems notes |
 
-Stems and ONNX Runtime, open in #114 (Intel Macs) and #115 (linking and checks):
-
-- **Intel Macs:** Microsoft stopped shipping x86_64 macOS builds in ONNX Runtime 1.24, and `ort` has no prebuilt binary for it (a link error since rc.13). The universal build must not link `ort` statically into the x86_64 slice. Options: build ONNX Runtime from source in CI, the last universal2 release (1.22), a pure-Rust backend on Intel only, or stems unavailable on Intel Macs in v0.1 with a clear message.
-- **CPU and glibc baseline:** `ort`'s prebuilt binaries need an x86-64-v3 CPU (AVX2, Haswell or later) and, on Linux, glibc 2.39 (Ubuntu 24.04+). Loading ONNX Runtime at run time (`ort` `load-dynamic`, after checking for AVX2 and FMA) would keep the app starting on every supported system, with stems reporting why they are unavailable. Microsoft's own builds (manylinux_2_28, runtime SIMD choice) are the other route.
+Stems and ONNX Runtime: decided in #29, see **Stems notes** (Microsoft's builds loaded at run time, bundled per target). Still to prove on CI runners and real hardware: the Intel Mac library (#114) and the CPU, glibc and Windows 10 checks (#115).
 
 Rules:
 

@@ -64,7 +64,7 @@ The maintainer stays in the loop and in control at every step. Never bypass the 
 | Playback | `cpal` + `rtrb` |
 | Analysis | Our own detectors in `cratekit-core::analysis` (default: more accurate and faster on our tests); `stratum-dsp` behind the same traits with the `stratum` cargo feature (off) |
 | Loudness | `ebur128` crate (chosen, behind `analysis::loudness`) |
-| Stems | `stem-splitter-core` (htdemucs via ONNX Runtime); fallback: `ort` directly with the htdemucs ONNX model |
+| Stems | `ort` (load-dynamic) with Microsoft's ONNX Runtime builds bundled per target, htdemucs split export downloaded on opt-in, our own chunking and STFT (see `docs/ARCHITECTURE.md`, Stems notes) |
 | Mastering | Our own DSP chain (no library exists in Rust) |
 | MIDI | `midir` |
 | Database | SQLite via `rusqlite` (bundled feature) |
@@ -74,7 +74,7 @@ The maintainer stays in the loop and in control at every step. Never bypass the 
 | Dependency policy | `cargo-deny` (licenses, advisories, duplicates), `cargo-shear` (unused crates), `knip` (unused JS deps/exports) |
 | Tooling | Rust: rustfmt, clippy, cargo-nextest, cargo-llvm-cov, taplo, typos, bacon, sccache (local). JS: TS 7 `tsc`, oxlint + tsgolint (type-aware), Prettier, knip. Git: husky + lint-staged + commitlint. CI: GitHub Actions |
 
-Check the latest version and license of every crate on crates.io before adding it. Some of these crates are young (`stratum-dsp`, `stem-splitter-core`): wrap them behind our own traits so they can be swapped.
+Check the latest version and license of every crate on crates.io before adding it. Some of these crates are young (`stratum-dsp`, `ort` is still a release candidate): wrap them behind our own traits so they can be swapped.
 
 ## Repository layout
 

@@ -104,8 +104,8 @@ The app keeps a local library of tracks the user adds. Original files are never 
 
 **Features**
 - 4 stems: vocals, drums, bass, other (htdemucs). 2-stem mode (vocals / instrumental) = sum of the other three.
-- Uses the GPU automatically when one is available, through ONNX Runtime execution providers (CoreML on macOS, DirectML or Windows ML on Windows), and falls back to the CPU when no GPU backend starts or its output is wrong. Settings can force "CPU only". The status bar shows the active backend.
-- Model downloaded on first use (~200 MB) with progress and checksum; stored in the app data folder.
+- Uses the GPU automatically when one is available, through ONNX Runtime execution providers (CoreML on Apple Silicon Macs; Windows and Linux run on the CPU in v0.1), and falls back to the CPU when the GPU backend does not start or its output is wrong. Settings can force "CPU only". The status bar shows the active backend.
+- Off until the user chooses to download the model (about 180 MB), with progress and checksum; stored in the app data folder. The download dialog says where the model comes from and that the licence of its weights is unclear (personal use); Cratekit never bundles or hosts the weights.
 - Stems are cached per track; the Stems tab plays them in sync with mute / solo / volume per stem.
 - Export: separate WAVs. Later: NI STEM format (for Traktor).
 
