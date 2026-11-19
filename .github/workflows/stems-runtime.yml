@@ -1,0 +1,75 @@
+# Stems runtime: loads Microsoft's ONNX Runtime build on every target and runs
+# a tiny model through `ort` (#115). Proves the per-target libraries in
+# docs/ARCHITECTURE.md (Stems notes) on the oldest supported bases:
+# Ubuntu 22.04 for glibc, Windows Server 2022 for a Windows 10 era build, and
+# the Intel Mac with ONNX Runtime 1.23.2.
+#
+# Manual, weekly, and on pull requests that change the stems runtime.
+#
+# Actions are pinned by commit SHA (version in the comment), as in ci.yml.
+
+name: Stems runtime
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "41 4 * * 1" # Mondays 04:41 UTC
+  pull_request:
+    paths:
+      - ".github/workflows/stems-runtime.yml"
+      - ".github/scripts/fetch-onnxruntime.sh"
+      - "crates/cratekit-core/src/stems/**"
+      - "Cargo.toml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: stems-runtime-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  probe:
+    name: ONNX Runtime (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        os:
+          - macos-15
+          - macos-15-intel
+          - ubuntu-22.04
+          - ubuntu-22.04-arm
+          - windows-2022
+          - windows-2025
+          - windows-11-arm
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master 2026-10-16
+        with:
+          toolchain: "1.100"
+
+      # The NuGet packages are large (up to 184 MB); keep them between runs.
+      # No Rust build cache here: ci.yml's is built on Ubuntu 24.04, and its
+      # build scripts would need a newer glibc than Ubuntu 22.04 has.
+      - name: Cache the ONNX Runtime packages
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.cache/cratekit-onnxruntime
+          key: onnxruntime-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('.github/scripts/fetch-onnxruntime.sh') }}
+
+      - name: Fetch ONNX Runtime
+        shell: bash
+        run: |
+          library=$(.github/scripts/fetch-onnxruntime.sh "$RUNNER_TEMP/onnxruntime")
+          echo "CRATEKIT_ONNXRUNTIME=$library" >> "$GITHUB_ENV"
+
+      - name: Load it and run a model
+        run: cargo test -p cratekit-core --lib --locked stems::runtime -- --include-ignored

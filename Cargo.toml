@@ -34,6 +34,14 @@ thiserror = "2"
 # TypeScript types of the IPC payloads, generated from the Rust structs (#16) (MIT; deps MIT or
 # Apache-2.0); approved 2026-11-19. Only behind the `ts` features, used by tests: never in the app.
 ts-rs = "12"
+# ONNX Runtime for stems (MIT OR Apache-2.0; deps ort-sys and smallvec MIT OR Apache-2.0, libloading ISC);
+# approved 2026-11-19. A release candidate, so pinned exactly. No default features: nothing is
+# downloaded at build time; the library is loaded at run time, API level 23 (#29, #115).
+ort = { version = "=2.0.0-rc.15", default-features = false, features = [
+  "std",
+  "load-dynamic",
+  "api-23",
+] }
 # Lock-free single-producer single-consumer queues for the audio thread (MIT OR Apache-2.0); the stack's choice.
 rtrb = "0.4"
 # Resampling (MIT OR Apache-2.0; deps MIT or Apache-2.0); approved 2026-11-18.

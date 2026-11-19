@@ -68,6 +68,7 @@ src/
     reference.rs       reference-track spectral matching
   stems/
     mod.rs             trait StemSeparator; split() -> StemSet
+    runtime.rs         load ONNX Runtime at run time; CPU check; why stems are unavailable (docs/stems.md)
     htdemucs.rs        impl using stem-splitter-core (or ort directly)
     models.rs          download + checksum + cache path
   library/
@@ -316,6 +317,7 @@ Intensity `k` (0 to 1): EQ gain × k, ratio = 1 + (ratio − 1) × k, makeup int
 | UI checks | TypeScript 7 (`tsc`), oxlint + tsgolint, Prettier, knip, Vitest | `ui/tsconfig.json`, `.oxlintrc.json`, `.prettierrc`, `knip.json`, `ui/vite.config.ts` |
 | Git hooks | husky, lint-staged, commitlint | `.husky/`, `package.json` (`lint-staged`), `commitlint.config.ts` |
 | CI | GitHub Actions, actions pinned by SHA | `.github/workflows/ci.yml` |
+| Stems runtime | Loads Microsoft's ONNX Runtime on every target and runs a tiny model; manual, weekly and on stems runtime changes (#115) | `.github/workflows/stems-runtime.yml`, `.github/scripts/fetch-onnxruntime.sh` |
 | Installers | Unsigned `tauri build` per target, checked against the minimum OS versions and the size budget; manual, weekly and on bundling changes (#113) | `.github/workflows/installers.yml`, `.github/scripts/check-installer.sh` |
 
 `bun run check` runs every gate in the same order as the pre-push hook and CI.
