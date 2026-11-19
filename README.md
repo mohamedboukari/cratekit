@@ -8,7 +8,7 @@ A free, open-source desktop app for DJs and producers: track analysis (BPM, key,
 
 ## Stack
 
-Tauri 2 desktop app: a Rust backend (Cargo workspace) and a React 19 + TypeScript + Vite UI, managed with bun. Runs on macOS (Apple Silicon and Intel), Windows (x64 and ARM64) and Linux (x64 and arm64).
+Tauri 2 desktop app: a Rust backend (Cargo workspace) and a React 19 + TypeScript + Vite UI, managed with bun. Runs on macOS 14.2+ (Apple Silicon and Intel), Windows 10 22H2+ (x64) and 11 (ARM64), and Linux with Ubuntu 22.04+ or Debian 12+ (x64 and arm64).
 
 ## Prerequisites
 
