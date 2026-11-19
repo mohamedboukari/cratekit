@@ -1,6 +1,6 @@
 # Installers: unsigned `tauri build` on every target, checked against the
 # minimum OS versions (docs/ARCHITECTURE.md, Platforms and portability) and the
-# 60 MB size budget (#113). For testing only: no signing, no release (#44).
+# size budgets (#113). For testing only: no signing, no release (#44).
 #
 # Not on every pull request (five full release builds): manual, weekly, and on
 # pull requests that change how the app is bundled.
@@ -64,12 +64,12 @@ jobs:
           - name: Linux x64
             slug: linux-x64
             os: ubuntu-22.04
-            bundles: appimage
+            bundles: appimage,deb
             release-dir: target/release
           - name: Linux arm64
             slug: linux-arm64
             os: ubuntu-22.04-arm
-            bundles: appimage
+            bundles: appimage,deb
             release-dir: target/release
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -127,5 +127,6 @@ jobs:
             ${{ matrix.release-dir }}/bundle/dmg/*.dmg
             ${{ matrix.release-dir }}/bundle/msi/*.msi
             ${{ matrix.release-dir }}/bundle/appimage/*.AppImage
+            ${{ matrix.release-dir }}/bundle/deb/*.deb
           if-no-files-found: error
           retention-days: 14

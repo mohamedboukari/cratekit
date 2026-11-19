@@ -94,7 +94,7 @@ Infra
 - [ ] Hot cue editing on the waveform (set, move, colour, name) (#41)
 - [ ] **Research:** document the VirtualDJ database format from the DJ's real file (song entries, BPM, key, cue points); write findings in `docs/virtualdj-format.md` (#42)
 - [ ] VirtualDJ export with backup + dry-run (#43)
-- [ ] Installers via Tauri bundler: macOS universal dmg, Windows msi (x86_64 + ARM64), Linux AppImage (x86_64 + arm64); installer size checked against the 60 MB budget per target (#44)
+- [ ] Installers via Tauri bundler: macOS universal dmg, Windows msi (x86_64 + ARM64), Linux .deb and AppImage (x86_64 + arm64); installer size checked against the 60 MB budget per target (#44)
 - [ ] Launch smoke tests on the minimum OS versions (VMs: macOS 14.2 and 13, Windows 10 22H2, Ubuntu 22.04, Debian 12) (#116)
 - [ ] `release` Claude skill (version bump, CHANGELOG cut, tag, signed installers)
 - [ ] README in BunMail's style: pitch, "Why Cratekit?" comparison table, quick start, honest "How good is the mastering?" section, screenshots (#45)

@@ -326,7 +326,7 @@ Intensity `k` (0 to 1): EQ gain × k, ratio = 1 + (ratio − 1) × k, makeup int
 | --- | --- | --- | --- |
 | macOS | `aarch64-apple-darwin` (1) + `x86_64-apple-darwin` (2), combined as `universal-apple-darwin` | 14.2 | dmg |
 | Windows | `x86_64-pc-windows-msvc` (1), `aarch64-pc-windows-msvc` (1) | 10 22H2 (x86_64), 11 (ARM64) | msi |
-| Linux | `x86_64-unknown-linux-gnu` (1), `aarch64-unknown-linux-gnu` (1) | Ubuntu 22.04, Debian 12 | AppImage |
+| Linux | `x86_64-unknown-linux-gnu` (1), `aarch64-unknown-linux-gnu` (1) | Ubuntu 22.04, Debian 12 | deb and AppImage |
 
 Why these minimums:
 
@@ -357,12 +357,12 @@ Rules:
 - **Native dependencies must exist for every target.** Before adopting a crate with prebuilt binaries, check the binaries per target, their minimum OS and glibc, and their CPU baseline (for example x86-64-v3), and record the result in the table above. SQLite (rusqlite `bundled`) compiles from source, so it works everywhere.
 - **Floating point:** do not rely on CPU-specific flush-to-zero modes; flush denormals in code inside the DSP and audio callback paths.
 - **CI builds and tests natively on each architecture** (GitHub-hosted macOS arm64 and Intel, Windows x64 and ARM64, Linux x64 and arm64 runners), not only cross-compiles. The Intel macOS runner (`macos-15-intel`) is GitHub's last one and retires around fall 2027; after that, Intel builds are cross-compiled.
-- **Installer checks (`installers.yml`, #113):** every target builds its installer (macOS universal dmg, msi on x64 and ARM64, AppImage on x64 and arm64), and `check-installer.sh` fails the job when:
+- **Installer checks (`installers.yml`, #113):** every target builds its installer (macOS universal dmg, msi on x64 and ARM64, .deb and AppImage on x64 and arm64), and `check-installer.sh` fails the job when:
   - macOS: any architecture of the app binary, or `Info.plist`, has a minimum other than `bundle.macOS.minimumSystemVersion`;
-  - Linux: any binary in the AppImage needs a glibc newer than 2.35 (Ubuntu 22.04);
+  - Linux: any binary in the AppImage or the .deb needs a glibc newer than 2.35 (Ubuntu 22.04), or the .deb does not depend on ALSA (`libasound2`, or `libasound2t64` on Ubuntu 24.04 and Debian 13), which audio output loads at run time;
   - Windows: the app imports a Visual C++ runtime DLL (Tauri links it statically, so users never install a redistributable).
 
-  Each job reports the installer size against the 60 MB budget (a warning above it) and keeps the unsigned installer as a workflow artifact for 14 days. Whether a macOS library uses an API newer than the minimum cannot be checked from the binary; the launch tests cover that.
+  Each job reports each installer's size against its budget (90 MB for the AppImage, which bundles WebKitGTK; 60 MB for the others; a warning above it) and keeps the unsigned installer as a workflow artifact for 14 days. Whether a macOS library uses an API newer than the minimum cannot be checked from the binary; the launch tests cover that.
 - **Not tested in CI yet:** launching on the minimum OS versions (manual, #116), real audio output (runners have no audio device) and GPU providers.
 
 ## MIDI notes
