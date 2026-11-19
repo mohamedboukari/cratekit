@@ -67,9 +67,10 @@ src/
     limiter.rs         look-ahead true-peak limiter (4x oversampled detection)
     reference.rs       reference-track spectral matching
   stems/
-    mod.rs             trait StemSeparator; split() -> StemSet
+    mod.rs             trait StemSeparator; separate() -> Stems (drums, bass, other, vocals)
+    dsp.rs             STFT and inverse STFT, normalizations, segments and their blending, as the reference
     runtime.rs         load ONNX Runtime at run time; CPU check; why stems are unavailable (docs/stems.md)
-    htdemucs.rs        impl on `ort` (load-dynamic), our own chunking and STFT
+    htdemucs.rs        HtDemucs: impl StemSeparator on `ort`; "other" is the mix minus the other three
     models.rs          the pinned model; download (resume, SHA-256, rename when verified), status, delete; the only network call
   library/
     mod.rs             Library: open (WAL, foreign keys), add_paths, list, counts, track, remove_tracks; see docs/library.md

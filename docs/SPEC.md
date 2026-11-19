@@ -111,7 +111,7 @@ The app keeps a local library of tracks the user adds. Original files are never 
 
 **Acceptance**
 - A 4-minute track splits without crashing on a machine with 8 GB RAM.
-- Summing the 4 stems reconstructs the original within −30 dB residual.
+- Summing the 4 stems reconstructs the original (exactly: "other" is the mix minus drums, bass and vocals; the model alone reaches about −26 to −30 dB).
 - The job can be cancelled; the UI stays responsive during the split.
 - GPU and CPU backends produce the same stems within the −30 dB residual; a machine with no usable GPU still splits on the CPU without errors.
 

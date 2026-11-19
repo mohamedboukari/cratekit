@@ -55,6 +55,9 @@ rustls = { version = "0.23", default-features = false, features = ["ring", "std"
 ring = "0.17"
 # Lock-free single-producer single-consumer queues for the audio thread (MIT OR Apache-2.0); the stack's choice.
 rtrb = "0.4"
+# FFTs of real signals for the stems STFT (MIT OR Apache-2.0); already in the tree through rubato.
+# Approved as a direct dependency 2026-11-19.
+realfft = "3.5"
 # Resampling (MIT OR Apache-2.0; deps MIT or Apache-2.0); approved 2026-11-18.
 rubato = "5"
 # SQLite library database (MIT; deps MIT or Apache-2.0; SQLite itself is public domain).

@@ -27,6 +27,7 @@ export const errors: Translation["errors"] = {
     checksum:
       "Le fichier téléchargé n'était pas celui attendu et a été supprimé. Réessayez.",
     busy: "Attendez la fin du téléchargement.",
+    stems: "Les stems n'ont pas pu être séparés.",
   },
   controller: {
     load: "Impossible de charger l'assignation du contrôleur",

@@ -106,6 +106,10 @@ pub enum CoreError {
         /// The file's name.
         file: String,
     },
+    /// Stem separation failed inside ONNX Runtime (the model did not load or
+    /// a segment could not run).
+    #[error("stem separation failed: {0}")]
+    Stems(String),
 
     /// A track, crate or other item asked for by id does not exist.
     #[error("no {what} with id {id}")]

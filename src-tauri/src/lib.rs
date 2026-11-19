@@ -155,6 +155,7 @@ impl AppError {
             cratekit_core::CoreError::EmptyName => "invalid_name",
             cratekit_core::CoreError::Download { .. } => "download",
             cratekit_core::CoreError::Checksum { .. } => "checksum",
+            cratekit_core::CoreError::Stems(_) => "stems",
         };
         Self { code, message }
     }
