@@ -61,11 +61,11 @@ v0.1 in about 8 weeks of part-time work. Each phase ends with a gate: the test D
 Order (decided 2026-11-19, #5): **stems first**, then mastering. Stems are everyday prep work (in the 2026 Digital DJ Tips census, 73% of DJs use stems and 43% prepare them ahead) and carry the most platform risk (an ML runtime per target), so they start first. Mastering mainly serves the DJ's own edits and recorded mixes.
 
 Stems
-- [ ] **Research:** ONNX Runtime GPU backends for htdemucs via `ort`: CoreML (macOS), DirectML vs Windows ML (Windows); prebuilt binaries per target; record findings in `docs/ARCHITECTURE.md` (#29)
+- [x] **Research:** ONNX Runtime GPU backends for htdemucs via `ort`: CoreML (macOS), DirectML vs Windows ML (Windows); prebuilt binaries per target; record findings in `docs/ARCHITECTURE.md` (#29)
 - [ ] **Research:** stems on Intel Macs, where no ONNX Runtime build exists (#114)
 - [ ] ONNX Runtime linking (run-time load or static) and the CPU (AVX2), glibc and Windows 10 checks for stems (#115)
 - [ ] Model download with progress + checksum (#30)
-- [ ] `StemSeparator` trait; htdemucs implementation (stem-splitter-core) (#31)
+- [ ] `StemSeparator` trait; htdemucs implementation on `ort` with our own chunking (#31)
 - [ ] Backend selection: GPU provider with CPU fallback, CPU reference check, "CPU only" setting, backend in the status bar; verified on real hardware (Apple Silicon, Windows GPU, a CPU-only machine) (#32)
 - [ ] Cancel + progress; cache per track (#33)
 - [ ] Stem mixer in the audio engine (gain, mute, solo) (#34)
@@ -79,16 +79,6 @@ Mastering
 - [ ] Reference-track matching (#27)
 - [ ] UI: Master tab (#28)
 
-Stems
-- [x] **Research:** ONNX Runtime GPU backends for htdemucs via `ort`: CoreML (macOS), DirectML vs Windows ML (Windows); prebuilt binaries per target; record findings in `docs/ARCHITECTURE.md` (#29)
-- [ ] Model download with progress + checksum (#30)
-- [ ] `StemSeparator` trait; htdemucs implementation on `ort` with our own chunking (#31)
-- [ ] Backend selection: GPU provider with CPU fallback, CPU reference check, "CPU only" setting, backend in the status bar; verified on real hardware (Apple Silicon, Windows GPU, a CPU-only machine) (#32)
-- [ ] Cancel + progress; cache per track (#33)
-- [ ] Stem mixer in the audio engine (gain, mute, solo) (#34)
-- [ ] UI: Stems tab; export WAVs (#35)
-- [ ] **Research:** stems on Intel Macs, where no ONNX Runtime build exists (#114)
-- [ ] ONNX Runtime linking (run-time load or static) and the CPU (AVX2), glibc and Windows 10 checks for stems (#115)
 Infra
 - [x] CI: unsigned installer builds on every target that check the minimum OS versions and installer sizes (#113)
 
