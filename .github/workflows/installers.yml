@@ -1,0 +1,131 @@
+# Installers: unsigned `tauri build` on every target, checked against the
+# minimum OS versions (docs/ARCHITECTURE.md, Platforms and portability) and the
+# 60 MB size budget (#113). For testing only: no signing, no release (#44).
+#
+# Not on every pull request (five full release builds): manual, weekly, and on
+# pull requests that change how the app is bundled.
+#
+# Actions are pinned by commit SHA (version in the comment), as in ci.yml.
+
+name: Installers
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "17 4 * * 1" # Mondays 04:17 UTC
+  pull_request:
+    paths:
+      - ".github/workflows/installers.yml"
+      - ".github/actions/linux-deps/**"
+      - ".github/scripts/check-installer.sh"
+      - "src-tauri/tauri*.conf.json"
+      - "src-tauri/Cargo.toml"
+      - "src-tauri/build.rs"
+      - "src-tauri/icons/**"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: installers-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  CARGO_TERM_COLOR: always
+  HUSKY: "0"
+
+jobs:
+  build:
+    name: Installer (${{ matrix.name }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: macOS universal
+            slug: macos-universal
+            os: macos-15
+            target: universal-apple-darwin
+            rust-targets: aarch64-apple-darwin,x86_64-apple-darwin
+            bundles: dmg
+            release-dir: target/universal-apple-darwin/release
+          - name: Windows x64
+            slug: windows-x64
+            os: windows-2025
+            bundles: msi
+            release-dir: target/release
+          - name: Windows ARM64
+            slug: windows-arm64
+            os: windows-11-arm
+            bundles: msi
+            release-dir: target/release
+          # The oldest supported base: an AppImage needs a glibc at least as new as the build machine's.
+          - name: Linux x64
+            slug: linux-x64
+            os: ubuntu-22.04
+            bundles: appimage
+            release-dir: target/release
+          - name: Linux arm64
+            slug: linux-arm64
+            os: ubuntu-22.04-arm
+            bundles: appimage
+            release-dir: target/release
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Tauri system dependencies (Linux)
+        if: runner.os == 'Linux'
+        timeout-minutes: 15
+        # A path to this repo's own action, as GitHub has long supported; the newer `$/` form is not needed.
+        uses: ./.github/actions/linux-deps # zizmor: ignore[self-repository]
+
+      - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master 2026-10-16
+        with:
+          toolchain: "1.100"
+          targets: ${{ matrix.rust-targets }}
+
+      # No build cache: these weekly release builds gain little from one, five
+      # release targets would crowd ci.yml's cache, and rust-cache is LGPL-3.0,
+      # which the dependency review denies for new uses.
+
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version: "1.3.14"
+
+      - name: Install
+        run: bun install --frozen-lockfile
+
+      # Builds the UI (beforeBuildCommand), the release binary and the installer.
+      - name: Build
+        shell: bash
+        env:
+          TARGET: ${{ matrix.target }}
+          BUNDLES: ${{ matrix.bundles }}
+          # linuxdeploy is itself an AppImage; this runs it without FUSE.
+          APPIMAGE_EXTRACT_AND_RUN: "1"
+        run: |
+          if [ -n "$TARGET" ]; then
+            bun run tauri build --bundles "$BUNDLES" --target "$TARGET"
+          else
+            bun run tauri build --bundles "$BUNDLES"
+          fi
+
+      - name: Check the installer
+        shell: bash
+        env:
+          RELEASE_DIR: ${{ matrix.release-dir }}
+        run: .github/scripts/check-installer.sh "$RELEASE_DIR"
+
+      - name: Keep the installer
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: cratekit-${{ matrix.slug }}-unsigned
+          path: |
+            ${{ matrix.release-dir }}/bundle/dmg/*.dmg
+            ${{ matrix.release-dir }}/bundle/msi/*.msi
+            ${{ matrix.release-dir }}/bundle/appimage/*.AppImage
+          if-no-files-found: error
+          retention-days: 14

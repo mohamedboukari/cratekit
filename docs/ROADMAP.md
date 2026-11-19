@@ -80,7 +80,7 @@ Mastering
 - [ ] UI: Master tab (#28)
 
 Infra
-- [ ] CI: unsigned installer builds on every target that check the minimum OS versions and installer sizes (#113)
+- [x] CI: unsigned installer builds on every target that check the minimum OS versions and installer sizes (#113)
 
 **Gate:** the DJ uses at least one master or one acapella in a real set or edit.
 

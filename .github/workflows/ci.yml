@@ -45,35 +45,12 @@ jobs:
         with:
           persist-credentials: false
 
-      # The runner's regional Ubuntu mirror is sometimes extremely slow (it
-      # trickles bytes, so apt's own timeouts never fire) and the step hung
-      # until the job limit. Each attempt is killed after 4 minutes, and the
-      # retries switch to the main Ubuntu mirror.
+      # Retries against slow Ubuntu mirrors; shared with installers.yml.
       - name: Tauri system dependencies (Linux)
         if: runner.os == 'Linux'
         timeout-minutes: 15
-        run: |
-          APT_OPTS="-o Acquire::Retries=3 -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30"
-          PACKAGES="libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf libasound2-dev"
-          for attempt in 1 2 3; do
-            if [ "$attempt" -gt 1 ]; then
-              echo "Attempt $attempt of 3: switching to the main Ubuntu mirror"
-              # GitHub's images read the mirror from a list (mirror+file:).
-              if [ -f /etc/apt/apt-mirrors.txt ]; then
-                echo "http://archive.ubuntu.com/ubuntu/" | sudo tee /etc/apt/apt-mirrors.txt > /dev/null
-              fi
-              for list in /etc/apt/sources.list /etc/apt/sources.list.d/*.sources; do
-                [ -f "$list" ] && sudo sed -i -E 's#https?://[a-z0-9.-]+\.archive\.ubuntu\.com/ubuntu#http://archive.ubuntu.com/ubuntu#g' "$list"
-              done
-              sudo dpkg --configure -a || true
-            fi
-            if sudo timeout 240 apt-get $APT_OPTS update \
-              && sudo timeout 240 apt-get $APT_OPTS install -y $PACKAGES; then
-              exit 0
-            fi
-            echo "apt failed or was too slow (attempt $attempt of 3)"
-          done
-          exit 1
+        # A path to this repo's own action, as GitHub has long supported; the newer `$/` form is not needed.
+        uses: ./.github/actions/linux-deps # zizmor: ignore[self-repository]
 
       # Installs rustup if the image lacks it; rust-toolchain.toml then selects 1.100.
       - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master 2026-10-16
