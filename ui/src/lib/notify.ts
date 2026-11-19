@@ -45,6 +45,13 @@ function codeDetail(code: string): string | null {
  */
 export function notifyError(error: unknown, context?: string): AppError {
   const appError = toAppError(error);
+  // A feature planned for a later version is not a failure: say so calmly.
+  if (appError.code === "not_built") {
+    toast.info(i18n.t("errors.notBuilt.title"), {
+      description: i18n.t("errors.notBuilt.detail"),
+    });
+    return appError;
+  }
   const detail = codeDetail(appError.code);
   // Keep Rust's specific message (a file path, an OS reason) after the
   // translated sentence: it is what a user needs to act on or report.

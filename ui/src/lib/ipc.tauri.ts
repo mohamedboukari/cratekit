@@ -1,10 +1,10 @@
 /**
  * Real implementation of CratekitApi: Tauri commands (snake_case, as in
  * src-tauri) and events. Argument keys are camelCase; Tauri maps them to the
- * Rust parameter names. Commands not implemented in Rust yet reject with an
- * error, which callers surface through toAppError().
+ * Rust parameter names. Commands not implemented in Rust yet reject with the
+ * `not_built` code, which notifyError() shows as a calm "not built yet" note.
  */
-import { invoke } from "@tauri-apps/api/core";
+import { invoke, type InvokeArgs } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { open } from "@tauri-apps/plugin-dialog";
@@ -12,15 +12,35 @@ import { open } from "@tauri-apps/plugin-dialog";
 import { AUDIO_EXTENSIONS } from "@/lib/formats";
 import type { CratekitApi, Listener, Unlisten } from "@/lib/ipc";
 
+/** Tauri's rejection text when no Rust command has this name. */
+const MISSING_COMMAND = /^Command (\S+) not found$/;
+
+/**
+ * Tauri's invoke(), except that a command Rust does not have yet rejects with
+ * `{ code: "not_built" }` instead of Tauri's raw text, so the UI can tell
+ * "planned for a later version" apart from a real failure.
+ */
+export async function call<T>(command: string, args?: InvokeArgs): Promise<T> {
+  try {
+    return await invoke<T>(command, args);
+  } catch (error) {
+    if (typeof error === "string") {
+      const missing = MISSING_COMMAND.exec(error);
+      if (missing) throw { code: "not_built", message: missing[1] };
+    }
+    throw error;
+  }
+}
+
 function on<T>(event: string, listener: Listener<T>): Promise<Unlisten> {
   return listen<T>(event, (e) => listener(e.payload));
 }
 
 export function createTauriApi(): CratekitApi {
   return {
-    appVersion: () => invoke("app_version"),
-    appOpenSettings: () => invoke("open_settings_window"),
-    appSetMenuLabels: (labels) => invoke("app_set_menu_labels", { labels }),
+    appVersion: () => call("app_version"),
+    appOpenSettings: () => call("open_settings_window"),
+    appSetMenuLabels: (labels) => call("app_set_menu_labels", { labels }),
     dialogOpenFiles: async () =>
       (await open({
         multiple: true,
@@ -29,62 +49,62 @@ export function createTauriApi(): CratekitApi {
       })) ?? [],
     dialogOpenFolder: () => open({ multiple: false, directory: true }),
 
-    libraryAddPaths: (paths) => invoke("library_add_paths", { paths }),
-    libraryList: (query) => invoke("library_list", { query }),
-    libraryCounts: () => invoke("library_counts"),
-    trackDetail: (id) => invoke("track_detail", { id }),
-    cratesList: () => invoke("crates_list"),
-    crateCreate: (name, color) => invoke("crate_create", { name, color }),
-    crateAddTracks: (crateId, ids) => invoke("crate_add_tracks", { crateId, ids }),
-    crateRemoveTracks: (crateId, ids) => invoke("crate_remove_tracks", { crateId, ids }),
-    setlistTransitions: (ids) => invoke("setlist_transitions", { ids }),
+    libraryAddPaths: (paths) => call("library_add_paths", { paths }),
+    libraryList: (query) => call("library_list", { query }),
+    libraryCounts: () => call("library_counts"),
+    trackDetail: (id) => call("track_detail", { id }),
+    cratesList: () => call("crates_list"),
+    crateCreate: (name, color) => call("crate_create", { name, color }),
+    crateAddTracks: (crateId, ids) => call("crate_add_tracks", { crateId, ids }),
+    crateRemoveTracks: (crateId, ids) => call("crate_remove_tracks", { crateId, ids }),
+    setlistTransitions: (ids) => call("setlist_transitions", { ids }),
 
-    analyzeTracks: (ids) => invoke("analyze_tracks", { ids }),
-    jobCancel: (jobId) => invoke("job_cancel", { jobId }),
-    jobsSetPaused: (paused) => invoke("jobs_set_paused", { paused }),
+    analyzeTracks: (ids) => call("analyze_tracks", { ids }),
+    jobCancel: (jobId) => call("job_cancel", { jobId }),
+    jobsSetPaused: (paused) => call("jobs_set_paused", { paused }),
 
-    playbackLoad: (id) => invoke("playback_load", { id }),
-    playbackPlay: () => invoke("playback_play"),
-    playbackPause: () => invoke("playback_pause"),
-    playbackSeek: (sec) => invoke("playback_seek", { sec }),
-    playbackSetRate: (rate) => invoke("playback_set_rate", { rate }),
-    playbackSetMode: (mode) => invoke("playback_set_mode", { mode }),
-    playbackSetFilter: (value) => invoke("playback_set_filter", { value }),
-    playbackSetLevelMatch: (enabled) => invoke("playback_set_level_match", { enabled }),
+    playbackLoad: (id) => call("playback_load", { id }),
+    playbackPlay: () => call("playback_play"),
+    playbackPause: () => call("playback_pause"),
+    playbackSeek: (sec) => call("playback_seek", { sec }),
+    playbackSetRate: (rate) => call("playback_set_rate", { rate }),
+    playbackSetMode: (mode) => call("playback_set_mode", { mode }),
+    playbackSetFilter: (value) => call("playback_set_filter", { value }),
+    playbackSetLevelMatch: (enabled) => call("playback_set_level_match", { enabled }),
 
-    stemsSplit: (id) => invoke("stems_split", { id }),
-    stemsSetGain: (stem, gain) => invoke("stems_set_gain", { stem, gain }),
-    stemsSetMute: (stem, muted) => invoke("stems_set_mute", { stem, muted }),
-    stemsSetSolo: (stem, soloed) => invoke("stems_set_solo", { stem, soloed }),
-    stemsBackendStatus: () => invoke("stems_backend_status"),
-    stemsInfo: (id) => invoke("stems_info", { id }),
-    stemsExport: (id) => invoke("stems_export", { id }),
+    stemsSplit: (id) => call("stems_split", { id }),
+    stemsSetGain: (stem, gain) => call("stems_set_gain", { stem, gain }),
+    stemsSetMute: (stem, muted) => call("stems_set_mute", { stem, muted }),
+    stemsSetSolo: (stem, soloed) => call("stems_set_solo", { stem, soloed }),
+    stemsBackendStatus: () => call("stems_backend_status"),
+    stemsInfo: (id) => call("stems_info", { id }),
+    stemsExport: (id) => call("stems_export", { id }),
 
-    masterPresets: () => invoke("master_presets"),
-    masterPreview: (id, settings) => invoke("master_preview", { id, settings }),
-    masterExport: (id, settings) => invoke("master_export", { id, settings }),
+    masterPresets: () => call("master_presets"),
+    masterPreview: (id, settings) => call("master_preview", { id, settings }),
+    masterExport: (id, settings) => call("master_export", { id, settings }),
 
-    hotcueSet: (id, slot, sec) => invoke("hotcue_set", { id, slot, sec }),
-    hotcueClear: (id, slot) => invoke("hotcue_clear", { id, slot }),
+    hotcueSet: (id, slot, sec) => call("hotcue_set", { id, slot, sec }),
+    hotcueClear: (id, slot) => call("hotcue_clear", { id, slot }),
     hotcueUpdate: (id, slot, name, color) =>
-      invoke("hotcue_update", { id, slot, name, color }),
+      call("hotcue_update", { id, slot, name, color }),
 
-    midiListDevices: () => invoke("midi_list_devices"),
-    midiLearnStart: (target) => invoke("midi_learn_start", { target }),
-    midiLearnCancel: () => invoke("midi_learn_cancel"),
-    midiMappings: (deviceId) => invoke("midi_mappings", { deviceId }),
+    midiListDevices: () => call("midi_list_devices"),
+    midiLearnStart: (target) => call("midi_learn_start", { target }),
+    midiLearnCancel: () => call("midi_learn_cancel"),
+    midiMappings: (deviceId) => call("midi_mappings", { deviceId }),
 
-    exportVirtualdj: (ids, dryRun) => invoke("export_virtualdj", { ids, dryRun }),
+    exportVirtualdj: (ids, dryRun) => call("export_virtualdj", { ids, dryRun }),
 
-    modelsStatus: () => invoke("models_status"),
-    modelsDownload: (name) => invoke("models_download", { name }),
-    modelsDelete: (name) => invoke("models_delete", { name }),
+    modelsStatus: () => call("models_status"),
+    modelsDownload: (name) => call("models_download", { name }),
+    modelsDelete: (name) => call("models_delete", { name }),
 
-    audioListDevices: () => invoke("audio_list_devices"),
-    audioSetDevice: (id) => invoke("audio_set_device", { id }),
+    audioListDevices: () => call("audio_list_devices"),
+    audioSetDevice: (id) => call("audio_set_device", { id }),
 
-    settingsGet: () => invoke("settings_get"),
-    settingsSet: (key, value) => invoke("settings_set", { key, value }),
+    settingsGet: () => call("settings_get"),
+    settingsSet: (key, value) => call("settings_set", { key, value }),
 
     onJobProgress: (l) => on("job_progress", l),
     onJobDone: (l) => on("job_done", l),

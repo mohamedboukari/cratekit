@@ -2,6 +2,10 @@ import type { Translation } from "@/i18n/en";
 
 /** Titres d'erreur des stores et de lib, et traductions des codes d'erreur Rust. */
 export const errors: Translation["errors"] = {
+  notBuilt: {
+    title: "Pas encore disponible",
+    detail: "Cette partie de Cratekit arrive dans une prochaine version.",
+  },
   codes: {
     io: "Un fichier n'a pas pu être lu ou écrit.",
     not_found: "Cet élément n'existe plus.",

@@ -1,6 +1,11 @@
 /** Error titles from stores and lib, and translations of Rust error codes. */
 export const errors = {
   /** Detail shown for a known `AppError.code`; unknown codes show Rust's message. */
+  /** A command the Rust side does not have yet: a later version, not a failure. */
+  notBuilt: {
+    title: "Not built yet",
+    detail: "This part of Cratekit comes in a later version.",
+  },
   codes: {
     io: "A file could not be read or written.",
     not_found: "This item no longer exists.",
