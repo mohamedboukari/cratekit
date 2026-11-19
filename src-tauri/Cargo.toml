@@ -17,6 +17,7 @@ tauri-build = { workspace = true }
 
 [dependencies]
 anyhow = { workspace = true }
+cratekit-audio = { workspace = true }
 cratekit-core = { workspace = true }
 serde = { workspace = true }
 tauri = { workspace = true }

@@ -14,6 +14,8 @@ export const errors: Translation["errors"] = {
     database: "La base de la bibliothèque n'a pas pu être lue ou écrite.",
     database_too_new:
       "Cette bibliothèque vient d'une version plus récente de Cratekit. Mettez l'app à jour pour l'ouvrir.",
+    no_audio_device: "Aucune sortie audio trouvée. Branchez des enceintes ou un casque.",
+    audio_device: "La sortie audio n'a pas pu être utilisée.",
   },
   controller: {
     load: "Impossible de charger l'assignation du contrôleur",

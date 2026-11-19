@@ -220,9 +220,10 @@ mod tests {
 
     #[test]
     fn a_six_minute_track_analyzes_in_under_five_seconds() {
-        // SPEC Module 2 (release build on a 2020 laptop CPU). Debug builds are
-        // many times slower, so CI's debug run checks a one-minute track with
-        // a sanity limit; `cargo nextest run --release` checks the real one.
+        // SPEC Module 2: under 5 s in a release build on a 2020 laptop CPU,
+        // checked with `cargo nextest run --release`. Debug builds (CI) are
+        // many times slower and their speed depends on the machine, so they
+        // analyze a one-minute track with no time limit, as a smoke test.
         let seconds = if cfg!(debug_assertions) { 60.0 } else { 360.0 };
         let audio = stereo(test_loop(124.0, A_MINOR, seconds, RATE));
         let start = Instant::now();
@@ -230,7 +231,8 @@ mod tests {
             analyze_buffer(&audio, &NoProgress, &CancellationToken::new()).expect("analysis runs");
         let elapsed = start.elapsed().as_secs_f64();
         assert!(found.tempo.is_some());
-        let limit = if cfg!(debug_assertions) { 30.0 } else { 5.0 };
-        assert!(elapsed < limit, "took {elapsed:.2} s");
+        if !cfg!(debug_assertions) {
+            assert!(elapsed < 5.0, "took {elapsed:.2} s");
+        }
     }
 }

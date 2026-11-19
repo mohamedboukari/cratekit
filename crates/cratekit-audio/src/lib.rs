@@ -1,19 +1,16 @@
 //! Cratekit real-time playback engine.
 //!
-//! Owns the cpal output stream and the audio thread. Everything reachable from
-//! the audio callback follows the real-time rules in `docs/ARCHITECTURE.md`: no allocation, locks,
-//! I/O, logging or panics. The engine, mixer, filter and meters arrive in the
-//! Phase 1 playback task.
+//! [`Engine`] owns the cpal output stream on its own thread and talks to the
+//! audio callback ([`renderer::Renderer`]) only through lock-free queues and
+//! atomics. Everything reachable from the callback follows the real-time
+//! rules in `docs/ARCHITECTURE.md` (Threads): no allocation, locks, I/O,
+//! logging or panics. See docs/playback.md.
+
+mod engine;
+pub mod renderer;
+
+pub use engine::{Engine, EngineError, Status};
+pub use renderer::{DeckId, Track};
 
 /// Number of output channels the engine renders (stereo).
 pub const OUTPUT_CHANNELS: usize = 2;
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn renders_stereo() {
-        assert_eq!(OUTPUT_CHANNELS, 2);
-    }
-}

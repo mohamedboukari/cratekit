@@ -48,7 +48,7 @@ v0.1 in about 8 weeks of part-time work. Each phase ends with a gate: the test D
 - [ ] UI: Analyze tab (key, chroma bars, mixes-well-with chips) (#18)
 - [ ] Set builder: side list to stage tracks and build a set (#55)
 - [ ] DJ filter knob on the deck (#56)
-- [ ] Playback: load, play/pause, seek, waveform playhead (canvas, outside React renders) (#19)
+- [x] Playback: load, play/pause, seek, waveform playhead (canvas, outside React renders) (#19)
 - [ ] Audio output device selection + hot-plug fallback to the system default (#20)
 - [ ] UI: Settings screen (audio output, watched folders, output folder) (#21)
 - [ ] Test analysis on the DJ's 10 tracks; compare with VirtualDJ's BPM/key (#22)
