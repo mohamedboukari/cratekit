@@ -549,6 +549,7 @@ dependencies = [
  "rubato",
  "rusqlite",
  "serde",
+ "serde_json",
  "stratum-dsp",
  "symphonia 0.6.1",
  "thiserror 2.0.21",

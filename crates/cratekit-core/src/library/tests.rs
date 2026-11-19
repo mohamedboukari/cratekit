@@ -7,6 +7,7 @@ use crate::analysis::key::{Key, Mode, PitchClass};
 use crate::analysis::key_detect::KeyEstimate;
 use crate::analysis::loudness::Loudness;
 use crate::analysis::tempo::TempoEstimate;
+use crate::settings::Settings;
 use crate::testing::{Scratch, fixture, read_fixture};
 
 fn library() -> Library {
@@ -515,4 +516,82 @@ fn a_version_1_library_is_upgraded_and_keeps_its_tracks() {
     library
         .store_analysis(rows[0].id, &found_analysis())
         .expect("the new column works");
+}
+
+#[test]
+fn settings_persist_across_reopening_the_library() {
+    let scratch = Scratch::new("library-settings");
+    let path = scratch.path().join("cratekit.db");
+    let mut library = Library::open(&path).expect("create the library");
+    assert_eq!(library.settings().expect("settings"), Settings::default());
+    let updated = library
+        .set_setting("language", serde_json::json!("fr"))
+        .expect("set the language");
+    assert_eq!(updated.language, crate::settings::Language::Fr);
+    library
+        .set_setting("watchedFolders", serde_json::json!(["/music/house"]))
+        .expect("set the folders");
+    library
+        .set_setting("language", serde_json::json!("en"))
+        .expect("change it again");
+    drop(library);
+    let reopened = Library::open(&path).expect("reopen");
+    let settings = reopened.settings().expect("settings");
+    assert_eq!(settings.language, crate::settings::Language::En);
+    assert_eq!(settings.watched_folders, ["/music/house"]);
+}
+
+#[test]
+fn a_wrong_setting_is_refused_and_nothing_is_stored() {
+    let mut library = library();
+    let result = library.set_setting("bufferSize", serde_json::json!(333));
+    assert!(
+        matches!(result, Err(CoreError::InvalidSetting { .. })),
+        "{result:?}"
+    );
+    assert_eq!(library.settings().expect("settings").buffer_size, 512);
+    let stored: i64 = library
+        .connection()
+        .query_row("SELECT count(*) FROM settings", [], |row| row.get(0))
+        .expect("count");
+    assert_eq!(stored, 0);
+}
+
+#[test]
+fn set_list_transitions_say_how_neighbours_fit() {
+    let mut library = library();
+    let ids = library
+        .add_paths(&[
+            fixture("tagged.mp3"),
+            fixture("tagged.flac"),
+            fixture("tagged.m4a"),
+            fixture("tone.wav"),
+        ])
+        .expect("add")
+        .added;
+    // 124 BPM 8A, 126 BPM 8B (relative key), 140 BPM 11A (far), unanalyzed.
+    analyze(&library, ids[0], 124.0, 9, "minor");
+    analyze(&library, ids[1], 126.0, 0, "major");
+    analyze(&library, ids[2], 140.0, 6, "minor");
+    let order = [ids[0], ids[1], ids[2], ids[3], 9_999];
+    let found = library.transitions(&order).expect("transitions");
+    assert_eq!(found.len(), 4);
+    assert_eq!(found[0].key_compatible, Some(true));
+    assert_eq!(found[0].bpm_change_pct, Some(1.6));
+    assert!(!found[0].bpm_jump);
+    assert_eq!(found[1].key_compatible, Some(false));
+    assert_eq!(found[1].bpm_change_pct, Some(11.1));
+    assert!(found[1].bpm_jump);
+    assert_eq!(
+        (found[2].key_compatible, found[2].bpm_change_pct),
+        (None, None)
+    );
+    assert!(!found[2].bpm_jump);
+    assert_eq!((found[3].from_id, found[3].to_id), (ids[3], 9_999));
+    assert!(
+        library
+            .transitions(&[ids[0]])
+            .expect("one track")
+            .is_empty()
+    );
 }

@@ -6,6 +6,7 @@
 mod jobs;
 mod library;
 mod playback;
+mod settings;
 
 use std::sync::{Mutex, PoisonError};
 
@@ -147,6 +148,7 @@ impl AppError {
             cratekit_core::CoreError::DatabaseTooNew { .. } => "database_too_new",
             cratekit_core::CoreError::NotFound { .. } => "not_found",
             cratekit_core::CoreError::Cancelled => "cancelled",
+            cratekit_core::CoreError::InvalidSetting { .. } => "invalid_setting",
         };
         Self { code, message }
     }
@@ -300,13 +302,16 @@ pub fn run() -> anyhow::Result<()> {
             library::library_counts,
             library::track_detail,
             library::crates_list,
+            library::setlist_transitions,
             jobs::analyze_tracks,
             jobs::job_cancel,
             jobs::jobs_set_paused,
             playback::playback_load,
             playback::playback_play,
             playback::playback_pause,
-            playback::playback_seek
+            playback::playback_seek,
+            settings::settings_get,
+            settings::settings_set
         ])
         .run(tauri::generate_context!())?;
     Ok(())

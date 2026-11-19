@@ -28,10 +28,9 @@ type SectionId = (typeof SECTIONS)[number]["id"];
 /** Buffer sizes offered; smaller is lower latency, larger is safer on slow machines. */
 const BUFFER_SIZES = [128, 256, 512, 1024] as const;
 
+/** Saves the buffer size; the store shows the error and reverts on failure. */
 function pickBuffer(frames: number): void {
-  api()
-    .audioSetBufferSize(frames)
-    .catch((error: unknown) => notifyError(error, i18n.t("errors.settings.bufferSize")));
+  void useSettings.getState().set("bufferSize", frames);
 }
 
 /** The model list, or an empty list (with an error toast) when Rust cannot answer. */

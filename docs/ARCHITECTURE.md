@@ -77,6 +77,7 @@ src/
   export/
     virtualdj.rs       read/write VirtualDJ database (format TBD, see ROADMAP research task)
   progress.rs          ProgressSink trait (any Fn(f32)), NoProgress, CancellationToken
+  settings.rs          Settings (the UI's settings, with defaults and rules), stored per key in the library's settings table
 ```
 
 ### `crates/cratekit-audio`
@@ -103,6 +104,7 @@ src/
   main.rs        builder, state, plugins
   state.rs       AppState { db, engine, jobs, midi }
   library.rs     library commands and LibraryState (done: library_add_paths, library_list, library_counts, track_detail, crates_list)
+  settings.rs    settings_get / settings_set (sends settings_changed to every window). Done (#21)
   playback.rs    PlayerState (engine started on first load), playback_load / play / pause / seek, the 30 Hz poller
                  (playback_position, meter, playback_state at the end of a track). Done (#19)
   commands/      mastering.rs, stems.rs, midi.rs, export.rs (planned)
@@ -160,6 +162,7 @@ Rules:
 | `library_add_paths(paths)` | Add files/folders, returns new track ids |
 | `library_list(query)` | Tracks with filters (crate, search, BPM range, near a BPM with the tolerance decided in Rust, key match, has stems) |
 | `library_counts` / `track_detail(id)` / `crates_list` | Sidebar counts; one track with analysis, cues and waveform; all crates |
+| `setlist_transitions(ids)` | Per neighbour pair: `keyCompatible` (same key or a Camelot partner; null when a key is unknown), `bpmChangePct` (one decimal), `bpmJump` (over 6%) |
 | `crate_create / crate_add_tracks / crate_remove_tracks` | Crates |
 | `setlist_transitions(ids)` | Set builder: for each neighbour pair, `keyCompatible` (null when either key is unknown), `bpmChangePct` and `bpmJump` (Rust decides the thresholds) (#55) |
 | `analyze_tracks(ids)` | Queue analysis |
@@ -176,7 +179,7 @@ Rules:
 | `export_virtualdj(ids, dry_run)` | Export; each track's `changes` are data (`{ field: bpm \| key \| cues, value }`), worded by the UI |
 | `models_status / models_download(name) / models_delete(name)` | ML models |
 | `audio_list_devices / audio_set_device(id) / audio_set_buffer_size(frames)` | Audio output |
-| `settings_get / settings_set(key, value)` | Settings (UI `language`, `"en"` by default for every user; watched folders, output folder, processing backend, pane layouts, the set list order, ...) |
+| `settings_get / settings_set(key, value)` | Settings (UI `language`, `"en"` by default for every user; watched folders, output folder, processing backend, pane layouts, the set list order, ...). Rust owns the defaults and checks every value (`invalid_setting` for an unknown key, a wrong type or a buffer size other than 128, 256, 512 or 1024); stored in the library database, so they survive restarts |
 | `stems_backend_status` | Active stems backend (CoreML / DirectML / CPU) and why, as a code (`no_gpu`, `cpu_chosen`, `gpu_check_failed`) the UI words |
 
 **Events (Rust → UI)**: `job_progress {jobId, kind, label, stage, trackIds, done, total, queued}` (`done` and `total` are progress steps, not tracks: analysis counts 100 per track; `queued`: sent once when the job is queued, before it starts, so a waiting job can be seen and cancelled; `trackIds`: the tracks the job works on, empty for a model download; `stage`: `download` or `verify` for the model download, else null; `label` is an English fallback, the UI names jobs from `kind`, `stage` and the track count), `job_done {jobId, kind}`, `job_failed {jobId, kind, error}` (an analysis job skips tracks that fail and ends with `job_failed` saying how many; a cancelled job sends nothing more), `playback_position {sec}` (about 30 Hz, while playing or after a seek), `meter {peakDb, rmsDb}` (about 30 Hz, while there is sound), `playback_state {playing}` (today only `playing: false` when a track plays to its end: the UI sets the state itself after `playback_play` and `playback_pause`; play and pause that Rust starts itself, such as from MIDI, will send it too), `midi_device_changed`, `midi_learned {target, binding, replaced}` (`replaced`: the target that lost this control, or null), `control_event {target, value}` (Rust runs engine actions such as play, cue, hot cues, filter and tempo itself; the UI runs the UI-owned targets `mute-*`, `ab-toggle` and `pad-page` from this event), `audio_device_changed {id, reason}`, `settings_changed` (the full settings, after any change, so both windows stay in sync). Files dropped on a window arrive through Tauri's drag and drop event (`onFilesDropped` in `CratekitApi`).

@@ -72,6 +72,15 @@ pub enum CoreError {
         known: i64,
     },
 
+    /// A setting that does not exist, or a value it cannot take.
+    #[error("invalid setting {key}: {reason}")]
+    InvalidSetting {
+        /// The setting's name, as the UI sends it.
+        key: String,
+        /// What is wrong with the value.
+        reason: String,
+    },
+
     /// The task was cancelled (see `progress::CancellationToken`).
     #[error("cancelled")]
     Cancelled,

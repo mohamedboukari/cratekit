@@ -24,12 +24,17 @@ use crate::analysis::ANALYZER_VERSION;
 use crate::analysis::key::{Camelot, Key, Mode, PitchClass};
 use crate::analysis::track::TrackAnalysis;
 use crate::audio::{FileInfo, probe_file};
+use crate::settings::Settings;
 
 /// A track's id in the library.
 pub type TrackId = i64;
 
 /// "Near" a BPM, for the deck's near-BPM filter: within this many BPM.
 pub const NEAR_BPM_TOLERANCE: f64 = 3.0;
+
+/// A BPM change between neighbours in the set list above this many percent
+/// is too big to mix smoothly (a "jump").
+pub const MAX_BPM_CHANGE_PCT: f64 = 6.0;
 
 /// How long a track counts as recently added.
 const RECENT_DAYS: u32 = 7;
@@ -213,6 +218,55 @@ pub struct Crate {
     pub color: CueColor,
     /// How many tracks it holds.
     pub track_count: u32,
+}
+
+/// How two neighbours in the set list fit (the UI's `Transition`).
+#[derive(Debug, Clone, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Transition {
+    /// The track played first.
+    pub from_id: TrackId,
+    /// The track played next.
+    pub to_id: TrackId,
+    /// Same key or a mixing partner on the Camelot wheel; `None` when either
+    /// key is unknown.
+    pub key_compatible: Option<bool>,
+    /// BPM change in percent from the first to the next, to one decimal;
+    /// `None` when either tempo is unknown.
+    pub bpm_change_pct: Option<f64>,
+    /// The change is more than `MAX_BPM_CHANGE_PCT`.
+    pub bpm_jump: bool,
+}
+
+impl Transition {
+    /// How `from` leads into `to` (either may be missing from the library).
+    fn between(
+        from_id: TrackId,
+        from: Option<&TrackRow>,
+        to_id: TrackId,
+        to: Option<&TrackRow>,
+    ) -> Self {
+        let camelot = |row: Option<&TrackRow>| {
+            row.and_then(|row| row.camelot.as_deref())
+                .and_then(|code| code.parse::<Camelot>().ok())
+        };
+        let key_compatible = match (camelot(from), camelot(to)) {
+            (Some(a), Some(b)) => Some(a.matches(b)),
+            _ => None,
+        };
+        let bpm = |row: Option<&TrackRow>| row.and_then(|row| row.bpm).filter(|bpm| *bpm > 0.0);
+        let bpm_change_pct = match (bpm(from), bpm(to)) {
+            (Some(a), Some(b)) => Some(((b - a) / a * 1000.0).round() / 10.0),
+            _ => None,
+        };
+        Self {
+            from_id,
+            to_id,
+            key_compatible,
+            bpm_change_pct,
+            bpm_jump: bpm_change_pct.is_some_and(|change| change.abs() > MAX_BPM_CHANGE_PCT),
+        }
+    }
 }
 
 /// One file read and ready to store.
@@ -414,6 +468,66 @@ impl Library {
         }
         transaction.commit()?;
         Ok(result)
+    }
+
+    /// The settings: stored values over the defaults (a stored value that no
+    /// longer loads keeps its default).
+    ///
+    /// # Errors
+    ///
+    /// [`CoreError::Database`] if reading fails.
+    pub fn settings(&self) -> Result<Settings, CoreError> {
+        let pairs: Vec<(String, String)> = self
+            .connection
+            .prepare("SELECT key, value FROM settings WHERE value IS NOT NULL")?
+            .query_map([], |row| Ok((row.get(0)?, row.get(1)?)))?
+            .collect::<Result<_, _>>()?;
+        Ok(Settings::from_stored(pairs))
+    }
+
+    /// Changes one setting (`key` as the UI names it) after checking it, and
+    /// returns all the settings.
+    ///
+    /// # Errors
+    ///
+    /// [`CoreError::InvalidSetting`] for an unknown key or a wrong value,
+    /// [`CoreError::Database`] if writing fails.
+    pub fn set_setting(
+        &mut self,
+        key: &str,
+        value: serde_json::Value,
+    ) -> Result<Settings, CoreError> {
+        let updated = self.settings()?.with(key, value)?;
+        self.connection.execute(
+            "INSERT INTO settings (key, value) VALUES (?1, ?2) \
+             ON CONFLICT (key) DO UPDATE SET value = excluded.value",
+            params![key, updated.stored_value(key)?],
+        )?;
+        Ok(updated)
+    }
+
+    /// How each pair of neighbours in a set list fits: key and tempo. A
+    /// track no longer in the library counts as unknown.
+    ///
+    /// # Errors
+    ///
+    /// [`CoreError::Database`] if reading fails.
+    pub fn transitions(&self, ids: &[TrackId]) -> Result<Vec<Transition>, CoreError> {
+        let mut rows = Vec::with_capacity(ids.len());
+        for &id in ids {
+            rows.push(match self.track(id) {
+                Ok(detail) => Some(detail.track),
+                Err(CoreError::NotFound { .. }) => None,
+                Err(err) => return Err(err),
+            });
+        }
+        Ok(ids
+            .windows(2)
+            .zip(rows.windows(2))
+            .map(|(pair, rows)| {
+                Transition::between(pair[0], rows[0].as_ref(), pair[1], rows[1].as_ref())
+            })
+            .collect())
     }
 
     /// Every crate with how many tracks it holds, in the user's order.

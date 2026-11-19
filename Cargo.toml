@@ -21,7 +21,7 @@ cpal = "0.18"
 # EBU R128 / ITU-R BS.1770 loudness and true peak (MIT; deps MIT or Apache-2.0); approved 2026-11-18.
 ebur128 = "0.1"
 serde = { version = "1", features = ["derive"] }
-# JSON checks of the IPC payloads in tests (MIT OR Apache-2.0; already in the tree through Tauri).
+# JSON: stored settings, and checks of the IPC payloads in tests (MIT OR Apache-2.0; already in the tree through Tauri).
 serde_json = "1"
 # BPM and key detection behind our detector traits (MIT OR Apache-2.0); approved 2026-11-15.
 # No features: keeps `ml` (ONNX Runtime) out even if a later release enables it by default.
