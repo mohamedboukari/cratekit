@@ -4,7 +4,7 @@
 //! Modules from `docs/ARCHITECTURE.md` (audio, analysis, mastering, stems,
 //! library, export) are added here task by task. So far: [`audio`] (decoding
 //! files to planar `f32`, resampling, reading tags), [`library`] (the SQLite
-//! track library), [`analysis::key`]
+//! track library), [`settings`] (the app settings), [`analysis::key`]
 //! (musical keys and the Camelot wheel), [`analysis::tempo`] and
 //! [`analysis::key_detect`] (tempo and key detection), [`analysis::loudness`]
 //! (integrated LUFS and true peak), [`analysis::energy`] (the 1 to 10 energy
@@ -16,6 +16,7 @@ pub mod audio;
 mod error;
 pub mod library;
 pub mod progress;
+pub mod settings;
 #[cfg(any(test, feature = "test-helpers"))]
 pub mod synth;
 #[cfg(test)]

@@ -20,11 +20,9 @@ anyhow = { workspace = true }
 cratekit-audio = { workspace = true }
 cratekit-core = { workspace = true }
 serde = { workspace = true }
+serde_json = { workspace = true }
 tauri = { workspace = true }
 tauri-plugin-dialog = { workspace = true }
-
-[dev-dependencies]
-serde_json = { workspace = true }
 
 [lints]
 workspace = true

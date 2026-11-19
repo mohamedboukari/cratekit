@@ -28,6 +28,8 @@
 | `known_paths()` | The paths of every track |
 | `prepare_add(paths, known)` (a function, no `Library`) | Files are taken if they have an audio extension; folders are searched with their subfolders (hidden entries skipped, links to folders not followed). Paths already known, or already queued in this call (a file and its folder, a relative and an absolute spelling), are skipped. New files are probed (`audio::probe_file`) and fingerprinted on up to 8 threads |
 | `store(prepared)` | Stores the prepared files in one transaction; a path another add stored in the meantime is skipped (`ON CONFLICT DO NOTHING`) |
+| `settings()` / `set_setting(key, value)` | The settings (`cratekit_core::settings::Settings`): stored JSON values over the defaults, a stored value that no longer loads keeping its default; `set_setting` checks the key, the type and the rules before storing one row |
+| `transitions(ids)` | How each pair of neighbours in a set list fits: key compatibility (`Camelot::matches`), BPM change in percent, and a jump above `MAX_BPM_CHANGE_PCT` (6%); a track no longer in the library counts as unknown |
 | `crates()` | Every crate with its track count, by `sort` (unsorted last), then id |
 | `list(query)` | Tracks matching every filter, oldest first. Crate, BPM range, near BPM (within `NEAR_BPM_TOLERANCE` = 3 BPM) and has-stems run in SQL; the search (every word must appear in the title, artist or album, any case, Unicode-aware) and the key match (`Camelot::matches`: the same code, one step either side, or the relative key) run in Rust |
 | `counts()` | All tracks, added in the last 7 days, and needing analysis (none stored, or from an older `ANALYZER_VERSION`) |
@@ -49,6 +51,8 @@
 - A new library has the latest schema, foreign keys on and no tracks; a file library is in WAL mode and reopens without migrating again; a database from a newer schema is refused.
 - Adding a folder: the three audio files in it and its subfolders are added with their tags (or the file name), the hidden file and the text file are skipped, and the fake MP3 is reported as an unsupported format; adding the same files again adds nothing; one file given as an absolute and a relative path is added once; a file another add stored in the meantime is skipped without an error.
 - Crates come back in their order with their track counts and colours.
+- Settings survive reopening the library; a wrong value is refused and nothing is stored.
+- Set list transitions: a relative key fits, a far key does not, 1.6% BPM change is fine, 11.1% is a jump, an unanalyzed or missing track is unknown.
 - Search by title, artist and album in any case, every word required; filters by BPM range, near BPM, key match (including an unknown code), stems and crate, on stored analysis rows; counts.
 - Track detail with cues in slot order and the default colour; `NotFound` for an unknown id.
 - Removing a track keeps its file on disk and removes its analysis.

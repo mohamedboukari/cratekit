@@ -16,6 +16,7 @@ export const errors: Translation["errors"] = {
       "Cette bibliothèque vient d'une version plus récente de Cratekit. Mettez l'app à jour pour l'ouvrir.",
     no_audio_device: "Aucune sortie audio trouvée. Branchez des enceintes ou un casque.",
     audio_device: "La sortie audio n'a pas pu être utilisée.",
+    invalid_setting: "Ce réglage ne peut pas prendre cette valeur.",
   },
   controller: {
     load: "Impossible de charger l'assignation du contrôleur",
@@ -62,7 +63,6 @@ export const errors: Translation["errors"] = {
   settings: {
     load: "Impossible de charger les réglages, réglages par défaut utilisés",
     save: "Impossible d'enregistrer le réglage",
-    bufferSize: "Impossible de modifier la taille du tampon",
     audioOutput: "Impossible de changer de sortie audio",
     folderPicker: "Impossible d'ouvrir le sélecteur de dossier",
     readModels: "Impossible de lire les modèles",

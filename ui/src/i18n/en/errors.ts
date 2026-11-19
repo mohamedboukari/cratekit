@@ -15,6 +15,7 @@ export const errors = {
       "This library was made by a newer Cratekit. Update the app to open it.",
     no_audio_device: "No audio output was found. Connect speakers or headphones.",
     audio_device: "The audio output could not be used.",
+    invalid_setting: "This setting cannot take that value.",
   },
   controller: {
     load: "Could not load the controller mapping",
@@ -61,7 +62,6 @@ export const errors = {
   settings: {
     load: "Could not load settings, using defaults",
     save: "Could not save the setting",
-    bufferSize: "Could not change the buffer size",
     audioOutput: "Could not switch the audio output",
     folderPicker: "Could not open the folder picker",
     readModels: "Could not read the models",

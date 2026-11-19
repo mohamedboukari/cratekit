@@ -10,7 +10,8 @@ use std::sync::{Mutex, PoisonError};
 
 use cratekit_core::CoreError;
 use cratekit_core::library::{
-    Analysis, Crate, Cue, Library, LibraryCounts, LibraryQuery, TrackId, TrackRow, prepare_add,
+    Analysis, Crate, Cue, Library, LibraryCounts, LibraryQuery, TrackId, TrackRow, Transition,
+    prepare_add,
 };
 use serde::Serialize;
 use tauri::{AppHandle, Manager, Runtime};
@@ -43,7 +44,7 @@ impl LibraryState {
 }
 
 /// Runs `work` on the library on a blocking worker thread.
-async fn with_library<T, F>(app: AppHandle, work: F) -> Result<T, AppError>
+pub(crate) async fn with_library<T, F>(app: AppHandle, work: F) -> Result<T, AppError>
 where
     T: Send + 'static,
     F: FnOnce(&mut Library) -> Result<T, CoreError> + Send + 'static,
@@ -139,6 +140,15 @@ pub(crate) async fn library_list(
 #[tauri::command]
 pub(crate) async fn library_counts(app: AppHandle) -> Result<LibraryCounts, AppError> {
     with_library(app, |library| library.counts()).await
+}
+
+/// How each pair of neighbours in the set list fits (key, BPM change).
+#[tauri::command]
+pub(crate) async fn setlist_transitions(
+    app: AppHandle,
+    ids: Vec<TrackId>,
+) -> Result<Vec<Transition>, AppError> {
+    with_library(app, move |library| library.transitions(&ids)).await
 }
 
 /// Every crate with its track count.
