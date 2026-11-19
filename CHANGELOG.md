@@ -43,6 +43,7 @@ All notable changes to Cratekit are documented here. The format follows [Keep a 
 
 ### Changed
 
+- Tempo detection on real tracks (part of #22): soft beats with a clear grid (orchestral, light acoustic) now get a tempo. The "no beat" floor is 0.10 instead of 0.15; beats from 0.10 to 0.15 also need a confidence of 0.75, and short clips need more, so steady tones (including sub-bass at 48 kHz), crackle, rain and speech-like sounds give no tempo. On 10 Creative Commons tracks with publisher BPM tags: 6 exact (5 before), 1 octave, 1 tag that looks wrong, 2 misses investigated and recorded in `docs/analysis.md`.
 - CI: the Linux system packages step kills each attempt after 4 minutes and retries up to 3 times, switching from the runner's regional Ubuntu mirror to the main one; the slow mirror had hung the job until the time limit.
 - UI stack: React 19 + Vite + TypeScript with bun and Vitest (the first draft said Svelte 5 with pnpm).
 - Database notes: SQLite through rusqlite in WAL mode with a single writer connection.
