@@ -16,12 +16,13 @@ use std::thread;
 use std::time::Duration;
 
 use cratekit_audio::{
-    DeckId, Engine, EngineError, EngineOptions, OutputDevice, Status, default_device_id,
-    output_device_ids, output_devices, prepare_track,
+    DeckId, Engine, EngineError, EngineOptions, OutputDevice, PlaybackMode, Status, Stem, StemSet,
+    Track, default_device_id, output_device_ids, output_devices, prepare_stems, prepare_track,
 };
 use cratekit_core::audio::{AudioBuffer, decode_file};
 use cratekit_core::library::TrackId;
-use serde::Serialize;
+use cratekit_core::stems::cache::read_folder;
+use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Emitter, Manager, Runtime};
 
 use crate::AppError;
@@ -73,6 +74,32 @@ pub(crate) struct PlayerState {
     /// The DJ filter knob (-1 to 1), given again to every engine that
     /// starts, so it survives a device change.
     filter: Mutex<f32>,
+    /// What the deck plays and the stem mixer's settings, given again to
+    /// every track put on the deck and every engine that starts (#34).
+    mix: Mutex<StemMix>,
+    /// The track whose stems the engine holds, if any.
+    stems_on_deck: Mutex<Option<TrackId>>,
+}
+
+/// The playback mode and each stem's gain, mute and solo, in the order of
+/// [`Stem::ALL`].
+#[derive(Debug, Clone, Copy, PartialEq)]
+struct StemMix {
+    mode: PlaybackMode,
+    gain: [f32; 4],
+    muted: [bool; 4],
+    soloed: [bool; 4],
+}
+
+impl Default for StemMix {
+    fn default() -> Self {
+        Self {
+            mode: PlaybackMode::Original,
+            gain: [1.0; 4],
+            muted: [false; 4],
+            soloed: [false; 4],
+        }
+    }
 }
 
 impl PlayerState {
@@ -96,6 +123,7 @@ impl PlayerState {
         }
         let started = Arc::new(Engine::start(&engine_options(app))?);
         *lock(&self.engine) = Some(Arc::clone(&started));
+        *lock(&self.stems_on_deck) = None;
         let deck = *lock(&self.on_deck);
         if let Some(id) = deck
             && put_on_deck(app, &started, id, None, 0.0, false).is_err()
@@ -159,7 +187,8 @@ fn put_on_deck<R: Runtime>(
         Some(audio) => audio,
         None => decode_track(app, id)?,
     };
-    engine.load(DeckId::A, prepare_track(audio, engine.sample_rate())?)?;
+    send_load(app, engine, prepare_track(audio, engine.sample_rate())?)?;
+    apply_mix(app, engine)?;
     if position_sec > 0.0 {
         engine.seek(DeckId::A, position_sec)?;
     }
@@ -167,6 +196,110 @@ fn put_on_deck<R: Runtime>(
         engine.play(DeckId::A)?;
     }
     Ok(())
+}
+
+/// Sends a prepared track to the deck. The engine then holds no stems (the
+/// old track's leave with it), so this is the one place that records that.
+fn send_load<R: Runtime>(
+    app: &AppHandle<R>,
+    engine: &Engine,
+    track: Track,
+) -> Result<(), AppError> {
+    engine.load(DeckId::A, track)?;
+    *lock(&app.state::<PlayerState>().stems_on_deck) = None;
+    Ok(())
+}
+
+/// Gives `engine` the stem mixer's settings and mode. The stems themselves
+/// are read and attached afterwards, outside the gate ([`refresh_stems`]),
+/// and are optional: a track without them plays itself.
+fn apply_mix<R: Runtime>(app: &AppHandle<R>, engine: &Engine) -> Result<(), AppError> {
+    let mix = *lock(&app.state::<PlayerState>().mix);
+    for (index, stem) in Stem::ALL.into_iter().enumerate() {
+        engine.set_stem_gain(DeckId::A, stem, mix.gain.get(index).copied().unwrap_or(1.0))?;
+        engine.set_stem_mute(
+            DeckId::A,
+            stem,
+            mix.muted.get(index).copied().unwrap_or(false),
+        )?;
+        engine.set_stem_solo(
+            DeckId::A,
+            stem,
+            mix.soloed.get(index).copied().unwrap_or(false),
+        )?;
+    }
+    engine.set_mode(DeckId::A, mix.mode)?;
+    Ok(())
+}
+
+/// Track `id`'s cached stems prepared at `rate`, or `None` when it was not
+/// split. Slow (it reads and resamples about 170 MB for 4 minutes): never
+/// called with the gate held.
+fn prepared_stems<R: Runtime>(
+    app: &AppHandle<R>,
+    id: TrackId,
+    rate: u32,
+) -> Result<Option<StemSet>, AppError> {
+    let stored = {
+        let state = app.state::<LibraryState>();
+        let library = state.library()?;
+        lock(library).stems(id)?
+    };
+    let Some(stored) = stored else {
+        return Ok(None);
+    };
+    Ok(Some(prepare_stems(read_folder(&stored.dir)?, rate)?))
+}
+
+/// In stems mode, gives the track on the deck its stems when the engine does
+/// not hold them yet. They are read and prepared outside the gate (play,
+/// pause and seek never wait for it); under the gate it then checks that the
+/// deck, the engine and the mode did not change meanwhile before sending.
+fn refresh_stems<R: Runtime>(app: &AppHandle<R>) -> Result<(), AppError> {
+    let player = app.state::<PlayerState>();
+    let (engine, id) = {
+        let _gate = lock(&player.load_gate);
+        let (Some(engine), Some(id)) = (player.running(), *lock(&player.on_deck)) else {
+            return Ok(());
+        };
+        if lock(&player.mix).mode != PlaybackMode::Stems || *lock(&player.stems_on_deck) == Some(id)
+        {
+            return Ok(());
+        }
+        (engine, id)
+    };
+    let Some(stems) = prepared_stems(app, id, engine.sample_rate())? else {
+        return Ok(());
+    };
+    let _gate = lock(&player.load_gate);
+    let unchanged = player
+        .running()
+        .is_some_and(|now| Arc::ptr_eq(&now, &engine))
+        && *lock(&player.on_deck) == Some(id)
+        && *lock(&player.stems_on_deck) != Some(id)
+        && lock(&player.mix).mode == PlaybackMode::Stems;
+    if unchanged {
+        engine.attach_stems(DeckId::A, stems)?;
+        *lock(&player.stems_on_deck) = Some(id);
+        engine.set_mode(DeckId::A, PlaybackMode::Stems)?;
+    }
+    Ok(())
+}
+
+/// After a stems job: the stems held for a re-split track are out of date,
+/// and in stems mode the track on the deck gets the new ones.
+pub(crate) fn stems_split_done<R: Runtime>(app: &AppHandle<R>, track_ids: &[TrackId]) {
+    let player = app.state::<PlayerState>();
+    {
+        let _gate = lock(&player.load_gate);
+        let deck = *lock(&player.on_deck);
+        if !deck.is_some_and(|id| track_ids.contains(&id)) {
+            return;
+        }
+        *lock(&player.stems_on_deck) = None;
+    }
+    // Stems are optional: on any failure the track keeps playing itself.
+    refresh_stems(app).ok();
 }
 
 /// What goes back on the deck after a restart.
@@ -225,7 +358,7 @@ fn restart<R: Runtime>(app: &AppHandle<R>, how: &Restart) -> Result<Option<Strin
     let wanted = (*lock(&player.requested)).or(*lock(&player.on_deck));
     let decoded = wanted.map(|id| (id, decode_track(app, id)));
 
-    let _gate = lock(&player.load_gate);
+    let gate = lock(&player.load_gate);
     let Some(old) = player.running() else {
         return Ok(None);
     };
@@ -256,6 +389,7 @@ fn restart<R: Runtime>(app: &AppHandle<R>, how: &Restart) -> Result<Option<Strin
         }
     };
     *lock(&player.engine) = Some(Arc::clone(&engine));
+    *lock(&player.stems_on_deck) = None;
 
     let on_deck = *lock(&player.on_deck);
     let requested = *lock(&player.requested);
@@ -290,6 +424,10 @@ fn restart<R: Runtime>(app: &AppHandle<R>, how: &Restart) -> Result<Option<Strin
     if before.playing || playing {
         send_playing(app, playing);
     }
+    drop(gate);
+    // The stems are prepared again for the new engine, outside the gate; on
+    // any failure the track plays itself.
+    refresh_stems(app).ok();
     Ok(Some(engine.device_id().to_owned()))
 }
 
@@ -575,10 +713,24 @@ pub(crate) async fn playback_load(app: AppHandle, id: TrackId) -> Result<(), App
             if engine.sample_rate() != rate {
                 return Ok(());
             }
-            engine.load(DeckId::A, track)?;
+            send_load(&app, &engine, track)?;
             *lock(&player.on_deck) = Some(id);
+            // Every load starts with a neutral stem mix (the UI does the
+            // same); the mode carries over.
+            {
+                let mut mix = lock(&player.mix);
+                *mix = StemMix {
+                    mode: mix.mode,
+                    ..StemMix::default()
+                };
+            }
+            apply_mix(&app, &engine)?;
             Ok(())
         })();
+        if result.is_ok() && current() {
+            // Stems are optional: on any failure the track plays itself.
+            refresh_stems(&app).ok();
+        }
         if result.is_err() && current() {
             // A track that failed is not reloaded by a later restart.
             let deck = *lock(&player.on_deck);
@@ -653,6 +805,180 @@ pub(crate) async fn playback_set_filter(app: AppHandle, value: f32) -> Result<()
     .await
 }
 
+/// What the UI asks the deck to play (the UI's `PlaybackMode`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export))]
+#[serde(rename_all = "lowercase")]
+pub(crate) enum ModeChoice {
+    /// The track itself.
+    Original,
+    /// The mastered track (#26).
+    Mastered,
+    /// The track's stems.
+    Stems,
+}
+
+/// A stem as the UI names it (the UI's `StemName`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export))]
+#[serde(rename_all = "lowercase")]
+pub(crate) enum StemName {
+    /// Vocals.
+    Vocals,
+    /// Drums.
+    Drums,
+    /// Bass.
+    Bass,
+    /// Other.
+    Other,
+}
+
+impl StemName {
+    fn stem(self) -> Stem {
+        match self {
+            Self::Vocals => Stem::Vocals,
+            Self::Drums => Stem::Drums,
+            Self::Bass => Stem::Bass,
+            Self::Other => Stem::Other,
+        }
+    }
+
+    /// Its index in [`Stem::ALL`] (and in [`StemMix`]).
+    fn index(self) -> usize {
+        Stem::ALL
+            .iter()
+            .position(|&stem| stem == self.stem())
+            .unwrap_or(0)
+    }
+}
+
+/// Plays the track or its stems (crossfaded). In stems mode the track's
+/// cached stems are read and attached (outside the gate); a track that was
+/// not split plays itself. The mastered mode comes with mastering (#26).
+#[tauri::command]
+pub(crate) async fn playback_set_mode(app: AppHandle, mode: ModeChoice) -> Result<(), AppError> {
+    let mode = match mode {
+        ModeChoice::Original => PlaybackMode::Original,
+        ModeChoice::Stems => PlaybackMode::Stems,
+        ModeChoice::Mastered => {
+            return Err(AppError {
+                code: "not_built",
+                message: "mastered playback".into(),
+            });
+        }
+    };
+    let previous = std::mem::replace(&mut lock(&app.state::<PlayerState>().mix).mode, mode);
+    tauri::async_runtime::spawn_blocking(move || {
+        let player = app.state::<PlayerState>();
+        let send_stored = || -> Result<(), AppError> {
+            let _gate = lock(&player.load_gate);
+            // The stored mode, read under the gate: when several calls wait,
+            // the engine still ends on the newest one.
+            if let Some(engine) = player.running() {
+                engine.set_mode(DeckId::A, lock(&player.mix).mode)?;
+            }
+            Ok(())
+        };
+        let switched = send_stored().and_then(|()| refresh_stems(&app));
+        if switched.is_err() {
+            // Back to what the deck played before, here and in the engine.
+            let mut mix = lock(&player.mix);
+            if mix.mode == mode {
+                mix.mode = previous;
+            }
+            drop(mix);
+            send_stored().ok();
+        }
+        switched
+    })
+    .await
+    .map_err(internal)?
+}
+
+/// A stem's gain (0 to 2; clamped), kept for later tracks and engines.
+#[tauri::command]
+pub(crate) async fn stems_set_gain(
+    app: AppHandle,
+    stem: StemName,
+    gain: f32,
+) -> Result<(), AppError> {
+    let gain = if gain.is_finite() {
+        gain.clamp(0.0, 2.0)
+    } else {
+        1.0
+    };
+    if let Some(slot) = lock(&app.state::<PlayerState>().mix)
+        .gain
+        .get_mut(stem.index())
+    {
+        *slot = gain;
+    }
+    // The stored value, read under the gate, so the newest one wins.
+    let reader = app.clone();
+    with_engine(app, false, move |engine| {
+        let value = lock(&reader.state::<PlayerState>().mix)
+            .gain
+            .get(stem.index())
+            .copied()
+            .unwrap_or(1.0);
+        engine.set_stem_gain(DeckId::A, stem.stem(), value)
+    })
+    .await
+}
+
+/// Mutes or unmutes a stem, kept for later tracks and engines.
+#[tauri::command]
+pub(crate) async fn stems_set_mute(
+    app: AppHandle,
+    stem: StemName,
+    muted: bool,
+) -> Result<(), AppError> {
+    if let Some(slot) = lock(&app.state::<PlayerState>().mix)
+        .muted
+        .get_mut(stem.index())
+    {
+        *slot = muted;
+    }
+    // The stored value, read under the gate, so the newest one wins.
+    let reader = app.clone();
+    with_engine(app, false, move |engine| {
+        let value = lock(&reader.state::<PlayerState>().mix)
+            .muted
+            .get(stem.index())
+            .copied()
+            .unwrap_or(false);
+        engine.set_stem_mute(DeckId::A, stem.stem(), value)
+    })
+    .await
+}
+
+/// Solos or unsolos a stem (while any is soloed, exactly the soloed ones are
+/// heard), kept for later tracks and engines.
+#[tauri::command]
+pub(crate) async fn stems_set_solo(
+    app: AppHandle,
+    stem: StemName,
+    soloed: bool,
+) -> Result<(), AppError> {
+    if let Some(slot) = lock(&app.state::<PlayerState>().mix)
+        .soloed
+        .get_mut(stem.index())
+    {
+        *slot = soloed;
+    }
+    // The stored value, read under the gate, so the newest one wins.
+    let reader = app.clone();
+    with_engine(app, false, move |engine| {
+        let value = lock(&reader.state::<PlayerState>().mix)
+            .soloed
+            .get(stem.index())
+            .copied()
+            .unwrap_or(false);
+        engine.set_stem_solo(DeckId::A, stem.stem(), value)
+    })
+    .await
+}
+
 /// An output device as the UI's `AudioDevice`.
 #[derive(Debug, Clone, PartialEq, Serialize)]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export))]
@@ -718,6 +1044,40 @@ pub(crate) fn report_applied<R: Runtime>(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn modes_and_stems_deserialize_from_the_ui_names() {
+        let mode: ModeChoice = serde_json::from_value(serde_json::json!("stems")).unwrap();
+        assert_eq!(mode, ModeChoice::Stems);
+        let mode: ModeChoice = serde_json::from_value(serde_json::json!("mastered")).unwrap();
+        assert_eq!(mode, ModeChoice::Mastered);
+        let stem: StemName = serde_json::from_value(serde_json::json!("vocals")).unwrap();
+        assert_eq!(stem, StemName::Vocals);
+        assert!(serde_json::from_value::<StemName>(serde_json::json!("guitar")).is_err());
+    }
+
+    #[test]
+    fn each_stem_name_has_its_engine_stem_and_slot() {
+        let names = [
+            StemName::Drums,
+            StemName::Bass,
+            StemName::Other,
+            StemName::Vocals,
+        ];
+        for (index, name) in names.into_iter().enumerate() {
+            assert_eq!(name.index(), index);
+            assert_eq!(Stem::ALL[index], name.stem());
+        }
+    }
+
+    #[test]
+    fn the_stem_mixer_starts_at_unity_on_the_track() {
+        let mix = StemMix::default();
+        assert_eq!(mix.mode, PlaybackMode::Original);
+        assert_eq!(mix.gain, [1.0; 4]);
+        assert_eq!(mix.muted, [false; 4]);
+        assert_eq!(mix.soloed, [false; 4]);
+    }
 
     fn status(position_sec: f64, playing: bool, ends: u64, peak: f32) -> Status {
         Status {

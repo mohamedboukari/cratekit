@@ -65,7 +65,7 @@ fn allocations_during(work: impl FnOnce()) -> usize {
 struct Rig {
     renderer: Renderer,
     commands: Producer<(DeckId, Command)>,
-    garbage: Consumer<Box<Track>>,
+    garbage: Consumer<Retired>,
     shared: Arc<Shared>,
 }
 
@@ -267,7 +267,9 @@ fn loading_while_playing_fades_out_swaps_and_hands_the_old_track_back() {
     assert!(largest_step(&out) < 0.05, "no click");
     assert_eq!(rig.position(), 0, "the new track waits at its start");
     assert!(!rig.shared.playing.load(Ordering::Relaxed));
-    let old = rig.garbage.pop().expect("the old track is handed back");
+    let Ok(Retired::Track(old)) = rig.garbage.pop() else {
+        panic!("the old track is handed back");
+    };
     assert_eq!(old.frames(), 48_000);
 }
 
@@ -374,8 +376,16 @@ fn render_never_allocates_or_frees() {
         Command::Pause,
         Command::Play,
         Command::SetFilter(-0.7),
+        Command::AttachStems(stems_of(48_000, [0.1, 0.2, 0.3, 0.4])),
+        Command::SetMode(PlaybackMode::Stems),
+        Command::SetStemGain(Stem::Bass, 1.5),
+        Command::SetStemMute(Stem::Drums, true),
+        Command::SetStemSolo(Stem::Vocals, true),
+        Command::AttachStems(stems_of(48_000, [0.4, 0.3, 0.2, 0.1])),
         Command::Load(ramp(48_000)),
+        Command::AttachStems(stems_of(48_000, [0.1, 0.1, 0.1, 0.1])),
         Command::Play,
+        Command::SetMode(PlaybackMode::Original),
         Command::SetFilter(0.4),
     ] {
         rig.send(command);
@@ -390,4 +400,162 @@ fn render_never_allocates_or_frees() {
         rig.garbage.pop().is_ok(),
         "the replaced track left the renderer"
     );
+}
+
+/// Four stems of steady levels: stem `i` is `levels[i]` on the left and
+/// `-levels[i]` on the right.
+fn stems_of(frames: usize, levels: [f32; STEM_COUNT]) -> Box<StemSet> {
+    let channels = levels.map(|level| (vec![level; frames], vec![-level; frames]));
+    Box::new(StemSet::from_stereo(
+        [0, 1, 2, 3].map(|i| (channels[i].0.as_slice(), channels[i].1.as_slice())),
+    ))
+}
+
+/// Stems of a 440 Hz sine split into quarters: they sum to `sine`.
+fn sine_quarters(frames: usize, amplitude: f32) -> Box<StemSet> {
+    let wave: Vec<f32> = (0..frames)
+        .map(|n| amplitude / 4.0 * (std::f32::consts::TAU * 440.0 * n as f32 / RATE as f32).sin())
+        .collect();
+    Box::new(StemSet::from_stereo(
+        [(wave.as_slice(), wave.as_slice()); STEM_COUNT],
+    ))
+}
+
+/// Starts a rig playing a steady track of `level` with `stems`, past the
+/// fade in and the mode crossfade.
+fn playing_stems(level: f32, stems: Box<StemSet>) -> Rig {
+    let mut rig = rig(2);
+    let track = Track::from_stereo(&vec![level; 96_000], &vec![-level; 96_000]);
+    rig.send(Command::Load(Box::new(track)));
+    rig.send(Command::AttachStems(stems));
+    rig.send(Command::Play);
+    rig.send(Command::SetMode(PlaybackMode::Stems));
+    rig.render(2_000);
+    rig
+}
+
+#[test]
+fn stems_at_full_gain_sound_like_the_track() {
+    let mut rig = rig(2);
+    rig.send(Command::Load(sine(48_000, 0.8)));
+    rig.send(Command::AttachStems(sine_quarters(48_000, 0.8)));
+    rig.send(Command::Play);
+    rig.render(1_000);
+    rig.send(Command::SetMode(PlaybackMode::Stems));
+    let out = rig.render(4_000);
+    assert!(largest_step(&out) < 0.07, "no click when switching");
+    // The stems sum to the track, so the switch is inaudible.
+    let mut original = super::tests::rig(2);
+    original.send(Command::Load(sine(48_000, 0.8)));
+    original.send(Command::Play);
+    original.render(1_000);
+    let expected = original.render(4_000);
+    let error = out
+        .iter()
+        .zip(&expected)
+        .map(|(a, b)| (a - b).abs())
+        .fold(0.0_f32, f32::max);
+    assert!(error < 1e-5, "stems differ from the track by {error}");
+}
+
+#[test]
+fn each_stem_has_its_gain_mute_and_solo() {
+    let mut rig = playing_stems(0.0, stems_of(96_000, [0.1, 0.2, 0.3, 0.4]));
+    let level = |rig: &mut Rig| rig.render(1_000)[1_998];
+    assert!(
+        (level(&mut rig) - 1.0).abs() < 1e-5,
+        "all four: 0.1 + 0.2 + 0.3 + 0.4"
+    );
+
+    rig.send(Command::SetStemMute(Stem::Vocals, true));
+    assert!((level(&mut rig) - 0.6).abs() < 1e-5, "vocals muted");
+    rig.send(Command::SetStemGain(Stem::Drums, 2.0));
+    assert!((level(&mut rig) - 0.7).abs() < 1e-5, "drums doubled");
+    rig.send(Command::SetStemSolo(Stem::Bass, true));
+    assert!(
+        (level(&mut rig) - 0.2).abs() < 1e-5,
+        "only bass while it is soloed"
+    );
+    rig.send(Command::SetStemSolo(Stem::Vocals, true));
+    assert!(
+        (level(&mut rig) - 0.6).abs() < 1e-5,
+        "a soloed stem is heard even when muted"
+    );
+    rig.send(Command::SetStemSolo(Stem::Bass, false));
+    rig.send(Command::SetStemSolo(Stem::Vocals, false));
+    assert!(
+        (level(&mut rig) - 0.7).abs() < 1e-5,
+        "back to the mute and the gain"
+    );
+    rig.send(Command::SetStemGain(Stem::Other, f32::NAN));
+    rig.send(Command::SetStemGain(Stem::Bass, 9.0));
+    // Drums 2 x 0.1, bass clamped to 2 x 0.2, other 1 x 0.3, vocals muted.
+    assert!((level(&mut rig) - 0.9).abs() < 1e-5, "NaN is 1, 9 is 2");
+}
+
+#[test]
+fn stem_changes_ramp_without_clicks() {
+    let mut rig = playing_stems(0.0, stems_of(96_000, [0.5, 0.0, 0.0, 0.5]));
+    rig.send(Command::SetStemMute(Stem::Drums, true));
+    let out = rig.render(1_000);
+    // 0.5 removed over 10 ms (480 frames): about 0.001 per frame.
+    assert!(largest_step(&out) < 0.002, "the mute ramps");
+    assert!((out[1_998] - 0.5).abs() < 1e-5);
+    rig.send(Command::SetMode(PlaybackMode::Original));
+    let out = rig.render(1_000);
+    assert!(largest_step(&out) < 0.002, "the switch back crossfades");
+    assert!(out[1_998].abs() < 1e-5, "the track itself is silent");
+}
+
+#[test]
+fn stems_mode_without_stems_plays_the_track() {
+    let mut rig = rig(2);
+    let track = Track::from_stereo(&vec![0.3; 48_000], &vec![-0.3; 48_000]);
+    rig.send(Command::Load(Box::new(track)));
+    rig.send(Command::SetMode(PlaybackMode::Stems));
+    rig.send(Command::Play);
+    let out = rig.render(2_000);
+    assert!((out[3_998] - 0.3).abs() < 1e-5);
+}
+
+#[test]
+fn stems_sent_after_a_load_wait_for_that_track() {
+    let mut rig = playing_stems(0.0, stems_of(96_000, [0.1, 0.1, 0.1, 0.1]));
+    // A new track and its stems while the old one plays.
+    let track = Track::from_stereo(&vec![0.0; 96_000], &vec![0.0; 96_000]);
+    rig.send(Command::Load(Box::new(track)));
+    rig.send(Command::AttachStems(stems_of(96_000, [0.2, 0.2, 0.2, 0.2])));
+    rig.render(1_000);
+    rig.send(Command::Play);
+    let out = rig.render(2_000);
+    assert!(
+        (out[3_998] - 0.8).abs() < 1e-5,
+        "the new track plays its own stems"
+    );
+    let handed_back: Vec<&str> = std::iter::from_fn(|| rig.garbage.pop().ok())
+        .map(|item| match item {
+            Retired::Track(_) => "track",
+            Retired::Stems(_) => "stems",
+        })
+        .collect();
+    assert_eq!(
+        handed_back,
+        ["track", "stems"],
+        "the old track and its stems are freed elsewhere"
+    );
+}
+
+#[test]
+fn stems_attached_after_a_load_crossfade_in_from_the_track() {
+    let mut rig = playing_stems(0.0, stems_of(96_000, [0.25, 0.25, 0.25, 0.25]));
+    let track = Track::from_stereo(&vec![0.0; 96_000], &vec![0.0; 96_000]);
+    rig.send(Command::Load(Box::new(track)));
+    rig.render(1_000);
+    rig.send(Command::Play);
+    rig.render(1_000);
+    // New stems a moment later: they ramp in from 0, not from the old mix.
+    rig.send(Command::AttachStems(stems_of(96_000, [0.5, 0.0, 0.0, 0.0])));
+    let out = rig.render(1_000);
+    assert!(largest_step(&out) < 0.002, "no jump when the stems arrive");
+    assert!((out[1_998] - 0.5).abs() < 1e-5);
 }

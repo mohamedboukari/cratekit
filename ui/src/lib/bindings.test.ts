@@ -27,10 +27,12 @@ import type { LibraryCounts as RustLibraryCounts } from "@/lib/bindings/LibraryC
 import type { LibraryQuery as RustLibraryQuery } from "@/lib/bindings/LibraryQuery";
 import type { MenuLabels as RustMenuLabels } from "@/lib/bindings/MenuLabels";
 import type { Meter } from "@/lib/bindings/Meter";
+import type { ModeChoice } from "@/lib/bindings/ModeChoice";
 import type { ModelStatus as RustModelStatus } from "@/lib/bindings/ModelStatus";
 import type { PlaybackState as RustPlaybackState } from "@/lib/bindings/PlaybackState";
 import type { Position } from "@/lib/bindings/Position";
 import type { Settings as RustSettings } from "@/lib/bindings/Settings";
+import type { StemName as RustStemName } from "@/lib/bindings/StemName";
 import type { StemsInfoDto } from "@/lib/bindings/StemsInfoDto";
 import type { TrackDetailDto } from "@/lib/bindings/TrackDetailDto";
 import type { TrackRow as RustTrackRow } from "@/lib/bindings/TrackRow";
@@ -53,8 +55,10 @@ import type {
   MenuLabels,
   MeterReading,
   ModelStatus,
+  PlaybackMode,
   PlaybackState,
   Settings,
+  StemName,
   StemsInfo,
   TrackDetail,
   TrackRow,
@@ -107,5 +111,7 @@ describe("IPC contract: UI arguments fit the Rust types", () => {
     expectTypeOf<CueColor>().toExtend<RustCueColor>();
     expectTypeOf<Settings>().toExtend<RustSettings>();
     expectTypeOf<MenuLabels>().toExtend<RustMenuLabels>();
+    expectTypeOf<PlaybackMode>().toExtend<ModeChoice>();
+    expectTypeOf<StemName>().toExtend<RustStemName>();
   });
 });

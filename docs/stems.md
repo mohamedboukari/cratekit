@@ -2,7 +2,7 @@
 
 Stem separation (SPEC, Module 4): vocals, drums, bass and other with htdemucs on ONNX Runtime. The decisions behind it (runtime, libraries per target, model and its licence, CoreML) are in `docs/ARCHITECTURE.md`, Stems notes (#29). This page covers the code.
 
-So far: loading ONNX Runtime (#115), downloading the model (#30), the separator and ONNX Runtime in the installers (#31). The stems job in the app (#33) and backend selection (#32) come next.
+So far: loading ONNX Runtime (#115), downloading the model (#30), the separator and ONNX Runtime in the installers (#31), the stems job (#33), and playing the stems with a gain, mute and solo each (#34, see docs/playback.md). Backend selection (#32) and the Stems tab's export (#35) come next.
 
 ## Loading ONNX Runtime (`stems::runtime`)
 
