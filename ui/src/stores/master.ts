@@ -1,15 +1,17 @@
 import { create } from "zustand";
 
 import { i18n } from "@/i18n";
-import { api } from "@/lib/ipc";
+import { api, toAppError } from "@/lib/ipc";
 import { notifyError } from "@/lib/notify";
 import type {
+  JobId,
   MasterPreset,
   MasterResult,
   MasterSettings,
   PresetName,
   TrackId,
 } from "@/lib/types";
+import { useJobs } from "@/stores/jobs";
 import { usePlayer } from "@/stores/player";
 import { refreshAfterAnalysis } from "@/stores/refresh";
 import { useUi } from "@/stores/ui";
@@ -28,7 +30,12 @@ interface MasterState {
   referenceTitle: string | null;
   side: AbSide;
   levelMatch: boolean;
+  /** An export is running (a `master` job: its progress lives in the jobs store). */
   exporting: boolean;
+  /** Cancel was pressed; the export has not stopped yet (Rust checks between passes). */
+  cancelling: boolean;
+  /** Title of the track being exported, for when another track is on the deck. */
+  exportTitle: string | null;
   /** The last export, and the track it belongs to. */
   result: { trackId: TrackId; master: MasterResult } | null;
   loadPresets: () => Promise<void>;
@@ -42,7 +49,10 @@ interface MasterState {
   setLevelMatch: (enabled: boolean) => Promise<void>;
   /** Sends Rust the current settings for this track's B side (mastered live as it plays). */
   preview: (id: TrackId) => Promise<void>;
+  /** Exports the master; null when it failed (shown as a toast) or was cancelled (silent). */
   exportMaster: (id: TrackId) => Promise<MasterResult | null>;
+  /** Cancels the running export (its `master` job). */
+  cancelExport: (jobId: JobId) => Promise<void>;
 }
 
 let previewTimer: ReturnType<typeof setTimeout> | null = null;
@@ -82,6 +92,8 @@ export const useMaster = create<MasterState>()((set, get) => {
     side: "b",
     levelMatch: true,
     exporting: false,
+    cancelling: false,
+    exportTitle: null,
     result: null,
 
     loadPresets: async () => {
@@ -134,7 +146,12 @@ export const useMaster = create<MasterState>()((set, get) => {
     },
 
     exportMaster: async (id) => {
-      set({ exporting: true });
+      const detail = usePlayer.getState().detail;
+      set({
+        exporting: true,
+        cancelling: false,
+        exportTitle: detail?.track.id === id ? detail.track.title : null,
+      });
       try {
         const master = await api().masterExport(id, get().settings);
         set({ result: { trackId: id, master } });
@@ -142,11 +159,20 @@ export const useMaster = create<MasterState>()((set, get) => {
         refreshAfterAnalysis();
         return master;
       } catch (error) {
-        notifyError(error, i18n.t("errors.master.export"));
+        // Cancelled from the Master tab or the status bar: nothing went wrong.
+        if (toAppError(error).code !== "cancelled")
+          notifyError(error, i18n.t("errors.master.export"));
         return null;
       } finally {
-        set({ exporting: false });
+        set({ exporting: false, cancelling: false, exportTitle: null });
       }
+    },
+
+    cancelExport: async (jobId) => {
+      set({ cancelling: true });
+      await useJobs.getState().cancel(jobId);
+      // The cancel failed (shown as a toast): the export runs on.
+      if (useJobs.getState().jobs[jobId]) set({ cancelling: false });
     },
   };
 });

@@ -6,7 +6,9 @@ import { toast } from "sonner";
 import { Meter } from "@/components/tools/Meter";
 import { ToolCard, ToolEmpty } from "@/components/tools/ToolCard";
 import { Button } from "@/components/ui/button";
+import { usePanelFocusFallback } from "@/hooks/usePanelFocusFallback";
 import type { MasterPreset } from "@/lib/types";
+import { activeJobs, useJobs } from "@/stores/jobs";
 import { useMaster, type AbSide } from "@/stores/master";
 import { usePlayer } from "@/stores/player";
 
@@ -110,9 +112,10 @@ function isKnownPreset(name: string): name is KnownPreset {
 }
 
 /**
- * Master tab (#28, UI side): preset, intensity, loudness target, optional
- * reference, level-matched A/B, output meters and WAV export. Rust renders
- * the B side and the export; the UI only sends settings.
+ * Master tab (#28): preset, intensity, loudness target, optional reference,
+ * level-matched A/B, output meters and WAV export, which runs as a job with
+ * progress and Cancel. Rust renders the B side and the export; the UI only
+ * sends settings.
  */
 export function MasterPanel(): JSX.Element {
   const { t } = useTranslation();
@@ -134,6 +137,22 @@ export function MasterPanel(): JSX.Element {
   const setSide = useMaster((s) => s.setSide);
   const setLevelMatch = useMaster((s) => s.setLevelMatch);
   const exportMaster = useMaster((s) => s.exportMaster);
+  const cancelExport = useMaster((s) => s.cancelExport);
+  const cancelling = useMaster((s) => s.cancelling);
+  const exportTitle = useMaster((s) => s.exportTitle);
+  // The running export (a `master` job, one at a time), its track and its progress, 0 to 100.
+  const exportJobId = useJobs(
+    (s) => activeJobs(s.jobs).find((j) => j.kind === "master")?.id ?? null,
+  );
+  const exportTrackId = useJobs((s) =>
+    exportJobId === null ? null : (s.jobs[exportJobId]?.trackIds[0] ?? null),
+  );
+  const exportPct = useJobs((s) => {
+    const job = exportJobId === null ? undefined : s.jobs[exportJobId];
+    return job && job.total > 0 ? Math.round((job.done / job.total) * 100) : 0;
+  });
+  // Export swaps to progress and back: keep keyboard focus in the panel.
+  usePanelFocusFallback(exportJobId === null ? "idle" : "exporting");
 
   if (!detail) return <ToolEmpty>{t("tools.master.empty")}</ToolEmpty>;
 
@@ -287,14 +306,45 @@ export function MasterPanel(): JSX.Element {
             value={settings.bitDepth}
             onChange={setBitDepth}
           />
-          <Button
-            className="ml-auto"
-            disabled={exporting}
-            onClick={() => void onExport()}
-          >
-            <Download aria-hidden="true" data-icon="inline-start" />
-            {exporting ? t("tools.master.rendering") : t("tools.master.exportWav")}
-          </Button>
+          {exportJobId !== null ? (
+            <div className="ml-auto flex min-w-0 items-center gap-2">
+              {/* Another track is on the deck: say which one is exporting. */}
+              {exportTrackId !== trackId && exportTitle && (
+                <span
+                  className="min-w-0 max-w-40 truncate text-muted-foreground"
+                  title={exportTitle}
+                >
+                  {t("tools.master.exportingTrack", { title: exportTitle })}
+                </span>
+              )}
+              <progress
+                max={100}
+                value={exportPct}
+                aria-label={t("tools.master.exportProgress")}
+                className="h-1.5 w-24 appearance-none overflow-hidden rounded-full [&::-moz-progress-bar]:bg-primary [&::-webkit-progress-bar]:bg-secondary [&::-webkit-progress-value]:bg-primary"
+              />
+              <span className="w-10 text-right font-mono tabular-nums">
+                {t("tools.percent", { value: exportPct })}
+              </span>
+              <Button variant="outline" onClick={() => void cancelExport(exportJobId)}>
+                <X aria-hidden="true" data-icon="inline-start" />
+                {t("tools.master.cancel")}
+              </Button>
+            </div>
+          ) : (
+            <Button
+              className="ml-auto"
+              disabled={exporting}
+              onClick={() => void onExport()}
+            >
+              <Download aria-hidden="true" data-icon="inline-start" />
+              {!exporting
+                ? t("tools.master.exportWav")
+                : cancelling
+                  ? t("tools.master.cancelling")
+                  : t("tools.master.rendering")}
+            </Button>
+          )}
         </div>
       </ToolCard>
     </div>

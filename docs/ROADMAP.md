@@ -79,7 +79,7 @@ Mastering
 - [ ] Louder masters on transient-rich tracks: clipper or program-dependent release (#144)
 - [x] Real-time preview chain in `cratekit-audio`; level-matched A/B (#26)
 - [ ] Reference-track matching (#27)
-- [ ] UI: Master tab, with the export as a job (progress, cancel) (#28)
+- [x] UI: Master tab, with the export as a job (progress, cancel) (#28)
 
 Infra
 - [x] CI: unsigned installer builds on every target that check the minimum OS versions and installer sizes (#113)

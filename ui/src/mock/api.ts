@@ -185,6 +185,8 @@ export function createMockApi(): CratekitApi {
   }
 
   const jobTimers = new Map<string, ReturnType<typeof setInterval>>();
+  /** Jobs whose command is still waiting (the master export): how to end it on cancel. */
+  const jobCancels = new Map<string, () => void>();
 
   let learnTimer: ReturnType<typeof setTimeout> | null = null;
   function cancelLearn(): void {
@@ -417,6 +419,8 @@ export function createMockApi(): CratekitApi {
     jobCancel: (id) => {
       clearInterval(jobTimers.get(id));
       jobTimers.delete(id);
+      jobCancels.get(id)?.();
+      jobCancels.delete(id);
       return resolve(undefined);
     },
     jobsSetPaused: () => resolve(undefined),
@@ -498,23 +502,39 @@ export function createMockApi(): CratekitApi {
 
     masterPresets: () => resolve(structuredClone(MASTER_PRESETS)),
     masterPreview: () => resolve(undefined),
-    // Like Rust: <output folder or ~/Music/Cratekit>/Masters/<artist> - <title> (<Preset> master).wav,
-    // and the track shows as mastered.
-    masterExport: (id, s) => {
-      const t = byId.get(id);
-      const title = t?.track.title ?? `track-${id}`;
-      const name = t?.track.artist ? `${t.track.artist} - ${title}` : title;
-      const label = MASTER_PRESETS.find((p) => p.name === s.preset)?.label ?? s.preset;
-      if (t) t.track.mastered = true;
-      const folder = settings.outputFolder || "~/Music/Cratekit";
-      return resolve({
-        path: `${folder}/Masters/${name} (${label} master).wav`,
-        lufs: s.targetLufs + 0.2,
-        truePeakDb: -1.1,
-        targetLufs: s.targetLufs,
-        targetReached: true,
-      });
-    },
+    // Like Rust: a `master` job with progress that answers when it ends (or
+    // with `cancelled`), writing <output folder or ~/Music/Cratekit>/Masters/
+    // <artist> - <title> (<Preset> master).wav; the track then shows as mastered.
+    masterExport: (id, s) =>
+      // `_resolve`: the mock already has a `resolve` helper.
+      new Promise((_resolve, _reject) => {
+        const t = byId.get(id);
+        // Like Rust: an unknown track fails before any job starts.
+        if (!t) {
+          _reject({ code: "not_found", message: `track ${id} not found` });
+          return;
+        }
+        const title = t.track.title;
+        const name = t.track.artist ? `${t.track.artist} - ${title}` : title;
+        const label = MASTER_PRESETS.find((p) => p.name === s.preset)?.label ?? s.preset;
+        const folder = settings.outputFolder || "~/Music/Cratekit";
+        const steps = 20;
+        const jobId = runJob("master", "Mastering a track", [id], steps, 100, (i) => {
+          if (i !== steps - 1) return;
+          jobCancels.delete(jobId);
+          t.track.mastered = true;
+          _resolve({
+            path: `${folder}/Masters/${name} (${label} master).wav`,
+            lufs: s.targetLufs + 0.2,
+            truePeakDb: -1.1,
+            targetLufs: s.targetLufs,
+            targetReached: true,
+          });
+        });
+        jobCancels.set(jobId, () =>
+          _reject({ code: "cancelled", message: "the export was cancelled" }),
+        );
+      }),
 
     hotcueSet: (id, slot, sec) => {
       const t = byId.get(id);

@@ -1,6 +1,7 @@
-//! The background jobs: analysis jobs run one at a time on a worker thread
-//! and can be paused; the model download runs on its own thread. All report
-//! progress as events and can be cancelled.
+//! The background jobs: analysis and stems jobs run one at a time on a
+//! worker thread and can be paused; the model download and master exports
+//! run beside the queue, on their own threads. All report progress as events
+//! and can be cancelled.
 //!
 //! Events (see docs/ARCHITECTURE.md, IPC): `job_progress`, `job_done`,
 //! `job_failed`. A cancelled job sends nothing more (the UI already dropped
@@ -14,7 +15,9 @@ use std::sync::{Arc, Condvar, Mutex, MutexGuard, PoisonError};
 
 use cratekit_core::CoreError;
 use cratekit_core::analysis::track::{TrackAnalysis, analyze_file};
+use cratekit_core::audio::{WavFormat, decode_file_with, write_wav};
 use cratekit_core::library::{Library, TrackId};
+use cratekit_core::mastering::master::{MasterSettings, Mastered, master};
 use cratekit_core::progress::{CancellationToken, ProgressSink};
 use cratekit_core::stems::StemSeparator;
 use cratekit_core::stems::cache::split_to_folder;
@@ -29,8 +32,7 @@ use crate::library::{LibraryState, lock};
 /// these, so a single track still moves smoothly).
 const STEPS_PER_TRACK: u32 = 100;
 
-/// What a job does (the UI's `JobKind`). Stems, mastering and export add
-/// their own.
+/// What a job does (the UI's `JobKind`). The VirtualDJ export adds its own.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export))]
 #[serde(rename_all = "kebab-case")]
@@ -39,9 +41,16 @@ pub(crate) enum JobKind {
     Analysis,
     /// Splitting tracks into stems.
     Stems,
+    /// Mastering a track into a WAV file.
+    Master,
     /// The stems model download.
     ModelDownload,
 }
+
+/// Shares of a master export's progress: decoding the original, then
+/// mastering it; writing the file is the rest.
+const MASTER_DECODE_SHARE: f32 = 0.1;
+const MASTER_RENDER_SHARE: f32 = 0.85;
 
 /// A step inside a multi-step job (the UI's `JobStage`): the model download
 /// receives the files, then checks their SHA-256.
@@ -100,6 +109,7 @@ impl JobProgress {
         let count = u32::try_from(track_ids.len()).unwrap_or(u32::MAX);
         let label = match kind {
             JobKind::Stems => format!("Splitting {count} tracks into stems"),
+            JobKind::Master => "Mastering a track".to_owned(),
             _ => format!("Analyzing {count} tracks"),
         };
         Self {
@@ -211,6 +221,39 @@ struct Queue {
     /// The model download, which runs on its own thread (not behind the
     /// analysis queue): its job id and how to cancel it.
     download: Option<(String, CancellationToken)>,
+    /// Jobs running beside the queue on their callers' threads (master
+    /// exports): their ids and how to cancel them.
+    side: Vec<(String, CancellationToken)>,
+}
+
+/// What a master export renders: the track, the file it goes to, how it is
+/// mastered and what the library records with it.
+#[derive(Debug, Clone)]
+pub(crate) struct MasterRequest {
+    pub(crate) track_id: TrackId,
+    /// The original file, only read.
+    pub(crate) source: PathBuf,
+    /// The WAV file to write.
+    pub(crate) file: PathBuf,
+    pub(crate) settings: MasterSettings,
+    pub(crate) format: WavFormat,
+    /// The settings as JSON, recorded with the master.
+    pub(crate) recorded: String,
+}
+
+/// A job running beside the queue (a master export). While it lives,
+/// `job_cancel` reaches it; dropping it takes it off the list however the
+/// job ends, a panic included.
+struct SideJob<'a> {
+    jobs: &'a Jobs,
+    id: String,
+    cancel: CancellationToken,
+}
+
+impl Drop for SideJob<'_> {
+    fn drop(&mut self) {
+        self.jobs.lock().side.retain(|(id, _)| *id != self.id);
+    }
 }
 
 /// The job queue in the app's state.
@@ -224,6 +267,24 @@ impl Jobs {
     fn lock(&self) -> MutexGuard<'_, Queue> {
         // The queue holds plain data; a panic elsewhere leaves it usable.
         self.queue.0.lock().unwrap_or_else(PoisonError::into_inner)
+    }
+
+    /// A new job id: `job-1`, `job-2`, and so on.
+    fn next_id(&self) -> String {
+        format!("job-{}", self.next_id.fetch_add(1, Ordering::Relaxed) + 1)
+    }
+
+    /// Registers a job that runs beside the queue, so `job_cancel` reaches
+    /// it until the returned guard is dropped.
+    fn start_side(&self) -> SideJob<'_> {
+        let id = self.next_id();
+        let cancel = CancellationToken::new();
+        self.lock().side.push((id.clone(), cancel.clone()));
+        SideJob {
+            jobs: self,
+            id,
+            cancel,
+        }
     }
 
     /// Queues an analysis of `track_ids` and returns its job id. Tells the
@@ -255,7 +316,7 @@ impl Jobs {
         track_ids: Vec<TrackId>,
         events: &dyn JobEvents,
     ) -> String {
-        let id = format!("job-{}", self.next_id.fetch_add(1, Ordering::Relaxed) + 1);
+        let id = self.next_id();
         events.progress(JobProgress::for_tracks(kind, &id, &track_ids, 0, true));
         self.lock().waiting.push_back(Job {
             id: id.clone(),
@@ -276,6 +337,9 @@ impl Jobs {
             job.cancel.cancel();
         }
         if let Some((_, cancel)) = queue.download.as_ref().filter(|(id, _)| id == job_id) {
+            cancel.cancel();
+        }
+        for (_, cancel) in queue.side.iter().filter(|(id, _)| id == job_id) {
             cancel.cancel();
         }
         // A running job waiting for a resume wakes up and stops.
@@ -303,7 +367,7 @@ impl Jobs {
             if let Some((id, _)) = &queue.download {
                 return id.clone();
             }
-            let id = format!("job-{}", self.next_id.fetch_add(1, Ordering::Relaxed) + 1);
+            let id = self.next_id();
             let cancel = CancellationToken::new();
             queue.download = Some((id.clone(), cancel.clone()));
             (id, cancel)
@@ -431,7 +495,18 @@ impl Jobs {
                                     error,
                                 }),
                             },
-                            _ => jobs.run_analysis(&job, library, &app, analyze_file),
+                            JobKind::Analysis => {
+                                jobs.run_analysis(&job, library, &app, analyze_file);
+                            }
+                            // These run beside the queue and are never queued.
+                            JobKind::Master | JobKind::ModelDownload => app.failed(JobFailed {
+                                job_id: job.id.clone(),
+                                kind: job.kind,
+                                error: AppError {
+                                    code: "internal",
+                                    message: "this job does not run on the queue".into(),
+                                },
+                            }),
                         },
                         Err(error) => app.failed(JobFailed {
                             job_id: job.id.clone(),
@@ -596,6 +671,127 @@ impl Jobs {
         }
         finish_tracks(job, failures, count, "split", events);
     }
+
+    /// Masters a track as a job that starts at once, beside the queue: an
+    /// export the user waits for never waits behind an import's analysis,
+    /// and pausing the queue does not hold it. Decodes the original, masters
+    /// it, writes `request.file` and records it in the library, reporting
+    /// progress as `job_progress` (kind `master`). `job_cancel` stops it
+    /// until the file starts being written. Ends with `job_done`, or with
+    /// `job_failed` carrying the error it also returns; a cancelled export
+    /// returns `cancelled` and sends nothing more.
+    pub(crate) fn run_master(
+        &self,
+        request: &MasterRequest,
+        library: &Mutex<Library>,
+        events: &dyn JobEvents,
+    ) -> Result<Mastered, AppError> {
+        let job = self.start_side();
+        let track_ids = [request.track_id];
+        let report = |done: u32| {
+            events.progress(JobProgress::for_tracks(
+                JobKind::Master,
+                &job.id,
+                &track_ids,
+                done,
+                false,
+            ));
+        };
+        report(0);
+        // Report whole steps only, as an analysis does.
+        let last = AtomicU64::new(0);
+        let step = |fraction: f32| {
+            let step = (fraction.clamp(0.0, 1.0) * STEPS_PER_TRACK as f32) as u32;
+            if last.swap(u64::from(step), Ordering::Relaxed) != u64::from(step) {
+                report(step);
+            }
+        };
+        let decoding = |fraction: f32| step(MASTER_DECODE_SHARE * fraction);
+        let mastering = |fraction: f32| step(MASTER_DECODE_SHARE + MASTER_RENDER_SHARE * fraction);
+        // A panic in a decoder or the DSP fails this export, not the app.
+        let rendered = catch_unwind(AssertUnwindSafe(|| {
+            let audio = decode_file_with(&request.source, &decoding, &job.cancel)?;
+            let mastered = master(audio, &request.settings, &mastering, &job.cancel)?;
+            // The last chance to cancel: a file being written is finished.
+            job.cancel.check()?;
+            Ok(mastered)
+        }))
+        .unwrap_or(Err(CoreError::InvalidAudio(
+            "mastering this track stopped unexpectedly",
+        )));
+        let outcome = match rendered {
+            Err(CoreError::Cancelled) => return Err(CoreError::Cancelled.into()),
+            Err(err) => Err(err.into()),
+            // Guarded too: a job must end with an event, or the UI would
+            // show it running forever.
+            Ok(mastered) => catch_unwind(AssertUnwindSafe(|| {
+                write_master(request, library, &mastered)
+            }))
+            .unwrap_or_else(|_| {
+                Err(AppError {
+                    code: "internal",
+                    message: "writing the master stopped unexpectedly".into(),
+                })
+            })
+            .map(|()| mastered),
+        };
+        match &outcome {
+            Ok(_) => events.done(JobDone {
+                job_id: job.id.clone(),
+                kind: JobKind::Master,
+            }),
+            Err(error) => events.failed(JobFailed {
+                job_id: job.id.clone(),
+                kind: JobKind::Master,
+                error: error.clone(),
+            }),
+        }
+        outcome
+    }
+}
+
+/// Writes a master to its file and records it in the library (the track
+/// then shows as mastered). The track may have been removed while it was
+/// mastered, and its id given to a new track: then, as for stems, nothing is
+/// written or recorded and the export fails with `not_found`.
+fn write_master(
+    request: &MasterRequest,
+    library: &Mutex<Library>,
+    mastered: &Mastered,
+) -> Result<(), AppError> {
+    let still_there = |library: &Library| {
+        library
+            .track(request.track_id)
+            .is_ok_and(|detail| detail.path == request.source)
+    };
+    let gone = || {
+        AppError::from(CoreError::NotFound {
+            what: "track",
+            id: request.track_id,
+        })
+    };
+    if !still_there(&lock(library)) {
+        return Err(gone());
+    }
+    write_wav(&request.file, &mastered.audio, request.format).map_err(|err| AppError {
+        code: "io",
+        message: format!("{}: {err}", request.file.display()),
+    })?;
+    // Checked again under the lock that records it: removed while writing.
+    let mut library = lock(library);
+    if !still_there(&library) {
+        drop(library);
+        std::fs::remove_file(&request.file).ok();
+        return Err(gone());
+    }
+    library.store_master(
+        request.track_id,
+        request.settings.preset.id(),
+        &request.recorded,
+        &request.file,
+        mastered.lufs,
+    )?;
+    Ok(())
 }
 
 /// Ends a job over tracks: `job_done`, or `job_failed` saying how many tracks
@@ -662,6 +858,8 @@ pub(crate) fn jobs_set_paused(jobs: tauri::State<'_, Jobs>, paused: bool) -> Res
 #[cfg(test)]
 mod tests {
     use std::path::Path;
+
+    use cratekit_core::mastering::presets::PresetName;
 
     use super::*;
 
@@ -1119,6 +1317,194 @@ mod tests {
         assert!(!worker.join().unwrap(), "it stops without a resume");
     }
 
+    /// A master export of track `id` into `dir/master.wav`.
+    fn master_request(library: &Mutex<Library>, id: TrackId, dir: &Path) -> MasterRequest {
+        MasterRequest {
+            track_id: id,
+            source: lock(library).track(id).unwrap().path,
+            file: dir.join("master.wav"),
+            settings: MasterSettings {
+                preset: PresetName::Club,
+                intensity: 0.6,
+                target_lufs: -10.0,
+            },
+            format: WavFormat::Pcm24,
+            recorded: "{}".into(),
+        }
+    }
+
+    /// Cancels a job once its progress reaches a step, as the Cancel button
+    /// does, and records the events.
+    struct CancelsAt<'a>(&'a Jobs, u32, Recorder);
+
+    impl JobEvents for CancelsAt<'_> {
+        fn progress(&self, event: JobProgress) {
+            if event.done >= self.1 {
+                self.0.cancel(&event.job_id);
+            }
+            self.2.progress(event);
+        }
+        fn done(&self, event: JobDone) {
+            self.2.done(event);
+        }
+        fn failed(&self, event: JobFailed) {
+            self.2.failed(event);
+        }
+    }
+
+    /// Removes the track as soon as its export starts and adds another file,
+    /// which gets the same id back, as a user could during a long export.
+    struct ReplacesTrack<'a>(&'a Mutex<Library>, TrackId, Recorder);
+
+    impl JobEvents for ReplacesTrack<'_> {
+        fn progress(&self, event: JobProgress) {
+            if event.done == 0 {
+                let mut library = lock(self.0);
+                library.remove_tracks(&[self.1]).unwrap();
+                let added = library.add_paths(&[fixture("tone.flac")]).unwrap().added;
+                assert_eq!(added, vec![self.1], "SQLite gives the id back");
+            }
+            self.2.progress(event);
+        }
+        fn done(&self, event: JobDone) {
+            self.2.done(event);
+        }
+        fn failed(&self, event: JobFailed) {
+            self.2.failed(event);
+        }
+    }
+
+    /// The `done` steps of the recorded progress events.
+    fn steps(events: &[String]) -> Vec<u32> {
+        events
+            .iter()
+            .filter_map(|line| {
+                line.strip_prefix("progress ")?
+                    .split('/')
+                    .next()?
+                    .parse()
+                    .ok()
+            })
+            .collect()
+    }
+
+    #[test]
+    fn masters_a_track_into_its_file_records_it_and_reports_progress() {
+        let (library, ids) = library_with(&["tone.wav"]);
+        let dir = std::env::temp_dir().join(format!("cratekit-jobs-master-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let (jobs, events) = (Jobs::default(), Recorder::default());
+        let request = master_request(&library, ids[0], &dir);
+
+        let mastered = jobs.run_master(&request, &library, &events).unwrap();
+
+        let seen = events.take();
+        assert_eq!(seen.first().map(String::as_str), Some("progress 0/100"));
+        assert_eq!(seen.last().map(String::as_str), Some("done job-1"));
+        let steps = steps(&seen);
+        assert!(steps.windows(2).all(|pair| pair[0] < pair[1]), "{steps:?}");
+        // Never 100 before the file is written and recorded: `job_done` then
+        // ends the job.
+        assert!(
+            steps.last().is_some_and(|&last| (90..100).contains(&last)),
+            "{steps:?}"
+        );
+        assert!(request.file.is_file());
+        assert!(mastered.true_peak_dbtp <= -1.0);
+        assert!(lock(&library).track(ids[0]).unwrap().track.mastered);
+        assert!(
+            jobs.lock().side.is_empty(),
+            "a finished export takes no cancel"
+        );
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn a_cancelled_master_writes_nothing_and_sends_nothing_more() {
+        // Cancelled at the start (decoding stops), and after mastering, just
+        // before the file would be written (the last check stops it).
+        for at in [0, 90] {
+            let (library, ids) = library_with(&["tone.wav"]);
+            let dir = std::env::temp_dir().join(format!(
+                "cratekit-jobs-master-cancel-{at}-{}",
+                std::process::id()
+            ));
+            std::fs::create_dir_all(&dir).unwrap();
+            let jobs = Jobs::default();
+            let events = CancelsAt(&jobs, at, Recorder::default());
+            let request = master_request(&library, ids[0], &dir);
+
+            let outcome = jobs.run_master(&request, &library, &events);
+
+            assert_eq!(
+                outcome.map(|_| ()).map_err(|err| err.code),
+                Err("cancelled"),
+                "at {at}"
+            );
+            let seen = events.2.take();
+            assert_eq!(seen.first().map(String::as_str), Some("progress 0/100"));
+            assert!(
+                seen.iter().all(|line| line.starts_with("progress ")),
+                "{seen:?}"
+            );
+            assert!(!request.file.exists(), "at {at}");
+            assert!(!lock(&library).track(ids[0]).unwrap().track.mastered);
+            assert!(jobs.lock().side.is_empty());
+            std::fs::remove_dir_all(&dir).ok();
+        }
+    }
+
+    #[test]
+    fn a_track_replaced_during_its_export_gets_no_master() {
+        let (library, ids) = library_with(&["tone.wav"]);
+        let dir = std::env::temp_dir().join(format!(
+            "cratekit-jobs-master-replaced-{}",
+            std::process::id()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        let jobs = Jobs::default();
+        let events = ReplacesTrack(&library, ids[0], Recorder::default());
+        let request = master_request(&library, ids[0], &dir);
+
+        let error = jobs
+            .run_master(&request, &library, &events)
+            .expect_err("fails");
+
+        assert_eq!(error.code, "not_found");
+        let last = events.2.take().pop().expect("an event");
+        assert!(last.starts_with("failed job-1 not_found:"), "{last}");
+        assert!(!request.file.exists());
+        assert!(
+            !lock(&library).track(ids[0]).unwrap().track.mastered,
+            "the new track with the same id is not marked"
+        );
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn a_master_that_cannot_be_written_fails_naming_the_file() {
+        let (library, ids) = library_with(&["tone.wav"]);
+        let missing = std::env::temp_dir()
+            .join(format!("cratekit-jobs-master-gone-{}", std::process::id()))
+            .join("no such folder");
+        let (jobs, events) = (Jobs::default(), Recorder::default());
+        let request = master_request(&library, ids[0], &missing);
+
+        let error = jobs
+            .run_master(&request, &library, &events)
+            .expect_err("fails");
+
+        assert_eq!(error.code, "io");
+        let file = request.file.display().to_string();
+        assert!(error.message.starts_with(&file), "{}", error.message);
+        let last = events.take().pop().expect("an event");
+        assert!(
+            last.starts_with(&format!("failed job-1 io: {file}")),
+            "{last}"
+        );
+        assert!(!lock(&library).track(ids[0]).unwrap().track.mastered);
+    }
+
     #[test]
     fn events_serialize_as_the_ui_types() {
         let progress = JobProgress {
@@ -1159,6 +1545,14 @@ mod tests {
                 "jobId": "job-4", "kind": "model-download", "label": "Verifying htdemucs checksum",
                 "stage": "verify", "trackIds": [], "done": 500, "total": 1000, "queued": false
             })
+        );
+        let master = JobDone {
+            job_id: "job-5".into(),
+            kind: JobKind::Master,
+        };
+        assert_eq!(
+            serde_json::to_value(master).unwrap(),
+            serde_json::json!({ "jobId": "job-5", "kind": "master" })
         );
     }
 }
