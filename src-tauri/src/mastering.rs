@@ -3,7 +3,6 @@
 
 use std::fs;
 
-use cratekit_core::CoreError;
 use cratekit_core::audio::{WavFormat, decode_file, write_wav};
 use cratekit_core::library::TrackId;
 use cratekit_core::mastering::master::{MasterSettings, master, master_file_name};
@@ -49,6 +48,138 @@ pub(crate) fn master_presets() -> Result<Vec<MasterPresetDto>, AppError> {
     Ok(presets())
 }
 
+/// The UI's `MasterSettings`: what to master with, and the file format.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export))]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct MasterSettingsDto {
+    preset: PresetName,
+    /// 0 to 1: how much the EQ and compressor colour the sound.
+    intensity: f32,
+    /// The loudness the master lands on, in LUFS.
+    target_lufs: f32,
+    /// Reference matching comes with #27; recorded with the master until then.
+    reference_track_id: Option<TrackId>,
+    /// 16 (with TPDF dither) or 24.
+    bit_depth: u8,
+}
+
+/// The UI's `MasterResult`: the file written and what the meter reads.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export))]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct MasterResultDto {
+    path: String,
+    lufs: f32,
+    true_peak_db: f32,
+    /// The target aimed at (clamped to -30 to -5 LUFS).
+    target_lufs: f32,
+    /// Whether the master landed within 0.5 LU of it; false when the limiter
+    /// could not get there on this track (the closest pass is kept).
+    target_reached: bool,
+}
+
+/// What the library records with a master: the settings actually used.
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct RecordedSettings {
+    preset: PresetName,
+    intensity: f32,
+    target_lufs: f32,
+    bit_depth: u8,
+}
+
+/// The WAV format for a bit depth: 24-bit, or 16-bit with TPDF dither.
+fn wav_format(bit_depth: u8) -> Result<WavFormat, AppError> {
+    match bit_depth {
+        16 => Ok(WavFormat::Pcm16),
+        24 => Ok(WavFormat::Pcm24),
+        other => Err(AppError {
+            code: "invalid_setting",
+            message: format!("bit depth {other}: masters are 16 or 24-bit"),
+        }),
+    }
+}
+
+/// Masters a track and writes it into `<output folder>/Masters/` as
+/// `<artist> - <title> (<preset> master).wav`, replacing an earlier export
+/// of the same name; records it in the library (the track shows as
+/// mastered) and returns the file, its loudness and its true peak. The
+/// original file is only read.
+#[tauri::command]
+pub(crate) async fn master_export(
+    app: AppHandle,
+    id: TrackId,
+    settings: MasterSettingsDto,
+) -> Result<MasterResultDto, AppError> {
+    let format = wav_format(settings.bit_depth)?;
+    let (detail, output_setting) = with_library(app.clone(), move |library| {
+        Ok((library.track(id)?, library.settings()?.output_folder))
+    })
+    .await?;
+    let folder = output_dir(&app, &output_setting)?.join("Masters");
+    // Made first: an unwritable folder fails at once, not after the render.
+    fs::create_dir_all(&folder).map_err(|err| AppError {
+        code: "io",
+        message: format!("{}: {err}", folder.display()),
+    })?;
+    let file = folder.join(master_file_name(
+        &detail.track.artist,
+        &detail.track.title,
+        settings.preset,
+    ));
+    // Hard rule 4: the original is only ever read.
+    if file == detail.path {
+        return Err(AppError {
+            code: "io",
+            message: format!("{} is the original file", file.display()),
+        });
+    }
+    let core = MasterSettings {
+        preset: settings.preset,
+        intensity: settings.intensity,
+        target_lufs: settings.target_lufs,
+    };
+    let written = file.clone();
+    let mastered = tauri::async_runtime::spawn_blocking(move || -> Result<_, AppError> {
+        let audio = decode_file(&detail.path)?;
+        let mastered = master(audio, &core, &|_| {}, &CancellationToken::new())?;
+        write_wav(&written, &mastered.audio, format).map_err(|err| AppError {
+            code: "io",
+            message: format!("{}: {err}", written.display()),
+        })?;
+        Ok(mastered)
+    })
+    .await
+    .map_err(|err| AppError {
+        code: "internal",
+        message: err.to_string(),
+    })??;
+
+    let recorded = RecordedSettings {
+        preset: settings.preset,
+        intensity: settings.intensity.clamp(0.0, 1.0),
+        target_lufs: mastered.target_lufs,
+        bit_depth: settings.bit_depth,
+    };
+    let settings_json = serde_json::to_string(&recorded).map_err(|err| AppError {
+        code: "internal",
+        message: err.to_string(),
+    })?;
+    let (path, lufs) = (file.clone(), mastered.lufs);
+    with_library(app, move |library| {
+        library.store_master(id, settings.preset.id(), &settings_json, &path, lufs)
+    })
+    .await?;
+    Ok(MasterResultDto {
+        path: file.to_string_lossy().into_owned(),
+        lufs: mastered.lufs,
+        true_peak_db: mastered.true_peak_dbtp,
+        target_lufs: mastered.target_lufs,
+        target_reached: mastered.target_reached,
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -82,12 +213,16 @@ mod tests {
     fn the_result_serializes_as_the_ui_reads_it() {
         let result = MasterResultDto {
             path: "/m/x.wav".into(),
-            lufs: -8.1,
+            lufs: -9.2,
             true_peak_db: -1.2,
+            target_lufs: -8.0,
+            target_reached: false,
         };
         let json = serde_json::to_value(result).expect("serializes");
         assert_eq!(json["truePeakDb"], serde_json::json!(-1.2_f32));
         assert_eq!(json["path"], "/m/x.wav");
+        assert_eq!(json["targetLufs"], serde_json::json!(-8.0_f32));
+        assert_eq!(json["targetReached"], false);
     }
 
     #[test]
@@ -106,103 +241,4 @@ mod tests {
         assert_eq!(json[3]["name"], "lo-fi");
         assert_eq!(json[4]["targetLufs"], -12.0);
     }
-}
-
-/// The UI's `MasterSettings`: what to master with, and the file format.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export))]
-#[serde(rename_all = "camelCase")]
-pub(crate) struct MasterSettingsDto {
-    preset: PresetName,
-    /// 0 to 1: how much the EQ and compressor colour the sound.
-    intensity: f32,
-    /// The loudness the master lands on, in LUFS.
-    target_lufs: f32,
-    /// Reference matching comes with #27; recorded with the master until then.
-    reference_track_id: Option<TrackId>,
-    /// 16 (with TPDF dither) or 24.
-    bit_depth: u8,
-}
-
-/// The UI's `MasterResult`: the file written and what the meter reads.
-#[derive(Debug, Clone, PartialEq, Serialize)]
-#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export))]
-#[serde(rename_all = "camelCase")]
-pub(crate) struct MasterResultDto {
-    path: String,
-    lufs: f32,
-    true_peak_db: f32,
-}
-
-/// The WAV format for a bit depth: 24-bit, or 16-bit with TPDF dither.
-fn wav_format(bit_depth: u8) -> Result<WavFormat, AppError> {
-    match bit_depth {
-        16 => Ok(WavFormat::Pcm16),
-        24 => Ok(WavFormat::Pcm24),
-        other => Err(AppError {
-            code: "invalid_setting",
-            message: format!("bit depth {other}: masters are 16 or 24-bit"),
-        }),
-    }
-}
-
-/// Masters a track and writes it into `<output folder>/Masters/` as
-/// `<artist> - <title> (<preset> master).wav`, replacing an earlier export
-/// of the same name; records it in the library (the track shows as
-/// mastered) and returns the file, its loudness and its true peak. The
-/// original file is only read.
-#[tauri::command]
-pub(crate) async fn master_export(
-    app: AppHandle,
-    id: TrackId,
-    settings: MasterSettingsDto,
-) -> Result<MasterResultDto, AppError> {
-    let format = wav_format(settings.bit_depth)?;
-    let (detail, output_setting) = with_library(app.clone(), move |library| {
-        Ok((library.track(id)?, library.settings()?.output_folder))
-    })
-    .await?;
-    let folder = output_dir(&app, &output_setting)?.join("Masters");
-    let file = folder.join(master_file_name(
-        &detail.track.artist,
-        &detail.track.title,
-        settings.preset,
-    ));
-    let core = MasterSettings {
-        preset: settings.preset,
-        intensity: settings.intensity,
-        target_lufs: settings.target_lufs,
-    };
-    let written = file.clone();
-    let mastered = tauri::async_runtime::spawn_blocking(move || -> Result<_, AppError> {
-        let audio = decode_file(&detail.path)?;
-        let mastered = master(&audio, &core, &|_| {}, &CancellationToken::new())?;
-        fs::create_dir_all(&folder).map_err(CoreError::from)?;
-        write_wav(&written, &mastered.audio, format)?;
-        Ok(mastered)
-    })
-    .await
-    .map_err(|err| AppError {
-        code: "internal",
-        message: err.to_string(),
-    })??;
-
-    let settings_json = serde_json::to_string(&settings).map_err(|err| AppError {
-        code: "internal",
-        message: err.to_string(),
-    })?;
-    let preset = serde_json::to_value(settings.preset)
-        .ok()
-        .and_then(|value| value.as_str().map(str::to_owned))
-        .unwrap_or_default();
-    let (recorded, lufs) = (file.clone(), mastered.lufs);
-    with_library(app, move |library| {
-        library.store_master(id, &preset, &settings_json, &recorded, lufs)
-    })
-    .await?;
-    Ok(MasterResultDto {
-        path: file.to_string_lossy().into_owned(),
-        lufs: mastered.lufs,
-        true_peak_db: mastered.true_peak_dbtp,
-    })
 }

@@ -3,4 +3,13 @@
 /**
  * The UI's `MasterResult`: the file written and what the meter reads.
  */
-export type MasterResultDto = { path: string, lufs: number, truePeakDb: number, };
+export type MasterResultDto = { path: string, lufs: number, truePeakDb: number, 
+/**
+ * The target aimed at (clamped to -30 to -5 LUFS).
+ */
+targetLufs: number, 
+/**
+ * Whether the master landed within 0.5 LU of it; false when the limiter
+ * could not get there on this track (the closest pass is kept).
+ */
+targetReached: boolean, };

@@ -209,6 +209,10 @@ export interface MasterResult {
   path: string;
   lufs: number;
   truePeakDb: number;
+  /** The target aimed at (clamped to -30 to -5 LUFS in Rust). */
+  targetLufs: number;
+  /** False when the limiter could not reach the target on this track (the closest result is kept). */
+  targetReached: boolean;
 }
 
 export type ControlTarget =
