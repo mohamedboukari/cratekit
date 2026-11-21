@@ -71,6 +71,10 @@ export const tools: Translation["tools"] = {
     bits16Title: "WAV 16 bits avec dither",
     rendering: "Rendu...",
     exportWav: "Exporter en WAV",
+    exportProgress: "Progression de l'export",
+    exportingTrack: "Export de {{title}}",
+    cancelling: "Annulation...",
+    cancel: "Annuler",
     exported: "Master exporté",
     presets: {
       club: { label: "Club", description: "Bas percutant, aigus brillants" },

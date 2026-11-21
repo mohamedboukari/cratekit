@@ -1,19 +1,20 @@
 //! Mastering commands: the presets the Master tab lists (#24), the export
-//! (#25) and the live preview for A/B (#26).
+//! (#25, a job with progress and cancel since #28) and the live preview for
+//! A/B (#26).
 
 use std::fs;
 
 use cratekit_audio::MasterPreview;
-use cratekit_core::audio::{WavFormat, decode_file, write_wav};
+use cratekit_core::audio::WavFormat;
 use cratekit_core::library::TrackId;
-use cratekit_core::mastering::master::{MasterSettings, master, master_file_name};
+use cratekit_core::mastering::master::{MasterSettings, master_file_name};
 use cratekit_core::mastering::presets::PresetName;
-use cratekit_core::progress::CancellationToken;
 use serde::{Deserialize, Serialize};
-use tauri::AppHandle;
+use tauri::{AppHandle, Manager};
 
 use crate::AppError;
-use crate::library::with_library;
+use crate::jobs::{Jobs, MasterRequest};
+use crate::library::{LibraryState, with_library};
 use crate::stems::output_dir;
 
 /// A preset as the Master tab lists it, the UI's `MasterPreset`.
@@ -143,7 +144,9 @@ fn wav_format(bit_depth: u8) -> Result<WavFormat, AppError> {
 /// `<artist> - <title> (<preset> master).wav`, replacing an earlier export
 /// of the same name; records it in the library (the track shows as
 /// mastered) and returns the file, its loudness and its true peak. The
-/// original file is only read.
+/// original file is only read. Runs as a job (kind `master`): progress
+/// arrives as `job_progress`, and `job_cancel` stops it, which returns the
+/// `cancelled` error.
 #[tauri::command]
 pub(crate) async fn master_export(
     app: AppHandle,
@@ -178,44 +181,42 @@ pub(crate) async fn master_export(
         intensity: settings.intensity,
         target_lufs: settings.target_lufs,
     };
-    let written = file.clone();
-    let mastered = tauri::async_runtime::spawn_blocking(move || -> Result<_, AppError> {
-        let audio = decode_file(&detail.path)?;
-        let mastered = master(audio, &core, &|_| {}, &CancellationToken::new())?;
-        write_wav(&written, &mastered.audio, format).map_err(|err| AppError {
-            code: "io",
-            message: format!("{}: {err}", written.display()),
-        })?;
-        Ok(mastered)
+    let recorded = RecordedSettings {
+        preset: settings.preset,
+        intensity: settings.intensity.clamp(0.0, 1.0),
+        target_lufs: core.target(),
+        bit_depth: settings.bit_depth,
+    };
+    let request = MasterRequest {
+        track_id: id,
+        source: detail.path,
+        file,
+        settings: core,
+        format,
+        recorded: serde_json::to_string(&recorded).map_err(|err| AppError {
+            code: "internal",
+            message: err.to_string(),
+        })?,
+    };
+    // The audio stays on the worker thread: only the numbers come back.
+    tauri::async_runtime::spawn_blocking(move || {
+        let state = app.state::<LibraryState>();
+        let mastered = app
+            .state::<Jobs>()
+            .run_master(&request, state.library()?, &app)?;
+        Ok(MasterResultDto {
+            path: request.file.to_string_lossy().into_owned(),
+            lufs: mastered.lufs,
+            true_peak_db: mastered.true_peak_dbtp,
+            target_lufs: mastered.target_lufs,
+            target_reached: mastered.target_reached,
+        })
     })
     .await
     .map_err(|err| AppError {
         code: "internal",
         message: err.to_string(),
-    })??;
-
-    let recorded = RecordedSettings {
-        preset: settings.preset,
-        intensity: settings.intensity.clamp(0.0, 1.0),
-        target_lufs: mastered.target_lufs,
-        bit_depth: settings.bit_depth,
-    };
-    let settings_json = serde_json::to_string(&recorded).map_err(|err| AppError {
-        code: "internal",
-        message: err.to_string(),
-    })?;
-    let (path, lufs) = (file.clone(), mastered.lufs);
-    with_library(app, move |library| {
-        library.store_master(id, settings.preset.id(), &settings_json, &path, lufs)
-    })
-    .await?;
-    Ok(MasterResultDto {
-        path: file.to_string_lossy().into_owned(),
-        lufs: mastered.lufs,
-        true_peak_db: mastered.true_peak_dbtp,
-        target_lufs: mastered.target_lufs,
-        target_reached: mastered.target_reached,
-    })
+    })?
 }
 
 #[cfg(test)]

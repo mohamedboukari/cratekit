@@ -5,10 +5,26 @@ import { jobLabel } from "@/lib/format";
 import { api } from "@/lib/ipc";
 import { notifyError } from "@/lib/notify";
 import { refreshAfterAnalysis } from "@/stores/refresh";
-import type { Job, JobDone, JobFailed, JobId, JobProgress, JobState } from "@/lib/types";
+import type {
+  Job,
+  JobDone,
+  JobFailed,
+  JobId,
+  JobKind,
+  JobProgress,
+  JobState,
+} from "@/lib/types";
 
 /** Finished jobs stay visible this long in the queue before they are dropped. */
 const DONE_TTL_MS = 4000;
+
+/**
+ * Jobs on Rust's queue, which pausing holds. The model download and master
+ * exports run beside it and keep going.
+ */
+function pausable(kind: JobKind): boolean {
+  return kind === "analysis" || kind === "stems";
+}
 
 /** Jobs the user cancelled: late progress or done events for them are ignored. */
 const cancelled = new Set<JobId>();
@@ -53,7 +69,11 @@ export const useJobs = create<JobsState>()((set, get) => ({
           trackIds: p.trackIds,
           done: p.done,
           total: p.total,
-          state: p.queued ? "queued" : s.paused ? "paused" : "running",
+          state: p.queued
+            ? "queued"
+            : s.paused && pausable(p.kind)
+              ? "paused"
+              : "running",
         },
       },
     }));
@@ -83,7 +103,8 @@ export const useJobs = create<JobsState>()((set, get) => ({
       if (!job) return s;
       return { jobs: { ...s.jobs, [f.jobId]: { ...job, state: "failed" } } };
     });
-    notifyError(f.error, i18n.t("errors.jobs.failed"));
+    // The Master tab's export call reports its own failure.
+    if (f.kind !== "master") notifyError(f.error, i18n.t("errors.jobs.failed"));
   },
 
   cancel: async (id) => {
@@ -107,7 +128,8 @@ export const useJobs = create<JobsState>()((set, get) => ({
       await api().jobsSetPaused(paused);
       const jobs: Record<JobId, Job> = {};
       for (const [id, job] of Object.entries(get().jobs)) {
-        const toggles = job.state === "running" || job.state === "paused";
+        const toggles =
+          pausable(job.kind) && (job.state === "running" || job.state === "paused");
         const state: JobState = toggles ? (paused ? "paused" : "running") : job.state;
         jobs[id] = { ...job, state };
       }

@@ -1,9 +1,24 @@
+import { toast } from "sonner";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { setApiForTests } from "@/lib/ipc";
 import { createMockApi } from "@/mock/api";
 import type { JobProgress } from "@/lib/types";
 import { activeJobs, useJobs } from "@/stores/jobs";
+
+/** A running master export of track 3, `done` of 100. */
+function masterAt(done: number): JobProgress {
+  return {
+    jobId: "m1",
+    kind: "master",
+    label: "Mastering a track",
+    stage: null,
+    trackIds: [3],
+    done,
+    total: 100,
+    queued: false,
+  };
+}
 
 describe("jobs store", () => {
   beforeEach(() => {
@@ -14,6 +29,45 @@ describe("jobs store", () => {
 
   afterEach(() => {
     vi.useRealTimers();
+    vi.restoreAllMocks();
+  });
+
+  it("keeps a master export running while the queue is paused (it runs beside it)", async () => {
+    useJobs.getState().onProgress(masterAt(10));
+    await useJobs.getState().setPaused(true);
+    expect(useJobs.getState().jobs["m1"]?.state).toBe("running");
+    useJobs.getState().onProgress(masterAt(20));
+    expect(useJobs.getState().jobs["m1"]?.state).toBe("running");
+    await useJobs.getState().setPaused(false);
+    expect(useJobs.getState().jobs["m1"]?.state).toBe("running");
+  });
+
+  it("keeps the model download running while the queue is paused", async () => {
+    await useJobs.getState().setPaused(true);
+    useJobs.getState().onProgress({
+      ...masterAt(10),
+      jobId: "d1",
+      kind: "model-download",
+      stage: "download",
+      trackIds: [],
+    });
+    expect(useJobs.getState().jobs["d1"]?.state).toBe("running");
+  });
+
+  it("leaves a failed master export's toast to the Master tab, and toasts other jobs", () => {
+    const error = vi.spyOn(toast, "error");
+    const { onProgress, onFailed } = useJobs.getState();
+    onProgress(masterAt(40));
+    onFailed({
+      jobId: "m1",
+      kind: "master",
+      error: { code: "io", message: "disk full" },
+    });
+    expect(useJobs.getState().jobs["m1"]?.state).toBe("failed");
+    expect(error).not.toHaveBeenCalled();
+    onProgress({ ...masterAt(1), jobId: "a1", kind: "analysis" });
+    onFailed({ jobId: "a1", kind: "analysis", error: { code: "io", message: "x" } });
+    expect(error).toHaveBeenCalledTimes(1);
   });
 
   it("tracks progress, then drops finished jobs after a short delay", () => {
