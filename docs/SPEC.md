@@ -179,7 +179,7 @@ The step from prep tool to VirtualDJ replacement. Built after v0.1 ships; the v0
 
 ## Non-functional
 
-- Installer under 60 MB per platform (models download separately), measured per target in CI. Exception: the Linux AppImage bundles WebKitGTK and its GTK libraries (about 80 MB measured), so its budget is 90 MB; the .deb uses the system's WebKitGTK and stays under 60 MB.
+- Installer under 60 MB per platform (models download separately), measured per target in CI. Exception: the Linux AppImage bundles WebKitGTK and its GTK libraries (about 80 MB measured) plus ONNX Runtime for stems (about 13 MB), so its budget is 100 MB; the .deb uses the system's WebKitGTK and stays under 60 MB.
 - Idle RAM under 300 MB; stems job may use up to ~4 GB.
 - No network calls except the model download.
 - Platforms and CPU architectures, all built and tested in CI:

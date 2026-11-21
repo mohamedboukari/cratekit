@@ -12,8 +12,13 @@
 #          audio output loads at run time.
 # Windows: the app imports no Visual C++ runtime DLL (Tauri links it statically),
 #          so users never need a redistributable.
-# All:     size against the budget: 90 MB for an AppImage (it bundles
-#          WebKitGTK), 60 MB for the others (a warning, not a failure).
+# Stems:   every package carries ONNX Runtime (#31): on macOS with a slice for
+#          each architecture of the app and a minimum no newer than the app's;
+#          on Windows with every Visual C++ runtime DLL it imports next to it,
+#          and nothing else outside Windows' own DLLs.
+# All:     size against the budget: 100 MB for an AppImage (it bundles
+#          WebKitGTK and ONNX Runtime), 60 MB for the others (a warning, not
+#          a failure).
 set -euo pipefail
 
 RELEASE_DIR="${1:?usage: check-installer.sh <release dir>}"
@@ -36,7 +41,7 @@ row() {
 check_size() {
   local installer="$1" budget_mb=60 bytes size_mb
   case "$installer" in
-    *.AppImage) budget_mb=90 ;;
+    *.AppImage) budget_mb=100 ;;
   esac
   bytes=$(wc -c < "$installer" | tr -d ' ')
   size_mb=$(awk "BEGIN { printf \"%.1f\", $bytes / 1048576 }")
@@ -80,7 +85,35 @@ check_macos() {
     done
     row "$(basename "$bin")" "$archs, minos $minos (expected $expected)"
   done
+  local library="$app/Contents/Resources/onnxruntime/libonnxruntime.dylib" lib_archs lib_minos
+  if [ -f "$library" ]; then
+    lib_archs=$(lipo -archs "$library")
+    for arch in $archs; do
+      case " $lib_archs " in
+        *" $arch "*) ;;
+        *) fail "ONNX Runtime has no $arch slice (it has: $lib_archs)" ;;
+      esac
+      lib_minos=$(vtool -arch "$arch" -show-build "$library" | awk '/minos/ { print $2; exit }')
+      if [ "$(printf '%s\n%s\n' "$lib_minos" "$expected" | sort -V | tail -n 1)" != "$expected" ]; then
+        fail "ONNX Runtime ($arch) needs macOS $lib_minos, newer than the app's $expected"
+      fi
+    done
+    row "ONNX Runtime" "$lib_archs, minos $lib_minos"
+  else
+    fail "the app does not contain ONNX Runtime (Contents/Resources/onnxruntime/libonnxruntime.dylib)"
+  fi
   hdiutil detach "$mount" > /dev/null
+}
+
+# Fails unless the folder holds ONNX Runtime's Linux library somewhere.
+need_linux_onnxruntime() {
+  local found
+  found=$(find "$1" -type f -name libonnxruntime.so | head -n 1)
+  if [ -n "$found" ]; then
+    row "ONNX Runtime" "${found#"$1"/}"
+  else
+    fail "the package does not contain ONNX Runtime (libonnxruntime.so)"
+  fi
 }
 
 check_linux() {
@@ -93,10 +126,12 @@ check_linux() {
       # Extracting needs no FUSE.
       (cd "$work" && ./app.AppImage --appimage-extract > /dev/null)
       check_glibc "$work/squashfs-root"
+      need_linux_onnxruntime "$work/squashfs-root"
       ;;
     *.deb)
       dpkg-deb -x "$installer" "$work/root"
       check_glibc "$work/root"
+      need_linux_onnxruntime "$work/root"
       depends=$(dpkg-deb -f "$installer" Depends)
       row "Depends" "$depends"
       echo "$depends" | grep -q 'libasound2' || fail "$(basename "$installer") does not depend on libasound2 (ALSA, needed for audio output)"
@@ -113,6 +148,44 @@ check_windows() {
   row "DLLs imported" "$(echo "$dlls" | tr '\n' ' ')"
   runtime=$(echo "$dlls" | grep -iE '^(vcruntime|msvcp|concrt|vcomp)' || true)
   [ -z "$runtime" ] || fail "$(basename "$exe") imports the Visual C++ runtime: $runtime"
+  check_windows_onnxruntime "$1" "$objdump"
+}
+
+# Extracts the MSI (an administrative install into a folder) and checks the
+# ONNX Runtime folder: every DLL there imports only DLLs that are bundled next
+# to it or are Windows' own (System32, API sets). A Visual C++ runtime DLL
+# must be bundled even when this machine has it installed.
+check_windows_onnxruntime() {
+  local installer="$1" objdump="$2" work msi out folder dll name imports import
+  work=$(mktemp -d)
+  msi=$(cygpath -w "$installer")
+  out=$(cygpath -w "$work")
+  powershell.exe -NoProfile -Command "\$p = Start-Process msiexec.exe -ArgumentList @('/a', '\"$msi\"', '/qn', 'TARGETDIR=\"$out\"') -Wait -PassThru; exit \$p.ExitCode"
+  folder=$(find "$work" -type f -iname onnxruntime.dll -exec dirname {} \; | head -n 1)
+  if [ -z "$folder" ]; then
+    fail "the installer does not contain ONNX Runtime (onnxruntime.dll)"
+    return
+  fi
+  row "ONNX Runtime folder" "$(find "$folder" -maxdepth 1 -type f -iname '*.dll' -exec basename {} \; | sort | tr '\n' ' ')"
+  for dll in "$folder"/*.dll; do
+    name=$(basename "$dll")
+    imports=$("$objdump" -p "$dll" | sed -n 's/^ *DLL Name: //p' | sort -u)
+    for import in $imports; do
+      if [ -n "$(find "$folder" -maxdepth 1 -iname "$import" | head -n 1)" ]; then
+        continue
+      fi
+      case "$(echo "$import" | tr '[:upper:]' '[:lower:]')" in
+        vcruntime* | msvcp* | concrt* | vcomp*)
+          fail "$name imports $import, which is not bundled next to it"
+          ;;
+        api-ms-win-* | ext-ms-win-*) ;;
+        *)
+          [ -n "$(find /c/Windows/System32 -maxdepth 1 -iname "$import" | head -n 1)" ] ||
+            fail "$name imports $import, which is neither bundled nor part of Windows"
+          ;;
+      esac
+    done
+  done
 }
 
 found=0
@@ -128,7 +201,7 @@ while IFS= read -r -d '' installer; do
   case "$(uname -s)" in
     Darwin) check_macos "$installer" ;;
     Linux) check_linux "$installer" ;;
-    MINGW* | MSYS* | CYGWIN*) check_windows ;;
+    MINGW* | MSYS* | CYGWIN*) check_windows "$installer" ;;
     *) fail "unknown platform $(uname -s)" ;;
   esac
   echo "" >> "$SUMMARY"

@@ -2,7 +2,7 @@
 
 Stem separation (SPEC, Module 4): vocals, drums, bass and other with htdemucs on ONNX Runtime. The decisions behind it (runtime, libraries per target, model and its licence, CoreML) are in `docs/ARCHITECTURE.md`, Stems notes (#29). This page covers the code.
 
-So far: loading ONNX Runtime (#115), downloading the model (#30) and the separator (#31, the core part). Bundling ONNX Runtime in the installers and the stems job in the app (#31, #33), and backend selection (#32) come next.
+So far: loading ONNX Runtime (#115), downloading the model (#30), the separator and ONNX Runtime in the installers (#31). The stems job in the app (#33) and backend selection (#32) come next.
 
 ## Loading ONNX Runtime (`stems::runtime`)
 
@@ -15,6 +15,9 @@ ONNX Runtime is not linked into the app. `load(path)` opens Microsoft's library 
 | `Runtime` | The loaded library: `library()`, `minor_version()` (32 for 1.32) and `environment()` for creating sessions. |
 | `Unavailable` | Why stems cannot run: `CpuTooOld { missing }`, `LibraryMissing { path }`, `LibraryFailed { path, reason }` (the loader's own message: a missing dependency, another CPU architecture, not ONNX Runtime), `TooOld { found }`. |
 | `MIN_MINOR_VERSION` | 23: ONNX Runtime 1.23, the last build for Intel Macs; matches `ort`'s `api-23` feature. |
+| `LIBRARY_FILE` | The library's file name on this platform: `libonnxruntime.dylib`, `onnxruntime.dll` or `libonnxruntime.so`. |
+
+On Windows, `load` first loads the Visual C++ runtime DLLs found next to the library (`vcruntime140.dll`, `vcruntime140_1.dll`, `msvcp140.dll`, `msvcp140_1.dll`), by full path and in dependency order. Windows then uses those for `onnxruntime.dll`'s imports, so stems work on a machine without the runtime installed. Elsewhere no such file exists and nothing happens.
 
 The `ort` crate is used with `default-features = false`, `load-dynamic` and `api-23`: nothing is downloaded when building, and any library from 1.23 on works (1.32 serves API 23 too).
 
@@ -55,11 +58,14 @@ Intel's split export runs only the network; `stems::dsp` does the rest, as the r
 
 Checked against StemSplitio's export of the same weights (STFT inside its graph), run through the same chunking: every stem matches to −64 dB or better, so the processing here is the reference's. Speed on an M4 Pro, ONNX Runtime 1.23.2 on the CPU: a 201 s track in 29 s, a 142 s track in 21 s (1.32 is several times slower on the CPU here; see the Stems notes).
 
-## Getting the library
+## Getting the library and bundling it
 
-`.github/scripts/fetch-onnxruntime.sh <dest dir>` downloads Microsoft's NuGet package for the machine's OS and CPU, checks it against a pinned SHA-256, and copies the library out (1.32.0, or 1.23.2 on Intel Macs). It prints the library's path. CI uses it; the installers will use it to bundle the library (#31).
+`.github/scripts/fetch-onnxruntime.sh [--universal] [--vc-runtime] <dest dir>` downloads Microsoft's NuGet package for the machine's OS and CPU, checks it against a pinned SHA-256 and copies the library out: 1.23.2 on macOS, 1.32.0 on Windows and Linux. It prints the library's path.
 
-**Windows needs the Visual C++ runtime.** Microsoft's `onnxruntime.dll` imports `VCRUNTIME140.dll`, `VCRUNTIME140_1.dll`, `MSVCP140.dll` and `MSVCP140_1.dll` (ARM64: the first and the last two). The app itself links the runtime statically, but this DLL does not, and every GitHub Windows image has the runtime installed, so CI cannot catch a machine without it. Bundling the library (#31) must deal with this, and the installer check must then scan every bundled DLL, not only the app.
+- `--universal` (macOS): one library with the arm64 and the x86_64 slice, combined with `lipo`, for the universal app.
+- `--vc-runtime` (Windows): also copies the Visual C++ runtime DLLs the library imports (read with the Rust toolchain's `llvm-objdump`) from the machine's Visual Studio redistributable folder.
+
+The installers workflow stages the library in `src-tauri/onnxruntime/` (git-ignored) and builds with `tauri build --config src-tauri/tauri.onnxruntime.conf.json`, which bundles that folder as the `onnxruntime/` resource folder. `check-installer.sh` then checks the library is in every package (see `docs/ARCHITECTURE.md`, Installer checks).
 
 ## Tests
 
@@ -67,7 +73,7 @@ Checked against StemSplitio's export of the same weights (STFT inside its graph)
 - `the_instrumental_is_everything_but_the_vocals`: the 2-stem instrumental is drums plus bass plus other, sample by sample.
 - Signal processing tests (synthetic signals): the constants, reflection padding, the window, a tone in its bin at the normalized level, the STFT round trip (error under 1e-4 away from the dropped edge frames), segments covering a track and centring the last one, blending an identity model back to the track, the track normalization undone, the spectrogram channel layout, and both output branches back to audio.
 - `the_stems_sum_back_to_the_mix` (ignored; needs `CRATEKIT_ONNXRUNTIME` and `CRATEKIT_STEMS_MODEL`): splits a 12 s synthetic mix (kick, bass line, chord) with the real model; the stems sum back exactly and the bass line lands in the bass stem. About 3 s in release on Apple Silicon.
-- Unit tests: the CPU verdict for every AVX2 and FMA combination, a missing file, a relative path, a file that is not ONNX Runtime, reading a version string, the wording of the reasons.
+- Unit tests: the CPU verdict for every AVX2 and FMA combination, the Visual C++ preload (none found, one that is not a library), a missing file, a relative path, a file that is not ONNX Runtime, reading a version string, the wording of the reasons.
 - `a_real_onnx_runtime_loads_and_runs_a_model` (ignored by default): loads a real library from `CRATEKIT_ONNXRUNTIME` and runs a tiny model (`y = x * x`, written as protobuf bytes in the test, so there is no model file), then checks that a second `load` returns the same runtime and that another library is refused. Locally:
 
   ```bash

@@ -11,6 +11,31 @@ use std::sync::{Mutex, OnceLock, PoisonError};
 
 use ort::environment::Environment;
 
+/// The library's file name on this platform, as the installers bundle it in
+/// the `onnxruntime` resource folder.
+#[cfg(target_os = "macos")]
+pub const LIBRARY_FILE: &str = "libonnxruntime.dylib";
+/// The library's file name on this platform, as the installers bundle it in
+/// the `onnxruntime` resource folder.
+#[cfg(target_os = "windows")]
+pub const LIBRARY_FILE: &str = "onnxruntime.dll";
+/// The library's file name on this platform, as the installers bundle it in
+/// the `onnxruntime` resource folder.
+#[cfg(not(any(target_os = "macos", target_os = "windows")))]
+pub const LIBRARY_FILE: &str = "libonnxruntime.so";
+
+/// The Visual C++ runtime DLLs Microsoft's `onnxruntime.dll` imports. The
+/// Windows installer ships them next to it (Microsoft's "local deployment"),
+/// and [`load`] loads them from there first, so the library never depends on
+/// whether the machine has the runtime installed. They exist only on Windows;
+/// elsewhere nothing is found and nothing happens.
+const VC_RUNTIME: [&str; 4] = [
+    "vcruntime140.dll",
+    "vcruntime140_1.dll",
+    "msvcp140.dll",
+    "msvcp140_1.dll",
+];
+
 /// The oldest ONNX Runtime minor version stems accept (1.23, the last build
 /// for Intel Macs). It matches the `api-23` feature of `ort`.
 pub const MIN_MINOR_VERSION: u32 = 23;
@@ -168,6 +193,7 @@ fn open(library: &Path) -> Result<Runtime, Unavailable> {
             path: library.to_path_buf(),
         });
     }
+    preload_vc_runtime(library)?;
     // `init_from` keeps the library only when it loads and is new enough, and
     // its error says why not (it also refuses versions below `api-23`).
     let builder = ort::init_from(library).map_err(|err| match err {
@@ -191,6 +217,26 @@ fn open(library: &Path) -> Result<Runtime, Unavailable> {
         minor_version,
         environment,
     })
+}
+
+/// Loads the Visual C++ runtime DLLs found next to `library`, by full path
+/// and in dependency order. A DLL already loaded is what Windows uses for the
+/// imports of the next one, so `onnxruntime.dll` then finds them without a
+/// search. Missing files are skipped (the system's copy is used then).
+fn preload_vc_runtime(library: &Path) -> Result<(), Unavailable> {
+    let Some(dir) = library.parent() else {
+        return Ok(());
+    };
+    for name in VC_RUNTIME {
+        let path = dir.join(name);
+        if path.is_file() {
+            ort::util::preload_dylib(&path).map_err(|err| Unavailable::LibraryFailed {
+                path: path.clone(),
+                reason: err.to_string(),
+            })?;
+        }
+    }
+    Ok(())
 }
 
 /// The minor version in an ONNX Runtime version string ("1.22.0" gives 22).
@@ -263,6 +309,24 @@ mod tests {
         let result = load(Path::new("onnxruntime.dll")).map(|_| ());
         assert!(
             matches!(result, Err(Unavailable::LibraryFailed { ref reason, .. }) if reason.contains("absolute")),
+            "{result:?}"
+        );
+    }
+
+    #[test]
+    fn the_runtime_dlls_next_to_the_library_are_loaded_first() {
+        let dir = std::env::temp_dir().join(format!("cratekit-ort-vc-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).expect("temp dir");
+        let library = dir.join(LIBRARY_FILE);
+        // None there: nothing to load.
+        assert_eq!(preload_vc_runtime(&library), Ok(()));
+        // One that is not a library: refused with its own path.
+        let fake = dir.join("vcruntime140.dll");
+        std::fs::write(&fake, b"not a library").expect("write");
+        let result = preload_vc_runtime(&library);
+        std::fs::remove_dir_all(&dir).ok();
+        assert!(
+            matches!(result, Err(Unavailable::LibraryFailed { ref path, .. }) if *path == fake),
             "{result:?}"
         );
     }

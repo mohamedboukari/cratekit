@@ -1,16 +1,36 @@
 #!/usr/bin/env bash
 # Downloads Microsoft's official ONNX Runtime build for this machine's OS and
 # CPU from NuGet, checks the package against a pinned SHA-256, and copies the
-# library into <dest dir>. Prints the library's path. (#115; docs/ARCHITECTURE.md,
-# Stems notes, has the per-target table.)
+# library into <dest dir>. Prints the library's path. (#115, #31;
+# docs/ARCHITECTURE.md, Stems notes, has the per-target table.)
 #
-#   fetch-onnxruntime.sh <dest dir>
+#   fetch-onnxruntime.sh [--universal] [--vc-runtime] <dest dir>
 #
-# 1.32.0 everywhere except Intel Macs, which get 1.23.2 (the last Intel build).
+#   --universal   macOS: one library with both the arm64 and the x86_64 slice
+#                 (for the universal app), combined with lipo.
+#   --vc-runtime  Windows: also copy the Visual C++ runtime DLLs the library
+#                 imports, from this machine's Visual Studio, next to it
+#                 (Microsoft's "local deployment"; the installer ships them).
+#
+# 1.23.2 on macOS (both slices; the last Intel build, and faster on the CPU
+# than 1.32 on Apple Silicon), 1.32.0 on Windows and Linux.
 # Downloads are kept in ORT_CACHE (default ~/.cache/cratekit-onnxruntime).
 set -euo pipefail
 
-DEST="${1:?usage: fetch-onnxruntime.sh <dest dir>}"
+universal=0
+vc_runtime=0
+while [ $# -gt 1 ]; do
+  case "$1" in
+    --universal) universal=1 ;;
+    --vc-runtime) vc_runtime=1 ;;
+    *)
+      echo "unknown option: $1" >&2
+      exit 1
+      ;;
+  esac
+  shift
+done
+DEST="${1:?usage: fetch-onnxruntime.sh [--universal] [--vc-runtime] <dest dir>}"
 CACHE="${ORT_CACHE:-$HOME/.cache/cratekit-onnxruntime}"
 
 # Pinned packages: version and SHA-256 of the .nupkg.
@@ -29,25 +49,22 @@ case "$arch" in
     ;;
 esac
 
-version=1.32.0
-case "$(uname -s)" in
+os="$(uname -s)"
+case "$os" in
   Darwin)
-    if [ "$arch" = x64 ]; then
-      version=1.23.2
-    fi
-    rid="osx-$arch"
+    version=1.23.2
     file=libonnxruntime.dylib
     ;;
   Linux)
-    rid="linux-$arch"
+    version=1.32.0
     file=libonnxruntime.so
     ;;
   MINGW* | MSYS* | CYGWIN*)
-    rid="win-$arch"
+    version=1.32.0
     file=onnxruntime.dll
     ;;
   *)
-    echo "unsupported OS: $(uname -s)" >&2
+    echo "unsupported OS: $os" >&2
     exit 1
     ;;
 esac
@@ -77,5 +94,60 @@ if [ "$actual" != "$expected" ]; then
   exit 1
 fi
 
-unzip -o -j -q "$package" "runtimes/$rid/native/$file" -d "$DEST"
+# One platform folder of the package into a directory.
+extract() {
+  unzip -o -j -q "$package" "runtimes/$1/native/$file" -d "$2"
+}
+
+case "$os" in
+  Darwin)
+    if [ "$universal" = 1 ]; then
+      work=$(mktemp -d)
+      extract osx-arm64 "$work/arm64"
+      extract osx-x64 "$work/x64"
+      lipo -create "$work/arm64/$file" "$work/x64/$file" -output "$DEST/$file"
+      rm -rf "$work"
+    else
+      extract "osx-$arch" "$DEST"
+    fi
+    ;;
+  Linux)
+    extract "linux-$arch" "$DEST"
+    ;;
+  *)
+    extract "win-$arch" "$DEST"
+    ;;
+esac
+
+if [ "$vc_runtime" = 1 ]; then
+  case "$os" in
+    MINGW* | MSYS* | CYGWIN*) ;;
+    *)
+      echo "--vc-runtime is for Windows only" >&2
+      exit 1
+      ;;
+  esac
+  # The DLLs the library imports from the Visual C++ runtime, read with the
+  # Rust toolchain's llvm-objdump.
+  host=$(rustc -vV | sed -n 's/^host: //p')
+  objdump="$(rustc --print sysroot)/lib/rustlib/$host/bin/llvm-objdump.exe"
+  needed=$("$objdump" -p "$DEST/$file" | sed -n 's/^ *DLL Name: //p' | grep -iE '^(vcruntime|msvcp|concrt|vcomp)' || true)
+  # Visual Studio's redistributable folder for this CPU.
+  vswhere="/c/Program Files (x86)/Microsoft Visual Studio/Installer/vswhere.exe"
+  install=$(cygpath -u "$("$vswhere" -latest -products '*' -property installationPath | tr -d '\r')")
+  crt=$(find "$install/VC/Redist/MSVC" -maxdepth 3 -type d -path "*/$arch/Microsoft.VC14*.CRT" | sort | tail -n 1)
+  if [ -z "$crt" ]; then
+    echo "no Visual C++ redistributable folder for $arch under $install" >&2
+    exit 1
+  fi
+  for dll in $needed; do
+    source=$(find "$crt" -maxdepth 1 -iname "$dll" | head -n 1)
+    if [ -z "$source" ]; then
+      echo "$dll is not in $crt" >&2
+      exit 1
+    fi
+    cp "$source" "$DEST/"
+  done
+fi
+
 echo "$DEST/$file"

@@ -1,6 +1,6 @@
 # Installers: unsigned `tauri build` on every target, checked against the
 # minimum OS versions (docs/ARCHITECTURE.md, Platforms and portability) and the
-# size budgets (#113). For testing only: no signing, no release (#44).
+# size budgets (#113), with ONNX Runtime for stems inside (#31). For testing only: no signing, no release (#44).
 #
 # Not on every pull request (five full release builds): manual, weekly, and on
 # pull requests that change how the app is bundled.
@@ -49,16 +49,19 @@ jobs:
             target: universal-apple-darwin
             rust-targets: aarch64-apple-darwin,x86_64-apple-darwin
             bundles: dmg
+            onnxruntime: --universal
             release-dir: target/universal-apple-darwin/release
           - name: Windows x64
             slug: windows-x64
             os: windows-2025
             bundles: msi
+            onnxruntime: --vc-runtime
             release-dir: target/release
           - name: Windows ARM64
             slug: windows-arm64
             os: windows-11-arm
             bundles: msi
+            onnxruntime: --vc-runtime
             release-dir: target/release
           # The oldest supported base: an AppImage needs a glibc at least as new as the build machine's.
           - name: Linux x64
@@ -98,6 +101,25 @@ jobs:
       - name: Install
         run: bun install --frozen-lockfile
 
+      # The NuGet packages are large (up to 184 MB); keep them between runs.
+      - name: Cache the ONNX Runtime packages
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.cache/cratekit-onnxruntime
+          key: onnxruntime-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('.github/scripts/fetch-onnxruntime.sh') }}
+
+      # ONNX Runtime for stems goes into the installer (#31): staged here, then
+      # bundled by the tauri.onnxruntime.conf.json overlay.
+      - name: Stage ONNX Runtime
+        shell: bash
+        env:
+          OPTIONS: ${{ matrix.onnxruntime }}
+        run: |
+          # OPTIONS is empty or one flag; word splitting is intended.
+          # shellcheck disable=SC2086
+          .github/scripts/fetch-onnxruntime.sh $OPTIONS src-tauri/onnxruntime
+          ls -l src-tauri/onnxruntime
+
       # Builds the UI (beforeBuildCommand), the release binary and the installer.
       - name: Build
         shell: bash
@@ -107,10 +129,11 @@ jobs:
           # linuxdeploy is itself an AppImage; this runs it without FUSE.
           APPIMAGE_EXTRACT_AND_RUN: "1"
         run: |
+          OVERLAY=src-tauri/tauri.onnxruntime.conf.json
           if [ -n "$TARGET" ]; then
-            bun run tauri build --bundles "$BUNDLES" --target "$TARGET"
+            bun run tauri build --config "$OVERLAY" --bundles "$BUNDLES" --target "$TARGET"
           else
-            bun run tauri build --bundles "$BUNDLES"
+            bun run tauri build --config "$OVERLAY" --bundles "$BUNDLES"
           fi
 
       - name: Check the installer

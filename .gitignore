@@ -24,6 +24,8 @@ graphify-out/
 
 # Tauri generated files and test reports
 src-tauri/gen/
+# ONNX Runtime staged for the installers by .github/scripts/fetch-onnxruntime.sh (#31)
+src-tauri/onnxruntime/
 junit.xml
 target/nextest/
 lcov.info
