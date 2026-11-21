@@ -47,6 +47,7 @@ export const tools = {
     reference: "Reference",
     clearReference: "Clear the reference track",
     noReference: "None. Right-click a track and choose Use as mastering reference.",
+    referenceIsThisTrack: "This is the track on the deck: nothing to match.",
     compare: "Compare",
     levelMatched: "Level-matched",
     abCompare: "A/B compare",

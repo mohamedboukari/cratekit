@@ -217,9 +217,14 @@ pub enum DeckId {
     A,
 }
 
-/// What the engine asks the audio thread to do. Small and heap-free except
-/// for `Load`, whose track is allocated before it is sent.
+/// What the engine asks the audio thread to do. Heap-free except for
+/// `Load`, whose track is allocated before it is sent.
 #[derive(Debug)]
+#[expect(
+    clippy::large_enum_variant,
+    reason = "SetMaster carries the reference curve inline (about 250 bytes): boxed, the audio \
+              thread would have to free it, and the 64 preallocated queue slots cost 16 KB"
+)]
 pub enum Command {
     /// Replace the track (stops playback, position 0).
     Load(Box<Track>),
