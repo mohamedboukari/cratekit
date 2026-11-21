@@ -40,7 +40,7 @@ interface MasterState {
   setSide: (side: AbSide) => void;
   toggleSide: () => void;
   setLevelMatch: (enabled: boolean) => Promise<void>;
-  /** Asks Rust to render the B side for this track with the current settings. */
+  /** Sends Rust the current settings for this track's B side (mastered live as it plays). */
   preview: (id: TrackId) => Promise<void>;
   exportMaster: (id: TrackId) => Promise<MasterResult | null>;
 }
@@ -49,9 +49,9 @@ let previewTimer: ReturnType<typeof setTimeout> | null = null;
 
 export const useMaster = create<MasterState>()((set, get) => {
   /**
-   * Re-renders the B side after a settings change, once the user pauses, and
+   * Sends the B side's settings after a change, once the user pauses, and
    * only while the B side is what you hear (Master tab, side B). The track is
-   * read when the timer fires, so a track switch never renders the old one.
+   * read when the timer fires, so a track switch never previews the old one.
    */
   function schedulePreview(): void {
     if (previewTimer !== null) clearTimeout(previewTimer);

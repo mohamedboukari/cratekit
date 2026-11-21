@@ -327,6 +327,8 @@ pub fn run() -> anyhow::Result<()> {
             stems::stems_backend_status,
             mastering::master_presets,
             mastering::master_export,
+            mastering::master_preview,
+            playback::playback_set_level_match,
             playback::playback_set_mode,
             playback::stems_set_gain,
             playback::stems_set_mute,

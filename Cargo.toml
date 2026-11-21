@@ -70,6 +70,14 @@ symphonia = { version = "0.6", features = ["mp3", "aac", "alac", "isomp4", "aiff
 
 # Lints shared by every crate (each crate opts in with `[lints] workspace = true`).
 # CI runs clippy with `-D warnings`, so "warn" also fails the build.
+# The audio engine and the DSP run in real time, also in `tauri dev`: build
+# them optimized in development too (the rest stays quick to compile).
+[profile.dev.package.cratekit-core]
+opt-level = 3
+
+[profile.dev.package.cratekit-audio]
+opt-level = 3
+
 [workspace.lints.rust]
 # No `unsafe` in our code. A module that truly needs it opts out with
 # `#[expect(unsafe_code, reason = "...")]` and a `// SAFETY:` comment.

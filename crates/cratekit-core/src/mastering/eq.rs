@@ -154,6 +154,33 @@ impl Coefficients {
         Self::normalized(b, -2.0 * b, b, 1.0 + alpha, -2.0 * corner.cos, 1.0 - alpha)
     }
 
+    /// `self` moved `t` (0 to 1) of the way to `to`, coefficient by
+    /// coefficient. Always stable when both are: the stable denominators
+    /// form a convex region (the stability triangle), so a blend of two
+    /// stable filters is stable. Used to glide between settings without a
+    /// jump on a running signal.
+    #[must_use]
+    pub fn lerp(&self, to: &Self, t: f64) -> Self {
+        let t = t.clamp(0.0, 1.0);
+        let mix = |a: f64, b: f64| a + (b - a) * t;
+        Self {
+            b0: mix(self.b0, to.b0),
+            b1: mix(self.b1, to.b1),
+            b2: mix(self.b2, to.b2),
+            a1: mix(self.a1, to.a1),
+            a2: mix(self.a2, to.a2),
+        }
+    }
+
+    /// Whether every coefficient is a number (settings that were not would
+    /// silence the filter for good).
+    #[must_use]
+    pub fn is_finite(&self) -> bool {
+        [self.b0, self.b1, self.b2, self.a1, self.a2]
+            .iter()
+            .all(|k| k.is_finite())
+    }
+
     /// The gain of the filter at `freq_hz`, in dB (for tests and for drawing
     /// the EQ curve).
     #[must_use]

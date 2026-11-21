@@ -178,6 +178,21 @@ impl<T: Copy> Ring<T> {
         old
     }
 
+    /// Copies the ring into `out`, oldest first (`out` as long as the ring).
+    fn ordered(&self, out: &mut [T]) {
+        let (newer, older) = self.values.split_at(self.next);
+        let (head, tail) = out.split_at_mut(older.len().min(out.len()));
+        head.copy_from_slice(&older[..head.len()]);
+        let rest = tail.len().min(newer.len());
+        tail[..rest].copy_from_slice(&newer[..rest]);
+    }
+
+    /// Fills the ring with `value`, as new.
+    fn clear(&mut self, value: T) {
+        self.values.fill(value);
+        self.next = 0;
+    }
+
     /// The value `age` pushes ago (0 is the newest).
     fn get(&self, age: usize) -> T {
         let len = self.values.len();
@@ -254,6 +269,20 @@ impl Limiter {
         }
     }
 
+    /// Forgets the signal so far (a new track, a seek): silence in the delay,
+    /// no reduction. Never allocates (the queue keeps its capacity).
+    pub fn reset(&mut self) {
+        for ring in self.history.iter_mut().chain(&mut self.delay) {
+            ring.clear(0.0);
+        }
+        self.previous_interval_peak = 0.0;
+        self.minimum.clear();
+        self.held.clear(1.0);
+        self.held_sum = self.lookahead as f64;
+        self.position = 0;
+        self.gain = 1.0;
+    }
+
     /// How many samples the output lags the input.
     #[must_use]
     pub fn latency(&self) -> usize {
@@ -270,24 +299,30 @@ impl Limiter {
     /// `HALF_TAPS` and `HALF_TAPS - 1` of `history`, both included, as our
     /// interpolator or a BS.1770 meter's finds it.
     fn interval_peak(&self, history: &Ring<f32>) -> f32 {
-        let left = history.get(HALF_TAPS);
-        let right = history.get(HALF_TAPS - 1);
-        let mut peak = left.abs().max(right.abs());
+        // The window oldest first: the sample of age `a` is at
+        // `2 * HALF_TAPS - 1 - a`. One copy per frame, then plain indexing.
+        let mut window = [0.0_f32; 2 * HALF_TAPS];
+        history.ordered(&mut window);
+        let at_age = |age: usize| window.get(2 * HALF_TAPS - 1 - age).copied().unwrap_or(0.0);
+        let mut peak = at_age(HALF_TAPS).abs().max(at_age(HALF_TAPS - 1).abs());
         for taps in &self.taps {
-            // taps[j] weighs the sample at offset j - (HALF_TAPS - 1) from
-            // `left`, whose age is 2 * HALF_TAPS - 1 - j.
-            let value: f32 = taps
-                .iter()
-                .enumerate()
-                .map(|(j, weight)| weight * history.get(2 * HALF_TAPS - 1 - j))
-                .sum();
+            // taps[j] weighs the sample of age 2 * HALF_TAPS - 1 - j: window[j].
+            let value: f32 = taps.iter().zip(&window).map(|(w, x)| w * x).sum();
             peak = peak.max(value.abs());
         }
+        // The meter's weights start at age `first_age`, newest first.
+        let newest = 2 * HALF_TAPS - 1 - self.meter.first_age;
         for row in &self.meter.rows {
             let value: f32 = row
                 .iter()
                 .enumerate()
-                .map(|(k, weight)| weight * history.get(self.meter.first_age + k))
+                .map(|(k, w)| {
+                    w * newest
+                        .checked_sub(k)
+                        .and_then(|i| window.get(i))
+                        .copied()
+                        .unwrap_or(0.0)
+                })
                 .sum();
             peak = peak.max(value.abs());
         }
@@ -776,6 +811,42 @@ mod tests {
         assert!(during < 0.5, "limiting a +6 dB tone: {during}");
         let after = *gains.last().unwrap_or(&0.0);
         assert!(after > 0.999, "released: {after}");
+    }
+
+    #[test]
+    fn reset_forgets_the_signal_so_far() {
+        let mut limiter = Limiter::new(RATE, 1, LimiterSettings::default());
+        let loud = synth::sine(440.0, 12.0, 0.1, RATE);
+        for sample in &loud {
+            let mut frame = [*sample];
+            limiter.process_frame(&mut frame);
+        }
+        assert!(limiter.gain() < 0.5, "limiting");
+        limiter.reset();
+        assert_eq!(limiter.gain(), 1.0);
+        // A loud signal after a reset is limited exactly as by a new limiter.
+        let mut new_one = Limiter::new(RATE, 1, LimiterSettings::default());
+        let mut again = Limiter::new(RATE, 1, LimiterSettings::default());
+        for sample in &loud {
+            let mut frame = [*sample];
+            again.process_frame(&mut frame);
+        }
+        again.reset();
+        for sample in loud.iter().take(2_000) {
+            let (mut a, mut b) = ([*sample], [*sample]);
+            again.process_frame(&mut a);
+            new_one.process_frame(&mut b);
+            assert_eq!(a, b, "loud: a reset limiter behaves as a new one");
+        }
+        // Only silence comes out of the delay, and a quiet signal is untouched.
+        let mut fresh = Limiter::new(RATE, 1, LimiterSettings::default());
+        let quiet = synth::sine(440.0, -12.0, 0.05, RATE);
+        for sample in &quiet {
+            let (mut a, mut b) = ([*sample], [*sample]);
+            limiter.process_frame(&mut a);
+            fresh.process_frame(&mut b);
+            assert_eq!(a, b, "a reset limiter behaves as a new one");
+        }
     }
 
     #[test]

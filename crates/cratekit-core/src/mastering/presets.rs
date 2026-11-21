@@ -262,6 +262,8 @@ fn filter_coefficients(sample_rate: u32, preset: &Preset) -> [Coefficients; 4] {
 pub struct PresetChain {
     sample_rate: u32,
     filters: [Biquad; 4],
+    /// Where [`Self::glide`] moves the filters (the newest preset).
+    targets: [Coefficients; 4],
     compressor: Compressor,
 }
 
@@ -271,26 +273,55 @@ impl PresetChain {
     /// the extra ones (they are still compressed, with the others).
     #[must_use]
     pub fn new(sample_rate: u32, channels: usize, preset: &Preset) -> Self {
-        let filters = filter_coefficients(sample_rate, preset)
-            .map(|coefficients| Biquad::new(coefficients, channels));
+        let targets = filter_coefficients(sample_rate, preset);
+        let filters = targets.map(|coefficients| Biquad::new(coefficients, channels));
         Self {
             sample_rate,
             filters,
+            targets,
             compressor: Compressor::new(sample_rate, preset.compressor),
         }
     }
 
-    /// Switches to `preset` (another preset or intensity), keeping the
-    /// filter and compressor state.
+    /// Switches to `preset` (another preset or intensity) at once, keeping
+    /// the filter and compressor state. Settings that are not numbers are
+    /// ignored (they would silence the filters).
     pub fn set(&mut self, preset: &Preset) {
-        for (filter, coefficients) in self
-            .filters
-            .iter_mut()
-            .zip(filter_coefficients(self.sample_rate, preset))
-        {
-            filter.set(coefficients);
+        if self.glide_to(preset) {
+            self.glide(1.0);
         }
+    }
+
+    /// Aims at `preset` without changing the filters yet: [`Self::glide`]
+    /// moves them there, so a change on a running signal never jumps. The
+    /// compressor takes the new settings at once (its gain is smoothed
+    /// anyway). Returns false, changing nothing, when the settings are not
+    /// numbers.
+    pub fn glide_to(&mut self, preset: &Preset) -> bool {
+        let targets = filter_coefficients(self.sample_rate, preset);
+        if !targets.iter().all(Coefficients::is_finite) {
+            return false;
+        }
+        self.targets = targets;
         self.compressor.set(self.sample_rate, preset.compressor);
+        true
+    }
+
+    /// Moves the filters `fraction` (0 to 1) of the way to the preset given
+    /// to [`Self::glide_to`]; never allocates.
+    pub fn glide(&mut self, fraction: f64) {
+        for (filter, target) in self.filters.iter_mut().zip(&self.targets) {
+            filter.set(filter.coefficients().lerp(target, fraction));
+        }
+    }
+
+    /// Forgets the signal so far (a new track, a seek), keeping the preset;
+    /// never allocates.
+    pub fn reset(&mut self) {
+        for filter in &mut self.filters {
+            filter.reset();
+        }
+        self.compressor.reset();
     }
 
     /// The EQ's gain at `freq_hz` in dB (the curve the Master tab can draw).
@@ -576,6 +607,47 @@ mod tests {
             "{} vs {expected}",
             chain.reduction_db()
         );
+    }
+
+    #[test]
+    fn a_glide_reaches_the_new_preset_in_steps_and_ignores_bad_settings() {
+        let mut chain = PresetChain::new(RATE, 1, &PresetName::Club.preset());
+        let lofi = PresetName::LoFi.preset();
+        let fresh = PresetChain::new(RATE, 1, &lofi);
+        assert!(chain.glide_to(&lofi));
+        let start = chain.eq_response_db(12_000.0);
+        chain.glide(0.5);
+        let halfway = chain.eq_response_db(12_000.0);
+        assert!(
+            halfway < start && halfway > fresh.eq_response_db(12_000.0),
+            "on the way"
+        );
+        chain.glide(1.0);
+        for freq in [40.0, 1_000.0, 12_000.0] {
+            assert!((chain.eq_response_db(freq) - fresh.eq_response_db(freq)).abs() < 1e-9);
+        }
+        // Not-a-number settings change nothing.
+        let mut broken = PresetName::Club.preset();
+        broken.mid.gain_db = f64::NAN;
+        assert!(!chain.glide_to(&broken));
+        chain.set(&broken);
+        assert!((chain.eq_response_db(12_000.0) - fresh.eq_response_db(12_000.0)).abs() < 1e-9);
+    }
+
+    #[test]
+    fn reset_forgets_the_signal_but_keeps_the_preset() {
+        let preset = PresetName::Club.preset();
+        let mut chain = PresetChain::new(RATE, 1, &preset);
+        let mut loud = vec![synth::sine(60.0, -3.0, 0.5, RATE)];
+        chain.process(&mut loud);
+        assert!(chain.reduction_db() < -1.0);
+        chain.reset();
+        assert_eq!(chain.reduction_db(), 0.0);
+        let mut silence = vec![vec![0.0_f32; 64]];
+        chain.process(&mut silence);
+        assert!(silence[0].iter().all(|s| *s == 0.0), "no tail from before");
+        let fresh = PresetChain::new(RATE, 1, &preset);
+        assert!((chain.eq_response_db(40.0) - fresh.eq_response_db(40.0)).abs() < 1e-12);
     }
 
     #[test]

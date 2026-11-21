@@ -77,7 +77,7 @@ Mastering
 - [x] Presets + intensity (#24)
 - [x] Loudness targeting (measured passes), export WAV 24/16-bit (dither) (#25)
 - [ ] Louder masters on transient-rich tracks: clipper or program-dependent release (#144)
-- [ ] Real-time preview chain in `cratekit-audio`; level-matched A/B (#26)
+- [x] Real-time preview chain in `cratekit-audio`; level-matched A/B (#26)
 - [ ] Reference-track matching (#27)
 - [ ] UI: Master tab, with the export as a job (progress, cancel) (#28)
 

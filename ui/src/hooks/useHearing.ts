@@ -10,7 +10,7 @@ let hearingSeq = 0;
 
 async function applyMode(trackId: TrackId, mode: PlaybackMode): Promise<void> {
   const seq = ++hearingSeq;
-  // The B side needs a render with the current settings before it plays.
+  // The B side gets the current settings before it plays (Rust masters it live).
   if (mode === "mastered") await useMaster.getState().preview(trackId);
   if (seq !== hearingSeq) return;
   await usePlayer.getState().setMode(mode);
