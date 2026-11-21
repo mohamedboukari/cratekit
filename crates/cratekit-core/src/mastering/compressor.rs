@@ -76,7 +76,7 @@ pub struct Compressor {
     makeup_db: f32,
     attack: f32,
     release: f32,
-    rms: f32,
+    rms_pole: f32,
     /// The mean square the detector follows.
     mean_square: f32,
     /// The current gain change in dB (zero or negative), smoothed.
@@ -95,7 +95,7 @@ impl Compressor {
             makeup_db: settings.makeup_db,
             attack: pole(settings.attack_ms, sample_rate),
             release: pole(settings.release_ms, sample_rate),
-            rms: pole(RMS_WINDOW_MS, sample_rate),
+            rms_pole: pole(RMS_WINDOW_MS, sample_rate),
             mean_square: 0.0,
             reduction_db: 0.0,
         }
@@ -117,12 +117,16 @@ impl Compressor {
             .unwrap_or(0);
         let count = channels.len().max(1) as f32;
         for frame in 0..frames {
+            // A sample that is not a number counts as silence, so it cannot
+            // switch the detector off for the rest of the signal.
             let square = channels
                 .iter_mut()
-                .map(|c| c.as_mut()[frame].powi(2))
+                .map(|c| c.as_mut()[frame])
+                .filter(|v| v.is_finite())
+                .map(|v| v * v)
                 .sum::<f32>()
                 / count;
-            self.mean_square = square + (self.mean_square - square) * self.rms;
+            self.mean_square = square + (self.mean_square - square) * self.rms_pole;
             let level_db = 10.0 * (self.mean_square + SILENCE).log10();
             let target = curve_db(level_db, self.threshold_db, self.ratio, self.knee_db);
             let pole = if target < self.reduction_db {
@@ -243,6 +247,18 @@ mod tests {
         assert!(after_drop < full * 0.4, "{after_drop} vs {full}");
         // And it is gone 1 s later.
         assert!(reductions.last().is_some_and(|r| *r > -0.01));
+    }
+
+    #[test]
+    fn a_bad_sample_does_not_switch_compression_off() {
+        let mut signal = synth::sine(440.0, -6.0, 2.0, RATE);
+        signal[1000] = f32::NAN;
+        signal[2000] = f32::INFINITY;
+        let clean = synth::sine(440.0, -6.0, 2.0, RATE);
+        let mut output = vec![signal];
+        Compressor::new(RATE, settings(-20.0, 4.0)).process(&mut output);
+        let reduction = settled_db(&output[0]) - settled_db(&clean);
+        assert!(reduction < -7.0, "still compressing: {reduction}");
     }
 
     #[test]

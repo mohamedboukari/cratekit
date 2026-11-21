@@ -9,12 +9,16 @@
 
 use std::f64::consts::PI;
 
-/// Lowest and highest corner frequency, as a fraction of the sample rate:
-/// outside this the formulas lose precision or alias.
+/// Lowest corner frequency, in Hz: below it the formulas lose precision.
 const MIN_FREQ_HZ: f64 = 10.0;
+/// Highest corner frequency, as a fraction of the sample rate (near Nyquist
+/// the formulas warp).
 const MAX_FREQ_FRACTION: f64 = 0.49;
 /// Smallest Q and shelf slope accepted (wider than any musical EQ).
 const MIN_Q: f64 = 0.05;
+/// Steepest shelf slope: 1 is the steepest without overshoot; above it the
+/// shelf resonates and, far enough, stops being stable.
+const MAX_SLOPE: f64 = 1.0;
 /// Filter state below this is flushed to zero, so a silent tail never runs
 /// on denormal numbers (very slow on some CPUs).
 const DENORMAL: f64 = 1e-30;
@@ -39,7 +43,8 @@ struct Corner {
 impl Corner {
     fn new(sample_rate: u32, freq_hz: f64) -> Self {
         let rate = f64::from(sample_rate.max(1));
-        let freq = freq_hz.clamp(MIN_FREQ_HZ, rate * MAX_FREQ_FRACTION);
+        let highest = (rate * MAX_FREQ_FRACTION).max(MIN_FREQ_HZ);
+        let freq = freq_hz.max(MIN_FREQ_HZ).min(highest);
         let w0 = 2.0 * PI * freq / rate;
         Self {
             cos: w0.cos(),
@@ -90,7 +95,8 @@ impl Coefficients {
     }
 
     /// A low shelf: `gain_db` below `freq_hz` (the shelf's midpoint), with
-    /// `slope` 1.0 the steepest shelf that does not overshoot.
+    /// `slope` from 0.05 (gentle) to 1.0 (the steepest that does not
+    /// overshoot; steeper values are clamped to it).
     #[must_use]
     pub fn low_shelf(sample_rate: u32, freq_hz: f64, gain_db: f64, slope: f64) -> Self {
         let (corner, a, alpha) = Self::shelf_terms(sample_rate, freq_hz, gain_db, slope);
@@ -124,7 +130,7 @@ impl Coefficients {
     fn shelf_terms(sample_rate: u32, freq_hz: f64, gain_db: f64, slope: f64) -> (Corner, f64, f64) {
         let corner = Corner::new(sample_rate, freq_hz);
         let a = 10_f64.powf(gain_db / 40.0);
-        let slope = slope.max(MIN_Q);
+        let slope = slope.clamp(MIN_Q, MAX_SLOPE);
         let alpha = corner.sin / 2.0 * ((a + 1.0 / a) * (1.0 / slope - 1.0) + 2.0).max(0.0).sqrt();
         (corner, a, alpha)
     }
@@ -200,7 +206,13 @@ impl Biquad {
         for (samples, state) in channels.iter_mut().zip(&mut self.state) {
             let [mut s1, mut s2] = *state;
             for sample in samples.as_mut() {
-                let x = f64::from(*sample);
+                // A sample that is not a number would poison the state for
+                // good: it is taken as silence.
+                let x = if sample.is_finite() {
+                    f64::from(*sample)
+                } else {
+                    0.0
+                };
                 let y = k.b0 * x + s1;
                 s1 = k.b1 * x - k.a1 * y + s2;
                 s2 = k.b2 * x - k.a2 * y;
@@ -311,6 +323,60 @@ mod tests {
         Biquad::new(Coefficients::low_shelf(RATE, 90.0, 3.0, 1.0), 2).process(&mut stereo);
         assert!(stereo[1].iter().all(|s| *s == 0.0), "silence stays silent");
         assert!(synth::rms_db(&stereo[0]) > synth::rms_db(&tone));
+    }
+
+    #[test]
+    fn the_shelf_slope_and_the_pass_q_shape_the_curve() {
+        let steep = Coefficients::low_shelf(RATE, 90.0, 3.0, 1.0);
+        let gentle = Coefficients::low_shelf(RATE, 90.0, 3.0, 0.5);
+        assert!(gentle.response_db(RATE, 30.0) < steep.response_db(RATE, 30.0) - 0.1);
+        assert!((measured_db(gentle, 30.0) - gentle.response_db(RATE, 30.0) as f32).abs() < 0.05);
+        // Slopes past 1 are clamped: no resonance, no runaway.
+        let clamped = Coefficients::low_shelf(RATE, 100.0, 20.0, 6.0);
+        assert_eq!(clamped, Coefficients::low_shelf(RATE, 100.0, 20.0, 1.0));
+        // A Q of 2 peaks about 6 dB at the corner.
+        let resonant = Coefficients::low_pass(RATE, 2_000.0, 2.0);
+        assert!((resonant.response_db(RATE, 2_000.0) - 20.0 * 2_f64.log10()).abs() < 0.05);
+    }
+
+    #[test]
+    fn set_keeps_the_state_and_reset_clears_it() {
+        let mut filter = Biquad::new(Coefficients::low_pass(RATE, 500.0, 0.707), 1);
+        let mut impulse = vec![vec![1.0_f32, 0.0, 0.0, 0.0]];
+        filter.process(&mut impulse);
+        // New coefficients on a running signal: the old state still rings out.
+        filter.set(Coefficients::identity());
+        let mut after_set = vec![vec![0.0_f32; 4]];
+        filter.process(&mut after_set);
+        assert!(after_set[0][0] != 0.0, "the state carried over");
+        filter.reset();
+        let mut after_reset = vec![vec![0.0_f32; 4]];
+        filter.process(&mut after_reset);
+        assert!(after_reset[0].iter().all(|s| *s == 0.0));
+    }
+
+    #[test]
+    fn a_bad_sample_does_not_poison_the_filter() {
+        let mut signal = synth::sine(440.0, -6.0, 0.5, RATE);
+        signal[100] = f32::NAN;
+        signal[200] = f32::INFINITY;
+        let mut channels = vec![signal];
+        Biquad::new(Coefficients::peaking(RATE, 440.0, 3.0, 1.0), 1).process(&mut channels);
+        assert!(channels[0].iter().all(|s| s.is_finite()));
+        assert!(
+            synth::rms_db(&channels[0][RATE as usize / 4..]) > -9.0,
+            "still filtering a tone"
+        );
+    }
+
+    #[test]
+    fn a_zero_sample_rate_does_not_panic() {
+        let odd = Coefficients::peaking(0, 1_000.0, 3.0, 1.0);
+        assert!(
+            [odd.b0, odd.b1, odd.b2, odd.a1, odd.a2]
+                .iter()
+                .all(|k| k.is_finite())
+        );
     }
 
     #[test]

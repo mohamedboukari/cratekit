@@ -1,11 +1,14 @@
 //! The look-ahead true-peak limiter at the end of the mastering chain: the
-//! output never goes above the ceiling (-1.0 dBTP by default, the SPEC's
-//! limit), peaks between samples included.
+//! output stays under the ceiling (-1.0 dBTP by default, the SPEC's limit)
+//! as a BS.1770 true-peak meter measures it, peaks between samples included.
 //!
 //! How it works, per sample:
-//! 1. **True peak.** Each channel is interpolated 4 times between samples
-//!    with a windowed-sinc filter (our own, designed at start-up), and the
-//!    peak of a sample is the highest value on either side of it.
+//! 1. **True peak.** Each channel is interpolated between samples twice:
+//!    4 times with our own windowed-sinc filter (accurate up to about 0.42 of
+//!    the sample rate), and the way a BS.1770 meter does it (48-tap
+//!    Hann-windowed sinc, 4x below 96 kHz, 2x up to 192 kHz; the meter that
+//!    checks our exports, `ebur128`, works so). A sample's peak is the highest
+//!    value either finds on either side of it.
 //! 2. **Gain needed:** `ceiling / peak`, or 1 when the peak is under it.
 //! 3. **Look-ahead.** The gain is the minimum of the needs over the next
 //!    look-ahead window, then averaged over that same window: so the gain is
@@ -27,15 +30,20 @@ const HALF_TAPS: usize = 12;
 /// Kaiser window shape for the interpolation filter.
 const KAISER_BETA: f64 = 8.0;
 /// Headroom kept under the ceiling, in dB: the gain moves smoothly but still
-/// moves between samples, and our interpolator and a meter's differ slightly.
+/// moves between samples.
 const SAFETY_DB: f32 = 0.15;
+/// Taps of a BS.1770 meter's interpolation filter.
+const METER_TAPS: usize = 48;
+/// Longest look-ahead accepted, in ms (a limiter, not a delay line).
+const MAX_LOOKAHEAD_MS: f32 = 50.0;
 
 /// A limiter's settings.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct LimiterSettings {
     /// The highest true peak allowed out, in dBTP.
     pub ceiling_dbtp: f32,
-    /// How far ahead the limiter looks, in ms (also its delay).
+    /// How far ahead the limiter looks, in ms, from 0.1 to 50. The output
+    /// lags by this plus 11 samples ([`Limiter::latency`]).
     pub lookahead_ms: f32,
     /// How fast the gain comes back after a peak, in ms.
     pub release_ms: f32,
@@ -99,6 +107,55 @@ fn interpolation_taps() -> [[f32; 2 * HALF_TAPS]; OVERSAMPLE - 1] {
     taps
 }
 
+/// The interpolation of a BS.1770 true-peak meter, set up to land between
+/// the same two samples as ours.
+#[derive(Debug, Clone)]
+struct MeterTaps {
+    /// For each point between the two samples: its weights, newest sample
+    /// first.
+    rows: Vec<Vec<f32>>,
+    /// The age of the sample the first weight applies to.
+    first_age: usize,
+}
+
+/// A BS.1770 meter's interpolation at `sample_rate`: 48 taps of a
+/// Hann-windowed sinc, 4x below 96 kHz, 2x below 192 kHz, none above (no
+/// rows: our own interpolator alone).
+fn meter_taps(sample_rate: u32) -> MeterTaps {
+    let factor = if sample_rate < 96_000 {
+        4
+    } else if sample_rate < 192_000 {
+        2
+    } else {
+        return MeterTaps {
+            rows: Vec::new(),
+            first_age: 0,
+        };
+    };
+    let per_point = METER_TAPS / factor;
+    let taps = METER_TAPS as f64;
+    let rows = (1..factor)
+        .map(|point| {
+            (0..per_point)
+                .map(|k| {
+                    let j = (k * factor + point) as f64;
+                    let window = 0.5 * (1.0 - (2.0 * PI * j / taps).cos());
+                    let x = (j - taps / 2.0) * PI / factor as f64;
+                    let sinc = if x.abs() < 1e-9 { 1.0 } else { x.sin() / x };
+                    (window * sinc) as f32
+                })
+                .collect()
+        })
+        .collect();
+    // The meter's point `point` lies (METER_TAPS / 2 - point) / factor samples
+    // before the newest sample it reads: so it reads from this age to land
+    // between ages HALF_TAPS and HALF_TAPS - 1.
+    MeterTaps {
+        rows,
+        first_age: HALF_TAPS - METER_TAPS / (2 * factor),
+    }
+}
+
 /// A fixed-size ring of the last `capacity` values of something.
 #[derive(Debug, Clone)]
 struct Ring<T> {
@@ -136,6 +193,9 @@ pub struct Limiter {
     lookahead: usize,
     release: f32,
     taps: [[f32; 2 * HALF_TAPS]; OVERSAMPLE - 1],
+    meter: MeterTaps,
+    /// The age in the delay line of the sample that comes out.
+    delay_age: usize,
     /// Per channel: the last `2 * HALF_TAPS` input samples, for interpolation.
     history: Vec<Ring<f32>>,
     /// Per channel: the input waiting to come out (the limiter's delay).
@@ -153,20 +213,38 @@ pub struct Limiter {
 }
 
 impl Limiter {
-    /// A limiter for `channels` channels at `sample_rate`.
+    /// A limiter for `channels` channels at `sample_rate`. Settings outside
+    /// their range are brought back into it (a ceiling that is not a number
+    /// becomes -1.0 dBTP).
     #[must_use]
     pub fn new(sample_rate: u32, channels: usize, settings: LimiterSettings) -> Self {
         let rate = sample_rate.max(1) as f32;
-        let lookahead = ((settings.lookahead_ms.max(0.1) / 1000.0 * rate).round() as usize).max(1);
-        let release_samples = settings.release_ms.max(1.0) / 1000.0 * rate;
-        let delay_len = lookahead - 1 + HALF_TAPS;
+        let lookahead_ms = if settings.lookahead_ms.is_finite() {
+            settings.lookahead_ms.clamp(0.1, MAX_LOOKAHEAD_MS)
+        } else {
+            LimiterSettings::default().lookahead_ms
+        };
+        let lookahead = ((lookahead_ms / 1000.0 * rate).round() as usize).max(1);
+        let release_ms = if settings.release_ms.is_finite() {
+            settings.release_ms.max(1.0)
+        } else {
+            LimiterSettings::default().release_ms
+        };
+        let ceiling = if settings.ceiling_dbtp.is_finite() {
+            settings.ceiling_dbtp
+        } else {
+            LimiterSettings::default().ceiling_dbtp
+        };
+        let delay_age = lookahead + HALF_TAPS - 2;
         Self {
-            target: 10_f32.powf((settings.ceiling_dbtp - SAFETY_DB) / 20.0),
+            target: 10_f32.powf((ceiling - SAFETY_DB) / 20.0),
             lookahead,
-            release: (-1.0 / release_samples).exp(),
+            release: (-1000.0 / (release_ms * rate)).exp(),
             taps: interpolation_taps(),
+            meter: meter_taps(sample_rate),
+            delay_age,
             history: vec![Ring::new(2 * HALF_TAPS, 0.0); channels],
-            delay: vec![Ring::new(delay_len + 1, 0.0); channels],
+            delay: vec![Ring::new(delay_age + 1, 0.0); channels],
             previous_interval_peak: 0.0,
             minimum: VecDeque::with_capacity(lookahead + 1),
             held: Ring::new(lookahead, 1.0),
@@ -189,7 +267,8 @@ impl Limiter {
     }
 
     /// The highest absolute value between the two samples at ages
-    /// `HALF_TAPS` and `HALF_TAPS - 1` of `history`, both included.
+    /// `HALF_TAPS` and `HALF_TAPS - 1` of `history`, both included, as our
+    /// interpolator or a BS.1770 meter's finds it.
     fn interval_peak(&self, history: &Ring<f32>) -> f32 {
         let left = history.get(HALF_TAPS);
         let right = history.get(HALF_TAPS - 1);
@@ -204,12 +283,27 @@ impl Limiter {
                 .sum();
             peak = peak.max(value.abs());
         }
+        for row in &self.meter.rows {
+            let value: f32 = row
+                .iter()
+                .enumerate()
+                .map(|(k, weight)| weight * history.get(self.meter.first_age + k))
+                .sum();
+            peak = peak.max(value.abs());
+        }
         peak
     }
 
-    /// Limits one frame (one sample per channel) in place: the input goes in
-    /// and the frame `latency()` samples older comes out, limited.
+    /// Limits one frame (one sample per channel, as many as given to
+    /// [`Self::new`]) in place: the input goes in and the frame `latency()`
+    /// samples older comes out, limited. A sample that is not a number is
+    /// taken as silence. Channels beyond the count are left as they are.
     pub fn process_frame(&mut self, frame: &mut [f32]) {
+        for sample in frame.iter_mut() {
+            if !sample.is_finite() {
+                *sample = 0.0;
+            }
+        }
         let mut interval_peak = 0.0_f32;
         for (sample, history) in frame.iter().zip(&mut self.history) {
             history.push(*sample);
@@ -254,7 +348,7 @@ impl Limiter {
         };
 
         for (sample, delay) in frame.iter_mut().zip(&mut self.delay) {
-            let delayed = delay.get(self.lookahead - 2 + HALF_TAPS);
+            let delayed = delay.get(self.delay_age);
             delay.push(*sample);
             *sample = delayed * self.gain;
         }
@@ -286,8 +380,9 @@ impl Limiter {
 /// left as they are.
 const MAX_FRAME_CHANNELS: usize = 8;
 
-/// Limits a whole signal in place, planar, with the delay taken out: the
-/// output lines up with the input and has the same length.
+/// Limits a whole signal in place, planar (channels of the same length; a
+/// longer channel's extra samples are left as they are), with the delay
+/// taken out: the output lines up with the input and has the same length.
 pub fn limit<C: AsMut<[f32]>>(channels: &mut [C], sample_rate: u32, settings: LimiterSettings) {
     let count = channels.len().min(MAX_FRAME_CHANNELS);
     let mut limiter = Limiter::new(sample_rate, count, settings);
@@ -339,6 +434,259 @@ mod tests {
             .collect()
     }
 
+    /// Deterministic noise in [-1, 1] (a linear congruential generator).
+    fn noise(len: usize, seed: u32) -> Vec<f32> {
+        let mut state = seed;
+        (0..len)
+            .map(|_| {
+                state = state.wrapping_mul(1_664_525).wrapping_add(1_013_904_223);
+                (state >> 8) as f32 / (1_u32 << 23) as f32 * 2.0 - 1.0
+            })
+            .collect()
+    }
+
+    fn a_minor() -> Key {
+        Key {
+            tonic: PitchClass::A,
+            mode: Mode::Minor,
+        }
+    }
+
+    /// Limits `channels` with `settings` and checks the meter reads at or
+    /// under the ceiling.
+    fn assert_under_ceiling(
+        mut channels: Vec<Vec<f32>>,
+        rate: u32,
+        settings: LimiterSettings,
+        what: &str,
+    ) {
+        limit(&mut channels, rate, settings);
+        let peak = true_peak(&channels, rate);
+        assert!(
+            peak <= settings.ceiling_dbtp,
+            "{what} at {rate} Hz: true peak {peak} dBTP"
+        );
+    }
+
+    /// A quarter-rate sine whose peak falls `at` of the way between samples.
+    fn peak_between(at: f32, rate: u32) -> Vec<f32> {
+        use std::f32::consts::FRAC_PI_2;
+        (0..rate as usize / 10)
+            .map(|n| (FRAC_PI_2 * (n as f32 - at) + FRAC_PI_2).sin())
+            .collect()
+    }
+
+    /// The value of each in-between point of both interpolators, at most
+    /// over a steady stretch of `samples` (once the window holds only it).
+    fn point_peaks(limiter: &Limiter, samples: &[f32]) -> (Vec<f32>, Vec<f32>) {
+        let mut history = Ring::new(2 * HALF_TAPS, 0.0);
+        let mut ours = vec![0.0_f32; limiter.taps.len()];
+        let mut meter = vec![0.0_f32; limiter.meter.rows.len()];
+        for (n, sample) in samples.iter().enumerate() {
+            history.push(*sample);
+            if n < 2 * HALF_TAPS {
+                continue;
+            }
+            for (found, taps) in ours.iter_mut().zip(&limiter.taps) {
+                let value: f32 = taps
+                    .iter()
+                    .enumerate()
+                    .map(|(j, w)| w * history.get(2 * HALF_TAPS - 1 - j))
+                    .sum();
+                *found = found.max(value.abs());
+            }
+            for (found, row) in meter.iter_mut().zip(&limiter.meter.rows) {
+                let value: f32 = row
+                    .iter()
+                    .enumerate()
+                    .map(|(k, w)| w * history.get(limiter.meter.first_age + k))
+                    .sum();
+                *found = found.max(value.abs());
+            }
+        }
+        (ours, meter)
+    }
+
+    #[test]
+    fn both_interpolators_find_peaks_at_each_point_between_samples() {
+        let limiter = Limiter::new(RATE, 1, LimiterSettings::default());
+        assert_eq!(limiter.meter.rows.len(), 3, "4x below 96 kHz");
+        for (point, at) in [(0, 0.25_f32), (1, 0.5), (2, 0.75)] {
+            let (ours, meter) = point_peaks(&limiter, &peak_between(at, RATE));
+            assert!(
+                (ours[point] - 1.0).abs() < 0.005,
+                "ours at {at}: {}",
+                ours[point]
+            );
+            assert!(
+                (meter[point] - 1.0).abs() < 0.02,
+                "meter at {at}: {}",
+                meter[point]
+            );
+        }
+        let high = Limiter::new(96_000, 1, LimiterSettings::default());
+        assert_eq!(high.meter.rows.len(), 1, "2x from 96 kHz");
+        let (_, meter) = point_peaks(&high, &peak_between(0.5, 96_000));
+        assert!(
+            (meter[0] - 1.0).abs() < 0.02,
+            "meter at 96 kHz: {}",
+            meter[0]
+        );
+        assert!(
+            Limiter::new(192_000, 1, LimiterSettings::default())
+                .meter
+                .rows
+                .is_empty()
+        );
+    }
+
+    #[test]
+    fn transients_and_broadband_content_stay_under_the_ceiling() {
+        let settings = LimiterSettings::default();
+        for rate in [44_100, 48_000, 96_000] {
+            let mix = synth::normalize(
+                synth::mix(&[
+                    &synth::test_loop(126.0, a_minor(), 4.0, rate),
+                    &synth::hats(126.0, 4, 0.5, -3.0, 4.0, rate),
+                ]),
+                6.0,
+            );
+            assert_under_ceiling(vec![mix.clone(), mix], rate, settings, "loop with hats");
+            let hats = synth::normalize(synth::hats(126.0, 2, 0.0, -3.0, 2.0, rate), 12.0);
+            assert_under_ceiling(vec![hats], rate, settings, "hats");
+            let binary = noise(rate as usize / 2, 7)
+                .iter()
+                .map(|v| v.signum())
+                .collect();
+            assert_under_ceiling(vec![binary], rate, settings, "binary noise");
+        }
+        // A high tone starting at full blast after silence.
+        for (rate, freq) in [
+            (44_100_u32, 18_000.0),
+            (48_000, 20_000.0),
+            (48_000, 19_000.0),
+        ] {
+            let mut onset = vec![0.0_f32; rate as usize / 2];
+            onset.extend(
+                (0..rate as usize)
+                    .map(|n| (2.0 * (2.0 * PI * freq * n as f64 / f64::from(rate)).cos()) as f32),
+            );
+            assert_under_ceiling(vec![onset], rate, settings, "high onset");
+        }
+        // Sparse full-level spikes over quiet noise, also with a short look-ahead.
+        let mut spiky: Vec<f32> = noise(2 * 44_100, 3).iter().map(|v| v * 0.05).collect();
+        let last = spiky.len() - 1;
+        for p in noise(40, 11) {
+            let at = ((p + 1.0) / 2.0 * last as f32) as usize;
+            spiky[at.min(last)] = p.signum();
+        }
+        assert_under_ceiling(vec![spiky.clone()], 44_100, settings, "spikes");
+        let short = LimiterSettings {
+            lookahead_ms: 2.0,
+            ..settings
+        };
+        assert_under_ceiling(vec![spiky], 48_000, short, "spikes, 2 ms look-ahead");
+    }
+
+    #[test]
+    fn every_sample_gets_at_most_the_gain_its_peak_needs() {
+        // Our own detector reads the output at the target or under it: so the
+        // gain lines up with the audio, covers both sides of each sample, and
+        // is down before the peak (not merely under the meter's ceiling).
+        let mut impulse = vec![0.0_f32; RATE as usize / 2];
+        impulse[RATE as usize / 4] = 10.0;
+        let mut burst = vec![0.0_f32; RATE as usize / 4];
+        burst.extend(synth::sine(1_000.0, 12.0, 0.01, RATE));
+        burst.extend(vec![0.0_f32; RATE as usize / 4]);
+        for signal in [
+            impulse,
+            burst,
+            synth::normalize(synth::hats(126.0, 4, 0.0, -3.0, 2.0, RATE), 12.0),
+        ] {
+            let mut channels = vec![signal];
+            limit(&mut channels, RATE, LimiterSettings::default());
+            let reader = Limiter::new(RATE, 1, LimiterSettings::default());
+            let mut history = Ring::new(2 * HALF_TAPS, 0.0);
+            let mut highest = 0.0_f32;
+            for sample in &channels[0] {
+                history.push(*sample);
+                highest = highest.max(reader.interval_peak(&history));
+            }
+            let slack = 10_f32.powf(0.03 / 20.0);
+            assert!(
+                highest <= reader.target * slack,
+                "{highest} over {}",
+                reader.target
+            );
+        }
+    }
+
+    #[test]
+    fn the_gain_moves_smoothly_down_and_releases_slowly() {
+        let mut limiter = Limiter::new(RATE, 1, LimiterSettings::default());
+        let lookahead = limiter.lookahead;
+        let mut signal = vec![0.0_f32; RATE as usize / 10];
+        signal.extend(synth::sine(1_000.0, 12.0, 0.05, RATE));
+        let end = signal.len();
+        signal.extend(vec![0.0_f32; RATE as usize]);
+        let mut gains = Vec::with_capacity(signal.len());
+        for sample in &signal {
+            let mut frame = [*sample];
+            limiter.process_frame(&mut frame);
+            gains.push(limiter.gain());
+        }
+        // Down in steps of at most 1 / look-ahead: no click from a jump.
+        let biggest_drop = gains
+            .windows(2)
+            .map(|w| w[0] - w[1])
+            .fold(0.0_f32, f32::max);
+        assert!(
+            biggest_drop <= 1.0 / lookahead as f32 + 1e-6,
+            "{biggest_drop}"
+        );
+        // Released over the release time, not at once: 20 ms after the burst
+        // has passed the look-ahead, the gain is still well under 1.
+        let lowest = gains.iter().copied().fold(1.0_f32, f32::min);
+        let soon = gains[end + lookahead + RATE as usize / 50];
+        assert!(
+            soon < 1.0 - 0.5 * (1.0 - lowest),
+            "{soon} vs lowest {lowest}"
+        );
+        assert!(gains.last().is_some_and(|g| *g > 0.999));
+    }
+
+    #[test]
+    fn odd_settings_and_input_are_handled() {
+        // A look-ahead that rounds to one sample.
+        let mut tiny = Limiter::new(
+            8_000,
+            1,
+            LimiterSettings {
+                lookahead_ms: 0.1,
+                ..LimiterSettings::default()
+            },
+        );
+        let mut frame = [0.5_f32];
+        tiny.process_frame(&mut frame);
+        // Not-a-number settings fall back to the defaults.
+        let odd = LimiterSettings {
+            ceiling_dbtp: f32::NAN,
+            lookahead_ms: f32::INFINITY,
+            release_ms: f32::NAN,
+        };
+        let mut loud = vec![synth::sine(440.0, 12.0, 0.5, RATE)];
+        limit(&mut loud, RATE, odd);
+        assert!(true_peak(&loud, RATE) <= -1.0);
+        // A sample that is not a number comes out as silence and spoils nothing.
+        let mut signal = synth::sine(440.0, 12.0, 0.5, RATE);
+        signal[1000] = f32::NAN;
+        signal[2000] = f32::INFINITY;
+        let mut channels = vec![signal];
+        limit(&mut channels, RATE, LimiterSettings::default());
+        assert!(channels[0].iter().all(|s| s.is_finite()));
+        assert!(true_peak(&channels, RATE) <= -1.0);
+    }
+
     #[test]
     fn the_interpolator_passes_dc_and_finds_peaks_between_samples() {
         let taps = interpolation_taps();
@@ -380,11 +728,7 @@ mod tests {
     #[test]
     fn a_loud_mix_never_goes_over_the_ceiling() {
         // The test loop pushed 12 dB over full scale.
-        let a_minor = Key {
-            tonic: PitchClass::A,
-            mode: Mode::Minor,
-        };
-        let mix = synth::normalize(synth::test_loop(126.0, a_minor, 8.0, RATE), 12.0);
+        let mix = synth::normalize(synth::test_loop(126.0, a_minor(), 8.0, RATE), 12.0);
         let mut stereo = vec![mix.clone(), mix];
         limit(&mut stereo, RATE, LimiterSettings::default());
         let peak = true_peak(&stereo, RATE);
