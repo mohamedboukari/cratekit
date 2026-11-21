@@ -77,6 +77,9 @@ export function notifyError(error: unknown, context?: string): AppError {
 
 /** Tells the user how an import went (picker or drop), including when nothing was new. */
 export function announceImport(added: number): void {
-  if (added > 0) toast.success(i18n.t("common.import.added", { count: added }));
+  if (added > 0)
+    toast.success(i18n.t("common.import.added", { count: added }), {
+      description: i18n.t("common.import.analyzing"),
+    });
   else toast.info(i18n.t("common.import.none"));
 }

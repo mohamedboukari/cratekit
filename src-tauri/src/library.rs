@@ -18,6 +18,7 @@ use serde::Serialize;
 use tauri::{AppHandle, Manager, Runtime};
 
 use crate::AppError;
+use crate::jobs::Jobs;
 
 /// The open library, or why it could not be opened (every command then
 /// returns that error, so the UI can say so).
@@ -101,7 +102,7 @@ pub(crate) struct TrackDetailDto {
 }
 
 /// Adds files and folders (searched with their subfolders); returns the new
-/// track ids. Files that cannot be read are skipped; when none could be
+/// track ids and queues their analysis. Files that cannot be read are skipped; when none could be
 /// added and some failed, the first failure is the error, so the user sees
 /// why instead of "no new files".
 ///
@@ -117,7 +118,12 @@ pub(crate) async fn library_add_paths(
     let prepared = tauri::async_runtime::spawn_blocking(move || prepare_add(&paths, &known))
         .await
         .map_err(internal)?;
-    let result = with_library(app, move |library| library.store(prepared)).await?;
+    let result = with_library(app.clone(), move |library| library.store(prepared)).await?;
+    // New tracks are analyzed in the background (SPEC Module 1), on the job
+    // queue, so the UI shows progress and can cancel it.
+    if let Some(jobs) = app.try_state::<Jobs>() {
+        jobs.analyze_added(&result.added, &app);
+    }
     if result.added.is_empty()
         && let Some((_, first_failure)) = result.failed.into_iter().next()
     {

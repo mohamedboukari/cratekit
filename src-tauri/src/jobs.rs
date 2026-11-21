@@ -233,6 +233,20 @@ impl Jobs {
         self.queue(JobKind::Analysis, track_ids, events)
     }
 
+    /// Queues an analysis of tracks just added to the library, so they are
+    /// analyzed in the background after an import (SPEC Module 1); returns
+    /// the job id, or `None` when nothing was added.
+    pub(crate) fn analyze_added(
+        &self,
+        added: &[TrackId],
+        events: &dyn JobEvents,
+    ) -> Option<String> {
+        if added.is_empty() {
+            return None;
+        }
+        Some(self.queue_analysis(added.to_vec(), events))
+    }
+
     /// Queues a job of `kind` over `track_ids` (analysis or stems) and
     /// returns its id, telling the UI right away, as [`Self::queue_analysis`].
     pub(crate) fn queue(
@@ -1025,6 +1039,21 @@ mod tests {
         jobs.run_analysis(&job, &library, &events, analyze_file);
         assert_eq!(events.take(), ["progress 0/200"]);
         assert!(!lock(&library).track(ids[0]).unwrap().track.analyzed);
+    }
+
+    #[test]
+    fn an_import_queues_one_analysis_of_the_added_tracks() {
+        let jobs = Jobs::default();
+        let events = Recorder::default();
+        assert_eq!(jobs.analyze_added(&[], &events), None);
+        assert!(events.take().is_empty(), "nothing added, nothing queued");
+
+        let id = jobs.analyze_added(&[4, 5, 6], &events);
+        assert_eq!(id.as_deref(), Some("job-1"));
+        assert_eq!(events.take(), ["queued job-1 0/300"]);
+        let job = jobs.next();
+        assert_eq!(job.kind, JobKind::Analysis);
+        assert_eq!(job.track_ids, [4, 5, 6]);
     }
 
     #[test]

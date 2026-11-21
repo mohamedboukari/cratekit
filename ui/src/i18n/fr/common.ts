@@ -29,6 +29,7 @@ export const common: Translation["common"] = {
   import: {
     added_one: "{{count}} morceau ajouté",
     added_other: "{{count}} morceaux ajoutés",
+    analyzing: "BPM, tonalité et niveau sonore en cours d'analyse en arrière-plan",
     none: "Aucun nouveau fichier audio trouvé",
   },
   format: {

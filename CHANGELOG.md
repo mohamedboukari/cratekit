@@ -71,4 +71,5 @@ All notable changes to Cratekit are documented here. The format follows [Keep a 
 
 ### Fixed
 
+- New tracks are analyzed right after they are added (picker, folder or file drop), as SPEC Module 1 asks: `library_add_paths` queues one analysis job for them on the job queue, with progress and cancel, so BPM, key, energy and loudness appear without choosing Analyze. The import notice says so, and the browser demo does the same.
 - Desktop app: a control whose Rust command is not built yet (for example the Original, Mastered and Stems switch) shows a calm "Not built yet" note instead of an error saying the command was not found.

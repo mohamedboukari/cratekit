@@ -166,7 +166,7 @@ Rules:
 | `open_settings_window` | Opens or focuses the native Settings window (also the app menu item "Settings...", Cmd/Ctrl+,) |
 | `app_set_menu_labels(labels)` | Relabels every native menu item (Settings..., File, Edit, Window, undo to select all, minimize, close window, quit, and the macOS app menu items) and the Settings window title (`MenuLabels`) in the UI language; the UI owns the translations, Rust keeps the latest for windows opened later (English until the first call) |
 | file and folder pickers | Through `tauri-plugin-dialog` (`dialog:allow-open` only), wrapped as `dialogOpenFiles` / `dialogOpenFolder` in `CratekitApi` |
-| `library_add_paths(paths)` | Add files/folders, returns new track ids |
+| `library_add_paths(paths)` | Add files/folders, returns new track ids; queues an analysis job for them (`job_progress` with `kind: analysis`) |
 | `library_list(query)` | Tracks with filters (crate, search, BPM range, near a BPM with the tolerance decided in Rust, key match, has stems) |
 | `library_counts` / `track_detail(id)` / `crates_list` | Sidebar counts; one track with analysis, cues and waveform; all crates |
 | `setlist_transitions(ids)` | Per neighbour pair: `keyCompatible` (same key or a Camelot partner; null when a key is unknown), `bpmChangePct` (one decimal), `bpmJump` (over 6%) |
