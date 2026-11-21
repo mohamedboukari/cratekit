@@ -13,7 +13,8 @@ use cratekit_core::audio::{AudioBuffer, resample};
 use rtrb::{Consumer, Producer, RingBuffer};
 
 use crate::renderer::{
-    Command, DeckId, PlaybackMode, Renderer, Retired, STEM_COUNT, Shared, Stem, StemSet, Track,
+    Command, DeckId, MasterPreview, PlaybackMode, Renderer, Retired, STEM_COUNT, Shared, Stem,
+    StemSet, Track,
 };
 
 /// Commands waiting for the audio thread (it reads them every callback).
@@ -438,6 +439,24 @@ impl Engine {
     /// [`EngineError::Busy`] if the audio thread does not take commands.
     pub fn set_mode(&self, deck: DeckId, mode: PlaybackMode) -> Result<(), EngineError> {
         self.send(deck, Command::SetMode(mode))
+    }
+
+    /// Sets the mastered side of A/B (#26): heard in [`PlaybackMode::Mastered`].
+    ///
+    /// # Errors
+    ///
+    /// [`EngineError::Busy`] if the audio thread does not take commands.
+    pub fn set_master(&self, deck: DeckId, preview: MasterPreview) -> Result<(), EngineError> {
+        self.send(deck, Command::SetMaster(preview))
+    }
+
+    /// Level match on or off for the mastered side (on by default).
+    ///
+    /// # Errors
+    ///
+    /// [`EngineError::Busy`] if the audio thread does not take commands.
+    pub fn set_level_match(&self, deck: DeckId, on: bool) -> Result<(), EngineError> {
+        self.send(deck, Command::SetLevelMatch(on))
     }
 
     /// A stem's gain, 0 to 2 (clamped; not a number counts as 1), ramped.

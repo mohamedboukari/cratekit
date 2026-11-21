@@ -1,8 +1,9 @@
-//! Mastering commands: the presets the Master tab lists (#24) and the export
-//! (#25). The live preview (#26) comes next.
+//! Mastering commands: the presets the Master tab lists (#24), the export
+//! (#25) and the live preview for A/B (#26).
 
 use std::fs;
 
+use cratekit_audio::MasterPreview;
 use cratekit_core::audio::{WavFormat, decode_file, write_wav};
 use cratekit_core::library::TrackId;
 use cratekit_core::mastering::master::{MasterSettings, master, master_file_name};
@@ -87,6 +88,43 @@ struct RecordedSettings {
     intensity: f32,
     target_lufs: f32,
     bit_depth: u8,
+}
+
+/// The live mastered side for `settings` on a track measured at `lufs`: the
+/// preset at its intensity, makeup toward the target, and the level match
+/// that takes it back (no makeup when the track was not analysed).
+fn preview_for(settings: &MasterSettingsDto, lufs: Option<f64>) -> MasterPreview {
+    let target = MasterSettings {
+        preset: settings.preset,
+        intensity: settings.intensity,
+        target_lufs: settings.target_lufs,
+    }
+    .target();
+    let makeup_db = lufs
+        .filter(|value| value.is_finite())
+        .map_or(0.0, |value| target - value as f32);
+    MasterPreview {
+        preset: settings.preset.preset().at(settings.intensity),
+        makeup_db,
+        level_match_db: -makeup_db,
+    }
+}
+
+/// Sets the live mastered side of A/B (#26) for track `id` (the one on the
+/// deck): heard in the mastered mode, at about the original's loudness while
+/// level match is on. Fast: nothing is rendered, the engine masters as it
+/// plays.
+#[tauri::command]
+pub(crate) async fn master_preview(
+    app: AppHandle,
+    id: TrackId,
+    settings: MasterSettingsDto,
+) -> Result<(), AppError> {
+    let lufs = with_library(app.clone(), move |library| {
+        Ok(library.track(id)?.track.lufs)
+    })
+    .await?;
+    crate::playback::set_master_preview(app, preview_for(&settings, lufs)).await
 }
 
 /// The WAV format for a bit depth: 24-bit, or 16-bit with TPDF dither.
@@ -197,6 +235,27 @@ mod tests {
         assert_eq!(settings.preset, PresetName::LoFi);
         assert_eq!(settings.target_lufs, -12.0);
         assert_eq!(settings.bit_depth, 16);
+    }
+
+    #[test]
+    fn the_preview_aims_at_the_target_and_level_matches_back() {
+        let settings = |preset, intensity, target_lufs| MasterSettingsDto {
+            preset,
+            intensity,
+            target_lufs,
+            reference_track_id: None,
+            bit_depth: 24,
+        };
+        let club = preview_for(&settings(PresetName::Club, 0.6, -8.0), Some(-14.0));
+        assert!((club.makeup_db - 6.0).abs() < 1e-5);
+        assert!((club.level_match_db + 6.0).abs() < 1e-5);
+        assert_eq!(club.preset, PresetName::Club.preset().at(0.6));
+        // A target out of range is clamped as in the export.
+        let loud = preview_for(&settings(PresetName::Club, 1.0, 0.0), Some(-14.0));
+        assert!((loud.makeup_db - 9.0).abs() < 1e-5);
+        // Not analysed yet: no makeup, nothing to match.
+        let unknown = preview_for(&settings(PresetName::Chill, 1.0, -12.0), None);
+        assert_eq!((unknown.makeup_db, unknown.level_match_db), (0.0, 0.0));
     }
 
     #[test]

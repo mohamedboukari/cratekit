@@ -94,7 +94,7 @@ src/
                  Done (#19, #20); see docs/playback.md
   renderer.rs    Renderer::render (the audio callback), Command (sent over rtrb), Track, Shared (atomics).
                  Done (#19)
-  mixer.rs       modes: Original | Mastered(preview chain) | Stems(4 gains + mute/solo) (planned)
+  renderer.rs    modes: Original | Stems (4 gains, mute, solo; #34) | Mastered (preset chain, limiter, level match; #26), crossfaded over 10 ms
   filter.rs      DJ filter (one knob: LP below centre, HP above)
 ```
 
@@ -178,12 +178,12 @@ Rules:
 | `analyze_tracks(ids)` | Queue analysis |
 | `job_cancel(job_id)` / `jobs_set_paused(paused)` | Cancel one job; pause or resume the queue |
 | `playback_load(id) / playback_play / playback_pause / playback_seek(sec) / playback_set_rate(r)` | Deck |
-| `playback_set_mode(mode)` | Original / Mastered / Stems: stems loads the track's cached stems and crossfades to them over 10 ms (the track plays itself when it was not split); mastered answers `not_built` until #26 |
+| `playback_set_mode(mode)` | Original / Mastered / Stems: stems loads the track's cached stems and crossfades to them over 10 ms (the track plays itself when it was not split); mastered plays the live preview `master_preview` set (the track itself until one is set), the original side delayed by the limiter's latency so A and B stay aligned |
 | `playback_set_filter(value)` | DJ filter knob: -1 full low-pass, 0 off, +1 full high-pass (#56) |
-| `playback_set_level_match(enabled)` | Master A/B compare at equal loudness (default on) |
+| `playback_set_level_match(enabled)` | Master A/B compare at equal loudness (default on): the mastered side is lowered by its makeup gain (done, #26) |
 | `stems_split(id)` / `stems_set_gain(stem, gain)` / `stems_set_mute(stem, bool)` / `stems_set_solo(stem, bool)` | Stems; `stems_split` queues a job (`kind: stems`, 100 steps per track, cancellable) that writes `stems/<track id>/` in the app data folder and records it in the library; it rejects with `model_missing` until the model is downloaded, and the job fails with `stems_unavailable` (the reason in the message) when ONNX Runtime cannot load. `stems_set_gain` (0 to 2), `stems_set_mute` and `stems_set_solo` (while any stem is soloed, exactly the soloed ones are heard) set one stem of the mixer, ramped over 10 ms; every load starts with a neutral mix, and the settings survive an engine restart (#34) |
 | `stems_info(id)` / `stems_export(id)` | Split time, per-stem waveforms and the summed instrumental waveform (null when not split); `stems_export` copies the four cached WAVs into `<output folder>/Stems/<artist> - <title>/` as `<artist> - <title> (drums).wav` and so on (the title alone without an artist) (the output folder is the setting, else `<Music>/Cratekit`; the title made safe for every system), replacing an earlier export; returns the paths, `not_found` when the track was not split |
-| `master_presets` / `master_preview(id, settings)` / `master_export(id, settings)` | Mastering: presets with label, default target and a one-line description (done, #24); B-side render for A/B; export into `<output folder>/Masters/` as 24 or 16-bit WAV (TPDF dither), recorded in the library, returns path, LUFS, true peak, target and whether it was reached (done, #25; a direct call for now, a job with progress and cancel comes with the Master tab, #28); errors `invalid_setting` (bit depth), `audio_processing` (silent or under 0.4 s), `io` (with the path), `not_found` |
+| `master_presets` / `master_preview(id, settings)` / `master_export(id, settings)` | Mastering: presets with label, default target and a one-line description (done, #24); the live mastered side for A/B: the preset at its intensity, makeup toward the target from the track's analysed loudness, the limiter, and the level match back (done, #26; nothing rendered, the engine masters as it plays); export into `<output folder>/Masters/` as 24 or 16-bit WAV (TPDF dither), recorded in the library, returns path, LUFS, true peak, target and whether it was reached (done, #25; a direct call for now, a job with progress and cancel comes with the Master tab, #28); errors `invalid_setting` (bit depth), `audio_processing` (silent or under 0.4 s), `io` (with the path), `not_found` |
 | `hotcue_set(id, slot, sec)` / `hotcue_clear(id, slot)` / `hotcue_update(id, slot, name, color)` | Cues (set or move, clear, rename and recolour) |
 | `midi_list_devices / midi_learn_start(target) / midi_learn_cancel / midi_mappings(device_id)` | Controller; `midi_mappings` returns one row per control target (`binding` null when unmapped) |
 | `export_virtualdj(ids, dry_run)` | Export; each track's `changes` are data (`{ field: bpm \| key \| cues, value }`), worded by the UI |

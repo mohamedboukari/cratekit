@@ -118,6 +118,13 @@ impl Compressor {
         self.rms_pole = pole(RMS_WINDOW_MS, sample_rate);
     }
 
+    /// Forgets the signal so far (before an unrelated one: a new track, a
+    /// seek); never allocates.
+    pub fn reset(&mut self) {
+        self.mean_square = 0.0;
+        self.reduction_db = 0.0;
+    }
+
     /// The gain reduction right now, in dB (zero or negative), for a meter.
     #[must_use]
     pub fn reduction_db(&self) -> f32 {

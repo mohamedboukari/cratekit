@@ -387,6 +387,15 @@ fn render_never_allocates_or_frees() {
         Command::Play,
         Command::SetMode(PlaybackMode::Original),
         Command::SetFilter(0.4),
+        Command::SetMaster(preview(1.0, 6.0, -6.0)),
+        Command::SetMode(PlaybackMode::Mastered),
+        Command::SetMaster(preview(0.5, 3.0, -3.0)),
+        Command::SetLevelMatch(false),
+        Command::Seek(1_000),
+        Command::Load(sine(48_000, 0.3)),
+        Command::Play,
+        Command::SetLevelMatch(true),
+        Command::SetMode(PlaybackMode::Original),
     ] {
         rig.send(command);
         count += allocations_during(|| {
@@ -558,4 +567,145 @@ fn stems_attached_after_a_load_crossfade_in_from_the_track() {
     let out = rig.render(1_000);
     assert!(largest_step(&out) < 0.002, "no jump when the stems arrive");
     assert!((out[1_998] - 0.5).abs() < 1e-5);
+}
+
+/// A mastered side: Club at `intensity`, with makeup and level match in dB.
+fn preview(intensity: f32, makeup_db: f32, level_match_db: f32) -> MasterPreview {
+    MasterPreview {
+        preset: PresetName::Club.preset().at(intensity),
+        makeup_db,
+        level_match_db,
+    }
+}
+
+/// A rig playing `track`, past its fade in.
+fn playing(track: Box<Track>) -> Rig {
+    let mut rig = rig(2);
+    rig.send(Command::Load(track));
+    rig.send(Command::Play);
+    rig.render(FADE * 4);
+    rig
+}
+
+fn rms(stereo: &[f32]) -> f32 {
+    (stereo.iter().map(|s| s * s).sum::<f32>() / stereo.len().max(1) as f32).sqrt()
+}
+
+#[test]
+fn the_mastered_mode_plays_the_track_until_a_preview_is_set() {
+    let mut original = playing(sine(48_000, 0.3));
+    let mut mastered = playing(sine(48_000, 0.3));
+    mastered.send(Command::SetMode(PlaybackMode::Mastered));
+    assert_eq!(original.render(2_000), mastered.render(2_000));
+}
+
+#[test]
+fn turning_the_preview_on_while_playing_fades_out_and_back_in() {
+    let mut rig = playing(sine(48_000, 0.3));
+    rig.send(Command::SetMaster(preview(0.0, 0.0, 0.0)));
+    let out = rig.render(FADE * 6);
+    let quietest = out
+        .chunks(64)
+        .map(|block| block.iter().fold(0.0_f32, |m, s| m.max(s.abs())))
+        .fold(1.0_f32, f32::min);
+    assert!(quietest < 0.01, "it dipped to silence: {quietest}");
+    assert!(
+        largest_step(&out) < 0.05,
+        "no click: {}",
+        largest_step(&out)
+    );
+    let after = rig.render(2_000);
+    assert!(rms(&after) > 0.15, "playing again");
+}
+
+#[test]
+fn with_a_neutral_preview_a_and_b_are_the_same_sample_for_sample() {
+    // Intensity 0, no makeup, no level match: the B side is the A side
+    // through a limiter that does nothing; the A side is delayed to match.
+    let mut rig = playing(sine(48_000, 0.3));
+    rig.send(Command::SetMaster(preview(0.0, 0.0, 0.0)));
+    rig.render(FADE * 4);
+    let a = rig.render(1_000);
+    rig.send(Command::SetMode(PlaybackMode::Mastered));
+    rig.render(1_000); // past the 10 ms crossfade
+    let mut reference = playing(sine(48_000, 0.3));
+    reference.send(Command::SetMaster(preview(0.0, 0.0, 0.0)));
+    reference.render(FADE * 4 + 1_000 + 1_000);
+    let b = rig.render(1_000);
+    let a_again = reference.render(1_000);
+    for (x, y) in b.iter().zip(&a_again) {
+        assert!((x - y).abs() < 1e-5, "A and B aligned: {x} vs {y}");
+    }
+    assert!(rms(&a) > 0.15);
+}
+
+#[test]
+fn the_mastered_side_is_limited_under_the_ceiling() {
+    let mut rig = playing(sine(48_000, 0.8));
+    rig.send(Command::SetLevelMatch(false));
+    // No compressor (intensity 0): the limiter alone takes +12 dB of makeup.
+    rig.send(Command::SetMaster(preview(0.0, 12.0, 0.0)));
+    rig.send(Command::SetMode(PlaybackMode::Mastered));
+    rig.render(4_000);
+    let out = rig.render(4_000);
+    let peak = out.iter().fold(0.0_f32, |m, s| m.max(s.abs()));
+    let ceiling = 10_f32.powf(-1.0 / 20.0);
+    assert!(peak <= ceiling, "{peak} over {ceiling}");
+    assert!(peak > 0.7, "pushed to the limiter: {peak}");
+}
+
+#[test]
+fn level_match_keeps_a_and_b_about_as_loud() {
+    let measure = |level_match: bool| {
+        let mut rig = playing(sine(48_000, 0.2));
+        rig.send(Command::SetLevelMatch(level_match));
+        rig.send(Command::SetMaster(preview(0.0, 6.0, -6.0)));
+        rig.render(FADE * 4);
+        let a = rms(&rig.render(4_000));
+        rig.send(Command::SetMode(PlaybackMode::Mastered));
+        rig.render(2_000);
+        let b = rms(&rig.render(4_000));
+        20.0 * (b / a).log10()
+    };
+    let matched = measure(true);
+    assert!(matched.abs() < 1.0, "level matched: {matched} dB");
+    let raw = measure(false);
+    assert!((raw - 6.0).abs() < 1.0, "the real loudness: {raw} dB");
+}
+
+#[test]
+fn switching_sides_is_click_free() {
+    let mut rig = playing(sine(48_000, 0.3));
+    rig.send(Command::SetMaster(preview(1.0, 6.0, -6.0)));
+    rig.render(FADE * 4);
+    let steady = largest_step(&rig.render(1_000));
+    for mode in [
+        PlaybackMode::Mastered,
+        PlaybackMode::Original,
+        PlaybackMode::Mastered,
+    ] {
+        rig.send(Command::SetMode(mode));
+        let switch = largest_step(&rig.render(1_000));
+        assert!(
+            switch < steady * 1.5 + 0.01,
+            "{mode:?}: {switch} vs steady {steady}"
+        );
+    }
+}
+
+#[test]
+fn a_new_track_starts_without_the_old_ones_tail_on_the_mastered_side() {
+    let mut rig = playing(sine(48_000, 0.8));
+    rig.send(Command::SetMaster(preview(1.0, 6.0, 0.0)));
+    rig.send(Command::SetMode(PlaybackMode::Mastered));
+    rig.render(4_000);
+    let silent = Box::new(Track::from_stereo(&[0.0; 4_000], &[0.0; 4_000]));
+    rig.send(Command::Load(silent));
+    rig.send(Command::Play);
+    rig.render(FADE * 2); // the fade out and the swap
+    let after = rig.render(2_000);
+    assert!(
+        after.iter().all(|s| *s == 0.0),
+        "nothing of the old track came out"
+    );
 }

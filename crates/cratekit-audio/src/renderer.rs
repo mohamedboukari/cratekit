@@ -7,12 +7,15 @@
 //! and position and meters go out through atomics.
 //!
 //! A deck plays its track, or its four stems mixed with a gain, mute and solo
-//! each (#34). Switching between them crossfades, and every stem change is
-//! ramped, over 10 ms, so nothing clicks.
+//! each (#34), or the track mastered live for A/B (#26). Switching between
+//! them crossfades, and every stem change is ramped, over 10 ms, so nothing
+//! clicks.
 
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering};
 
+use cratekit_core::mastering::limiter::{Limiter, LimiterSettings};
+use cratekit_core::mastering::presets::{Preset, PresetChain, PresetName};
 use rtrb::{Consumer, Producer};
 
 use crate::filter::DjFilter;
@@ -31,6 +34,9 @@ pub const STEM_COUNT: usize = 4;
 
 /// Highest gain a stem can be given (twice its level).
 pub const MAX_STEM_GAIN: f32 = 2.0;
+
+/// Makeup and level-match gains are kept within this many dB.
+const MAX_PREVIEW_DB: f32 = 40.0;
 
 /// A track ready to play: interleaved stereo `f32` at the engine's rate,
 /// prepared off the audio thread.
@@ -153,6 +159,25 @@ pub enum PlaybackMode {
     Original,
     /// Its stems, mixed (the track itself while no stems are attached).
     Stems,
+    /// The track mastered live, the B side of A/B (the track itself until a
+    /// preview is set).
+    Mastered,
+}
+
+/// The mastered side of A/B (#26): the preset at its intensity, the makeup
+/// gain that brings the track toward its loudness target, and the level
+/// match (the gain that brings it back to the original's loudness, so
+/// louder does not fool the ear). Plain values: the command carries no heap
+/// data, and the audio thread only recomputes filter coefficients.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct MasterPreview {
+    /// The preset, at its intensity.
+    pub preset: Preset,
+    /// Gain before the chain, in dB (target loudness minus the track's).
+    pub makeup_db: f32,
+    /// Gain after the limiter while level match is on, in dB (usually minus
+    /// the makeup).
+    pub level_match_db: f32,
 }
 
 /// Something the audio thread replaced, handed to another thread to be
@@ -202,6 +227,13 @@ pub enum Command {
     /// Solo or unsolo a stem: while any stem is soloed, exactly the soloed
     /// ones are heard, muted or not (ramped).
     SetStemSolo(Stem, bool),
+    /// Set the mastered side (#26). The first one while playing waits for a
+    /// short fade out (what is heard shifts by the limiter's delay); later
+    /// ones change the sound at once, the gains ramped.
+    SetMaster(MasterPreview),
+    /// Level match on or off (ramped): on, the mastered side plays at about
+    /// the original's loudness.
+    SetLevelMatch(bool),
 }
 
 /// What the audio thread publishes, read by other threads.
@@ -262,6 +294,26 @@ pub struct Renderer {
     /// Each stem's gain now, ramping toward its target.
     stem_gain: [f32; STEM_COUNT],
     stem_target: [f32; STEM_COUNT],
+    /// The mastered side's preset chain and limiter, made before the stream
+    /// starts so the audio thread never allocates for them.
+    master_chain: PresetChain,
+    limiter: Limiter,
+    /// What plays (track or stems) delayed by the limiter's latency while
+    /// the preview runs, so A and B stay sample-aligned through a crossfade.
+    a_delay: Vec<(f32, f32)>,
+    a_delay_next: usize,
+    /// A preview is set and running.
+    master_on: bool,
+    /// The first preview, waiting for the fade out to turn on.
+    master_pending: Option<MasterPreview>,
+    /// How much of the mastered side is heard, 0 to 1.
+    master_mix: f32,
+    makeup: f32,
+    makeup_target: f32,
+    level_match: bool,
+    level_match_db: f32,
+    match_gain: f32,
+    match_target: f32,
 }
 
 impl Renderer {
@@ -278,6 +330,8 @@ impl Renderer {
     ) -> Self {
         let mut dj_filter = DjFilter::new(sample_rate);
         dj_filter.jump(filter);
+        let limiter = Limiter::new(sample_rate, 2, LimiterSettings::default());
+        let a_delay = vec![(0.0, 0.0); limiter.latency().max(1)];
         let fade_frames = (FADE_SECONDS * sample_rate as f32).max(1.0);
         let mix_frames = (MIX_SECONDS * sample_rate as f32).max(1.0);
         Self {
@@ -305,6 +359,19 @@ impl Renderer {
             stem_soloed: [false; STEM_COUNT],
             stem_gain: [1.0; STEM_COUNT],
             stem_target: [1.0; STEM_COUNT],
+            master_chain: PresetChain::new(sample_rate, 2, &PresetName::Club.preset().at(0.0)),
+            limiter,
+            a_delay,
+            a_delay_next: 0,
+            master_on: false,
+            master_pending: None,
+            master_mix: 0.0,
+            makeup: 1.0,
+            makeup_target: 1.0,
+            level_match: true,
+            level_match_db: 0.0,
+            match_gain: 1.0,
+            match_target: 1.0,
         }
     }
 
@@ -376,7 +443,10 @@ impl Renderer {
             Command::Play => {
                 if self.track.is_some() || self.incoming.is_some() {
                     self.playing = true;
-                    if self.pending_seek.is_none() && self.incoming.is_none() {
+                    let waiting = self.pending_seek.is_some()
+                        || self.incoming.is_some()
+                        || self.master_pending.is_some();
+                    if !waiting {
                         self.target = 1.0;
                     }
                 }
@@ -424,7 +494,83 @@ impl Renderer {
                 }
                 self.update_stem_targets();
             }
+            Command::SetMaster(preview) => {
+                if self.master_on {
+                    self.set_master(&preview);
+                } else if self.gain > 0.0 || self.target > 0.0 {
+                    // Turning the preview on shifts what is heard by the
+                    // limiter's delay: it waits for silence, like a seek.
+                    self.master_pending = Some(preview);
+                    self.target = 0.0;
+                } else {
+                    self.turn_master_on(&preview);
+                }
+            }
+            Command::SetLevelMatch(on) => {
+                self.level_match = on;
+                self.update_match_target();
+            }
         }
+    }
+
+    /// Applies a preview's preset and gains (the gains ramp).
+    fn set_master(&mut self, preview: &MasterPreview) {
+        self.master_chain.set(&preview.preset);
+        self.makeup_target = db_to_gain(preview.makeup_db);
+        self.level_match_db = if preview.level_match_db.is_finite() {
+            preview.level_match_db
+        } else {
+            0.0
+        };
+        self.update_match_target();
+    }
+
+    /// Starts the mastered side from silence (no ramps: nothing is heard).
+    fn turn_master_on(&mut self, preview: &MasterPreview) {
+        self.set_master(preview);
+        self.reset_master();
+        self.makeup = self.makeup_target;
+        self.match_gain = self.match_target;
+        self.master_on = true;
+    }
+
+    /// Clears the mastered side's state (a new track, a seek, turning on).
+    fn reset_master(&mut self) {
+        self.master_chain.reset();
+        self.limiter.reset();
+        self.a_delay.fill((0.0, 0.0));
+        self.a_delay_next = 0;
+    }
+
+    fn update_match_target(&mut self) {
+        self.match_target = if self.level_match {
+            db_to_gain(self.level_match_db)
+        } else {
+            1.0
+        };
+    }
+
+    /// What plays, delayed by the limiter's latency.
+    fn delayed(&mut self, frame: (f32, f32)) -> (f32, f32) {
+        let len = self.a_delay.len();
+        let Some(slot) = self.a_delay.get_mut(self.a_delay_next) else {
+            return frame;
+        };
+        let old = std::mem::replace(slot, frame);
+        self.a_delay_next = (self.a_delay_next + 1) % len.max(1);
+        old
+    }
+
+    /// The mastered side of a frame: makeup, the preset's EQ and compressor,
+    /// the limiter, then the level match.
+    fn mastered(&mut self, (left, right): (f32, f32)) -> (f32, f32) {
+        let mut planar = [[left * self.makeup], [right * self.makeup]];
+        self.master_chain.process(&mut planar);
+        let [[l], [r]] = planar;
+        let mut frame = [l, r];
+        self.limiter.process_frame(&mut frame);
+        let [l, r] = frame;
+        (l * self.match_gain, r * self.match_gain)
     }
 
     /// Each stem's target gain from its setting, mute and solo: while any
@@ -454,6 +600,17 @@ impl Renderer {
         for (gain, &target) in self.stem_gain.iter_mut().zip(&self.stem_target) {
             *gain = step_toward(*gain, target, self.mix_step);
         }
+        let master_target = if self.mode == PlaybackMode::Mastered && self.master_on {
+            1.0
+        } else {
+            0.0
+        };
+        self.master_mix = step_toward(self.master_mix, master_target, self.mix_step);
+        // Gains ramp over the same 10 ms, in steps relative to their size.
+        let step = self.makeup.max(self.makeup_target) * self.mix_step;
+        self.makeup = step_toward(self.makeup, self.makeup_target, step);
+        let step = self.match_gain.max(self.match_target) * self.mix_step;
+        self.match_gain = step_toward(self.match_gain, self.match_target, step);
     }
 
     /// The next output frame, moving the fade and the position.
@@ -498,6 +655,18 @@ impl Renderer {
             }
             _ => (left, right),
         };
+        // The preview runs on what plays while it is on (so A and B stay
+        // aligned and the B side's state is warm), heard as `master_mix`.
+        let (left, right) = if self.master_on {
+            let (a_left, a_right) = self.delayed((left, right));
+            let (b_left, b_right) = self.mastered((left, right));
+            (
+                a_left + (b_left - a_left) * self.master_mix,
+                a_right + (b_right - a_right) * self.master_mix,
+            )
+        } else {
+            (left, right)
+        };
         self.position += 1;
         (left * self.gain, right * self.gain)
     }
@@ -517,10 +686,15 @@ impl Renderer {
             }
             self.stems_mix = 0.0;
             self.position = 0;
+            self.reset_master();
         }
         if let Some(frame) = self.pending_seek.take() {
             let end = self.track.as_deref().map_or(0, Track::frames);
             self.position = frame.min(end);
+            self.reset_master();
+        }
+        if let Some(preview) = self.master_pending.take() {
+            self.turn_master_on(&preview);
         }
         if self.playing && self.incoming.is_none() {
             self.target = 1.0;
@@ -556,6 +730,17 @@ impl Renderer {
             }
         }
     }
+}
+
+/// A gain in dB as a factor, kept within the preview's range (one that is not
+/// a number is 0 dB).
+fn db_to_gain(db: f32) -> f32 {
+    let db = if db.is_finite() {
+        db.clamp(-MAX_PREVIEW_DB, MAX_PREVIEW_DB)
+    } else {
+        0.0
+    };
+    10_f32.powf(db / 20.0)
 }
 
 /// `value` moved by at most `step` toward `target`.

@@ -14,7 +14,7 @@ pub use engine::{
     Engine, EngineError, EngineOptions, OutputDevice, Status, default_device_id, is_fatal,
     output_device_ids, output_devices, prepare_stems, prepare_track,
 };
-pub use renderer::{DeckId, PlaybackMode, Stem, StemSet, Track};
+pub use renderer::{DeckId, MasterPreview, PlaybackMode, Stem, StemSet, Track};
 
 /// Number of output channels the engine renders (stereo).
 pub const OUTPUT_CHANNELS: usize = 2;

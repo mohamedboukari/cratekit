@@ -178,6 +178,12 @@ impl<T: Copy> Ring<T> {
         old
     }
 
+    /// Fills the ring with `value`, as new.
+    fn clear(&mut self, value: T) {
+        self.values.fill(value);
+        self.next = 0;
+    }
+
     /// The value `age` pushes ago (0 is the newest).
     fn get(&self, age: usize) -> T {
         let len = self.values.len();
@@ -252,6 +258,20 @@ impl Limiter {
             position: 0,
             gain: 1.0,
         }
+    }
+
+    /// Forgets the signal so far (a new track, a seek): silence in the delay,
+    /// no reduction. Never allocates (the queue keeps its capacity).
+    pub fn reset(&mut self) {
+        for ring in self.history.iter_mut().chain(&mut self.delay) {
+            ring.clear(0.0);
+        }
+        self.previous_interval_peak = 0.0;
+        self.minimum.clear();
+        self.held.clear(1.0);
+        self.held_sum = self.lookahead as f64;
+        self.position = 0;
+        self.gain = 1.0;
     }
 
     /// How many samples the output lags the input.
@@ -776,6 +796,28 @@ mod tests {
         assert!(during < 0.5, "limiting a +6 dB tone: {during}");
         let after = *gains.last().unwrap_or(&0.0);
         assert!(after > 0.999, "released: {after}");
+    }
+
+    #[test]
+    fn reset_forgets_the_signal_so_far() {
+        let mut limiter = Limiter::new(RATE, 1, LimiterSettings::default());
+        let loud = synth::sine(440.0, 12.0, 0.1, RATE);
+        for sample in &loud {
+            let mut frame = [*sample];
+            limiter.process_frame(&mut frame);
+        }
+        assert!(limiter.gain() < 0.5, "limiting");
+        limiter.reset();
+        assert_eq!(limiter.gain(), 1.0);
+        // Only silence comes out of the delay, and a quiet signal is untouched.
+        let mut fresh = Limiter::new(RATE, 1, LimiterSettings::default());
+        let quiet = synth::sine(440.0, -12.0, 0.05, RATE);
+        for sample in &quiet {
+            let (mut a, mut b) = ([*sample], [*sample]);
+            limiter.process_frame(&mut a);
+            fresh.process_frame(&mut b);
+            assert_eq!(a, b, "a reset limiter behaves as a new one");
+        }
     }
 
     #[test]

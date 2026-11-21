@@ -293,6 +293,15 @@ impl PresetChain {
         self.compressor.set(self.sample_rate, preset.compressor);
     }
 
+    /// Forgets the signal so far (a new track, a seek), keeping the preset;
+    /// never allocates.
+    pub fn reset(&mut self) {
+        for filter in &mut self.filters {
+            filter.reset();
+        }
+        self.compressor.reset();
+    }
+
     /// The EQ's gain at `freq_hz` in dB (the curve the Master tab can draw).
     #[must_use]
     pub fn eq_response_db(&self, freq_hz: f64) -> f64 {
@@ -576,6 +585,22 @@ mod tests {
             "{} vs {expected}",
             chain.reduction_db()
         );
+    }
+
+    #[test]
+    fn reset_forgets_the_signal_but_keeps_the_preset() {
+        let preset = PresetName::Club.preset();
+        let mut chain = PresetChain::new(RATE, 1, &preset);
+        let mut loud = vec![synth::sine(60.0, -3.0, 0.5, RATE)];
+        chain.process(&mut loud);
+        assert!(chain.reduction_db() < -1.0);
+        chain.reset();
+        assert_eq!(chain.reduction_db(), 0.0);
+        let mut silence = vec![vec![0.0_f32; 64]];
+        chain.process(&mut silence);
+        assert!(silence[0].iter().all(|s| *s == 0.0), "no tail from before");
+        let fresh = PresetChain::new(RATE, 1, &preset);
+        assert!((chain.eq_response_db(40.0) - fresh.eq_response_db(40.0)).abs() < 1e-12);
     }
 
     #[test]

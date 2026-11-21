@@ -76,7 +76,7 @@ Mastering
 - [x] Biquad EQ, compressor, true-peak limiter with tests (#23)
 - [x] Presets + intensity (#24)
 - [x] Loudness targeting (measured passes), export WAV 24/16-bit (dither) (#25)
-- [ ] Real-time preview chain in `cratekit-audio`; level-matched A/B (#26)
+- [x] Real-time preview chain in `cratekit-audio`; level-matched A/B (#26)
 - [ ] Reference-track matching (#27)
 - [ ] UI: Master tab, with the export as a job (progress, cancel) (#28)
 

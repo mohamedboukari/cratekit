@@ -16,8 +16,9 @@ use std::thread;
 use std::time::Duration;
 
 use cratekit_audio::{
-    DeckId, Engine, EngineError, EngineOptions, OutputDevice, PlaybackMode, Status, Stem, StemSet,
-    Track, default_device_id, output_device_ids, output_devices, prepare_stems, prepare_track,
+    DeckId, Engine, EngineError, EngineOptions, MasterPreview, OutputDevice, PlaybackMode, Status,
+    Stem, StemSet, Track, default_device_id, output_device_ids, output_devices, prepare_stems,
+    prepare_track,
 };
 use cratekit_core::audio::{AudioBuffer, decode_file};
 use cratekit_core::library::TrackId;
@@ -79,6 +80,11 @@ pub(crate) struct PlayerState {
     mix: Mutex<StemMix>,
     /// The track whose stems the engine holds, if any.
     stems_on_deck: Mutex<Option<TrackId>>,
+    /// The mastered side of A/B (#26), given again to every engine that
+    /// starts.
+    master: Mutex<Option<MasterPreview>>,
+    /// Level match turned off (it is on by default), kept the same way.
+    level_match_off: Mutex<bool>,
 }
 
 /// The playback mode and each stem's gain, mute and solo, in the order of
@@ -227,6 +233,11 @@ fn apply_mix<R: Runtime>(app: &AppHandle<R>, engine: &Engine) -> Result<(), AppE
             stem,
             mix.soloed.get(index).copied().unwrap_or(false),
         )?;
+    }
+    let player = app.state::<PlayerState>();
+    engine.set_level_match(DeckId::A, !*lock(&player.level_match_off))?;
+    if let Some(preview) = *lock(&player.master) {
+        engine.set_master(DeckId::A, preview)?;
     }
     engine.set_mode(DeckId::A, mix.mode)?;
     Ok(())
@@ -841,6 +852,40 @@ pub(crate) async fn playback_set_filter(app: AppHandle, value: f32) -> Result<()
     .await
 }
 
+/// Sets the mastered side of A/B (#26), kept for engines started later. The
+/// engine gets the stored preview read under the gate, so the newest wins.
+pub(crate) async fn set_master_preview(
+    app: AppHandle,
+    preview: MasterPreview,
+) -> Result<(), AppError> {
+    *lock(&app.state::<PlayerState>().master) = Some(preview);
+    let reader = app.clone();
+    with_engine(app, false, move |engine| {
+        match *lock(&reader.state::<PlayerState>().master) {
+            Some(stored) => engine.set_master(DeckId::A, stored),
+            None => Ok(()),
+        }
+    })
+    .await
+}
+
+/// Level match for the mastered side on or off (on by default): on, the B
+/// side plays at about the original's loudness, so louder does not fool the
+/// ear. Kept for engines started later.
+#[tauri::command]
+pub(crate) async fn playback_set_level_match(
+    app: AppHandle,
+    enabled: bool,
+) -> Result<(), AppError> {
+    *lock(&app.state::<PlayerState>().level_match_off) = !enabled;
+    let reader = app.clone();
+    with_engine(app, false, move |engine| {
+        let off = *lock(&reader.state::<PlayerState>().level_match_off);
+        engine.set_level_match(DeckId::A, !off)
+    })
+    .await
+}
+
 /// What the UI asks the deck to play (the UI's `PlaybackMode`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export))]
@@ -888,20 +933,16 @@ impl StemName {
     }
 }
 
-/// Plays the track or its stems (crossfaded). In stems mode the track's
-/// cached stems are read and attached (outside the gate); a track that was
-/// not split plays itself. The mastered mode comes with mastering (#26).
+/// Plays the track, its stems or the track mastered live (crossfaded). In
+/// stems mode the track's cached stems are read and attached (outside the
+/// gate); a track that was not split plays itself. The mastered mode plays
+/// the preview `master_preview` set (the track itself until one is set).
 #[tauri::command]
 pub(crate) async fn playback_set_mode(app: AppHandle, mode: ModeChoice) -> Result<(), AppError> {
     let mode = match mode {
         ModeChoice::Original => PlaybackMode::Original,
         ModeChoice::Stems => PlaybackMode::Stems,
-        ModeChoice::Mastered => {
-            return Err(AppError {
-                code: "not_built",
-                message: "mastered playback".into(),
-            });
-        }
+        ModeChoice::Mastered => PlaybackMode::Mastered,
     };
     let previous = std::mem::replace(&mut lock(&app.state::<PlayerState>().mix).mode, mode);
     tauri::async_runtime::spawn_blocking(move || {
