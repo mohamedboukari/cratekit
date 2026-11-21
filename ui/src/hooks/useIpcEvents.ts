@@ -50,7 +50,11 @@ export function useIpcEvents(): void {
       api().onMidiDeviceChanged((devices) => useDevices.getState().setMidi(devices)),
       api().onMidiLearned((learned) => useController.getState().onLearned(learned)),
       // The Settings window is a separate page; Rust tells this one what changed.
-      api().onSettingsChanged((settings) => useSettings.getState().applyRemote(settings)),
+      api().onSettingsChanged((settings) => {
+        useSettings.getState().applyRemote(settings);
+        // Rust saved the change: the stems backend follows the CPU only setting.
+        void useDevices.getState().loadBackend();
+      }),
       // Rust runs engine actions itself; these targets change UI-owned state, so the UI runs them.
       api().onControlEvent((event) => {
         if (event.value <= 0) return;

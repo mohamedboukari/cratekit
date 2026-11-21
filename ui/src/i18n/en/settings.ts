@@ -46,16 +46,15 @@ export const settings = {
     description: "How stem splitting runs on this computer.",
     backend: "Stems backend",
     auto: "Use the GPU when available",
-    autoHint: "CoreML on macOS, DirectML on Windows; falls back to the CPU.",
+    autoHint: "The GPU once Cratekit supports it on this computer, else the CPU.",
     cpu: "CPU only",
     cpuHint: "Slower, but works on every machine.",
     inUse: "In use now: {{backend}}",
     inUseReason: "In use now: {{backend}} ({{reason}})",
     /** Why the CPU is used (StemsCpuReason from Rust). */
     cpuReasons: {
-      no_gpu: "no supported GPU found",
       cpu_chosen: "CPU only is chosen below",
-      gpu_check_failed: "the GPU check failed, so the CPU is used",
+      gpu_unsupported: "this version splits stems on the CPU",
     },
     checking: "Checking the backend...",
   },

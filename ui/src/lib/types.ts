@@ -282,8 +282,8 @@ export interface StemsInfo {
 
 export type StemsBackendPreference = "auto" | "cpu";
 
-/** Why stems run on the CPU: no supported GPU, CPU chosen in Settings, or the GPU check failed. */
-export type StemsCpuReason = "no_gpu" | "cpu_chosen" | "gpu_check_failed";
+/** Why stems run on the CPU: CPU only is chosen in Settings, or this version splits on the CPU. */
+export type StemsCpuReason = "cpu_chosen" | "gpu_unsupported";
 
 export interface StemsBackendStatus {
   active: "coreml" | "directml" | "cpu";

@@ -104,7 +104,7 @@ The app keeps a local library of tracks the user adds. Original files are never 
 
 **Features**
 - 4 stems: vocals, drums, bass, other (htdemucs). 2-stem mode (vocals / instrumental) = sum of the other three.
-- Uses the GPU automatically when one is available, through ONNX Runtime execution providers (CoreML on Apple Silicon Macs; Windows and Linux run on the CPU in v0.1), and falls back to the CPU when the GPU backend does not start or its output is wrong. Settings can force "CPU only". The status bar shows the active backend.
+- Runs on the CPU on every platform in v0.1 (decided 2026-11-21, #32). A later version uses the GPU when one is available, through ONNX Runtime execution providers (CoreML on Apple Silicon Macs), and falls back to the CPU when the GPU backend does not start or its output is wrong. Settings can force "CPU only". The status bar shows the active backend.
 - Off until the user chooses to download the model (about 180 MB), with progress and checksum; stored in the app data folder. The download dialog says where the model comes from and that the licence of its weights is unclear (personal use); Cratekit never bundles or hosts the weights.
 - Stems are cached per track; the Stems tab plays them in sync with mute / solo / volume per stem.
 - Export: separate WAVs. Later: NI STEM format (for Traktor).
@@ -113,7 +113,7 @@ The app keeps a local library of tracks the user adds. Original files are never 
 - A 4-minute track splits without crashing on a machine with 8 GB RAM.
 - Summing the 4 stems reconstructs the original (exactly: "other" is the mix minus drums, bass and vocals; the model alone reaches about −26 to −30 dB).
 - The job can be cancelled; the UI stays responsive during the split.
-- GPU and CPU backends produce the same stems within the −30 dB residual; a machine with no usable GPU still splits on the CPU without errors.
+- A machine with no usable GPU splits on the CPU without errors. Once a GPU backend exists: GPU and CPU backends produce the same stems within the −30 dB residual.
 
 ## Module 5: Controller (MIDI)
 
@@ -191,6 +191,6 @@ The step from prep tool to VirtualDJ replacement. Built after v0.1 ships; the v0
 | Linux | Ubuntu 22.04+ or Debian 12+ (glibc 2.35, WebKitGTK 4.1) | x86_64 + arm64 | deb and AppImage |
 
 - Windows needs the WebView2 runtime. It ships with Windows 10 (1803+) and 11; the installer fetches it only if it is missing.
-- Stem separation runs on the same minimums, with Microsoft's ONNX Runtime builds loaded at run time (1.32, and 1.23.2 on Intel Macs, the last Intel build; both proven in CI). An x86_64 CPU needs AVX2 and FMA for stems. Where stems cannot run, every other feature still works and stems show a clear message.
+- Stem separation runs on the same minimums, with Microsoft's ONNX Runtime builds loaded at run time (1.23.2 on macOS, 1.32 on Windows and Linux; all proven in CI). An x86_64 CPU needs AVX2 and FMA for stems. Where stems cannot run, every other feature still works and stems show a clear message.
 
-- The GPU is optional: every feature works on CPU only. Only stem separation uses the GPU.
+- The GPU is optional: every feature works on CPU only. Only stem separation will use the GPU (CPU only in v0.1).

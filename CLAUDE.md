@@ -49,7 +49,7 @@ The maintainer stays in the loop and in control at every step. Never bypass the 
 5. **License: MIT.** Before adding any dependency (crate or UI package), check its license and ask first. Allowed: MIT, Apache-2.0, BSD, ISC, Zlib, MPL-2.0, Unicode-3.0 (code); SIL OFL-1.1 for **fonts only**. Per-crate exceptions live in `deny.toml`. **Not allowed: GPL, AGPL, LGPL.** See the `license-check` skill.
 6. Do not copy code from GPL projects (e.g. Matchering, Mixxx, libkeyfinder). Reimplementing a published algorithm from its description is fine.
 7. **No business logic in the UI.** Analysis, mastering, library rules and export logic live in Rust. The UI renders state and sends commands.
-8. **Runs everywhere.** macOS (universal arm64 + x86_64), Windows (x86_64 + ARM64), Linux (x86_64 + arm64). Portable code only: no architecture-specific intrinsics without runtime detection and a scalar fallback. The GPU is optional: stems use it when available (CoreML / DirectML) and fall back to the CPU; everything else runs on the CPU. See `docs/ARCHITECTURE.md`, "Platforms and portability".
+8. **Runs everywhere.** macOS (universal arm64 + x86_64), Windows (x86_64 + ARM64), Linux (x86_64 + arm64). Portable code only: no architecture-specific intrinsics without runtime detection and a scalar fallback. The GPU is optional: stems run on the CPU in v0.1 and may use CoreML later, always with a CPU fallback; everything else runs on the CPU. See `docs/ARCHITECTURE.md`, "Platforms and portability".
 9. **Nothing private in git.** No secrets, no `.env` files, no test DJ audio, no real VirtualDJ database. Test material lives in `test-data/` (git-ignored).
 
 ## Stack

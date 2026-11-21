@@ -14,7 +14,7 @@ The UI's `Settings` (`ui/src/lib/types.ts`), with the defaults of `ui/src/lib/de
 | `watchedFolders` | list of paths | empty |
 | `watchFolders` | boolean | false |
 | `outputFolder` | path | empty: exports go to the system's Music folder, in `Cratekit` (`~/Music/Cratekit`, `Music\Cratekit` on Windows); stems under `Stems/<artist> - <title>/` |
-| `stemsBackend` | `"auto"` or `"cpu"` | `"auto"` |
+| `stemsBackend` | `"auto"` or `"cpu"` | `"auto"`: stems run on the CPU either way in v0.1; only the reason `stems_backend_status` gives changes |
 | `paneLayouts` | panes by group, sizes in percent | empty |
 | `setList` | track ids, in order | empty |
 
