@@ -3,7 +3,15 @@ import { create } from "zustand";
 import { i18n } from "@/i18n";
 import { api } from "@/lib/ipc";
 import { notifyError } from "@/lib/notify";
-import type { CueColor, CueSlot, PlaybackMode, TrackDetail, TrackId } from "@/lib/types";
+import type {
+  CueColor,
+  CueSlot,
+  PlaybackMode,
+  PlaybackState,
+  TrackDetail,
+  TrackId,
+} from "@/lib/types";
+import { useSetList } from "@/stores/setlist";
 
 /** Only the newest load may update the deck or the engine (clicks can overlap). */
 let loadSeq = 0;
@@ -17,6 +25,13 @@ let modeSeq = 0;
 let filterSending = false;
 /** The last filter value Rust accepted (where a failure rolls back to). */
 let filterAccepted = 0;
+/** The track last asked for: differs from the deck's while a load is in flight. */
+let requestedId: TrackId | null = null;
+/**
+ * Bumped by every load, play, pause, cue, hot cue and seek the user makes: a
+ * play-through started before one of them does not take the deck back.
+ */
+let userAction = 0;
 
 /**
  * Deck state that changes at human speed. The playhead position and meters
@@ -45,13 +60,34 @@ interface PlayerState {
   clearHotCue: (slot: CueSlot) => Promise<void>;
   /** Renames or recolours a hot cue. */
   updateHotCue: (slot: CueSlot, name: string | null, color: CueColor) => Promise<void>;
-  /** Rust reports a playback state change (e.g. the track reached its end). */
-  onPlaybackState: (playing: boolean) => void;
+  /**
+   * Rust reports a playback state change. When the track reached its end and
+   * it is in the set list, the next one loads and plays (no blend; blends
+   * need the second deck of v0.2).
+   */
+  onPlaybackState: (state: PlaybackState) => void;
   /** Re-reads the loaded track (after a job changed its analysis or stems). */
   refresh: () => Promise<void>;
 }
 
 export const usePlayer = create<PlayerState>()((set, get) => {
+  /** Loads a track onto the deck (the newest request wins). */
+  async function loadTrack(id: TrackId): Promise<void> {
+    const seq = ++loadSeq;
+    requestedId = id;
+    try {
+      const detail = await api().trackDetail(id);
+      if (seq !== loadSeq) return;
+      await api().playbackLoad(id);
+      if (seq !== loadSeq) return;
+      set({ detail, playing: false, loadCount: get().loadCount + 1 });
+    } catch (error) {
+      if (seq !== loadSeq) return;
+      requestedId = get().detail?.track.id ?? null;
+      notifyError(error, i18n.t("errors.player.load"));
+    }
+  }
+
   /** Re-reads the loaded track (cues changed in Rust). */
   async function refreshDetail(): Promise<void> {
     const id = get().detail?.track.id;
@@ -75,20 +111,12 @@ export const usePlayer = create<PlayerState>()((set, get) => {
     filter: 0,
 
     load: async (id) => {
-      const seq = ++loadSeq;
-      try {
-        const detail = await api().trackDetail(id);
-        if (seq !== loadSeq) return;
-        await api().playbackLoad(id);
-        if (seq !== loadSeq) return;
-        set({ detail, playing: false, loadCount: get().loadCount + 1 });
-      } catch (error) {
-        if (seq !== loadSeq) return;
-        notifyError(error, i18n.t("errors.player.load"));
-      }
+      userAction += 1;
+      await loadTrack(id);
     },
 
     togglePlay: async () => {
+      userAction += 1;
       const { detail, playing } = get();
       if (!detail) return;
       try {
@@ -101,6 +129,7 @@ export const usePlayer = create<PlayerState>()((set, get) => {
     },
 
     seek: async (sec) => {
+      userAction += 1;
       try {
         await api().playbackSeek(sec);
       } catch (error) {
@@ -145,6 +174,7 @@ export const usePlayer = create<PlayerState>()((set, get) => {
     },
 
     cue: async () => {
+      userAction += 1;
       const detail = get().detail;
       if (!detail) return;
       try {
@@ -159,6 +189,7 @@ export const usePlayer = create<PlayerState>()((set, get) => {
     },
 
     triggerHotCue: async (slot, positionSec) => {
+      userAction += 1;
       const detail = get().detail;
       if (!detail) return;
       const existing = detail.cues.find((c) => c.slot === slot);
@@ -202,6 +233,26 @@ export const usePlayer = create<PlayerState>()((set, get) => {
       }
     },
 
-    onPlaybackState: (playing) => set({ playing }),
+    onPlaybackState: ({ playing, ended }) => {
+      set({ playing });
+      if (!ended) return;
+      const id = get().detail?.track.id;
+      // A track picked just before the end is still loading: it wins.
+      if (id === undefined || requestedId !== id) return;
+      const next = useSetList.getState().nextAfter(id);
+      if (next === null) return;
+      const action = userAction;
+      void (async () => {
+        await loadTrack(next);
+        // A press or another track during the load keeps the deck as the user left it.
+        if (action !== userAction || get().detail?.track.id !== next) return;
+        try {
+          await api().playbackPlay();
+          set({ playing: true });
+        } catch (error) {
+          notifyError(error, i18n.t("errors.player.playback"));
+        }
+      })();
+    },
   };
 });

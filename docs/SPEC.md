@@ -45,7 +45,7 @@ The app keeps a local library of tracks the user adds. Original files are never 
 - Crates: user-made lists of tracks (a track can be in several crates). Each crate has a name and a colour.
 - Track list columns: #, title, artist, BPM, key (Camelot), energy, duration, status tags (analyzed / stems / mastered).
 - Search by title, artist, BPM range, key.
-- **Set builder (side list):** a second list next to the track browser to stage tracks and build a set's running order: drag tracks in, reorder, see BPM and Camelot per row with key or BPM jumps flagged between neighbours, save as a crate. (Test DJ feedback: "missing 2nd playlist".)
+- **Set builder (side list):** a second list next to the track browser to stage tracks and build a set's running order: drag tracks in, reorder, see BPM and Camelot; it plays through (when a set list track ends, the next one plays; the track on the deck is highlighted) per row with key or BPM jumps flagged between neighbours, save as a crate. (Test DJ feedback: "missing 2nd playlist".)
 - Filters: "matches the playing track's key", BPM range, "has stems".
 
 **Acceptance**
