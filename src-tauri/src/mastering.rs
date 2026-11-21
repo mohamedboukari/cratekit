@@ -227,13 +227,13 @@ fn preview_for(
     lufs: Option<f64>,
     curve: MatchCurve,
 ) -> MasterPreview {
-    let target = MasterSettings {
+    let core = MasterSettings {
         preset: settings.preset,
         intensity: settings.intensity,
         target_lufs: settings.target_lufs,
         reference: None,
-    }
-    .target();
+    };
+    let target = core.target();
     let makeup_db = lufs
         .filter(|value| value.is_finite())
         .map_or(0.0, |value| target - value as f32);
@@ -245,6 +245,8 @@ fn preview_for(
             .with_reference(curve),
         makeup_db,
         level_match_db: -makeup_db,
+        // The same rule as the export: the clipper only for loud targets.
+        clip: core.clips(),
     }
 }
 
@@ -584,6 +586,9 @@ mod tests {
             MatchCurve::FLAT,
         );
         assert_eq!((unknown.makeup_db, unknown.level_match_db), (0.0, 0.0));
+        // The clipper only for loud targets, as in the export.
+        assert!(club.clip);
+        assert!(!unknown.clip);
     }
 
     #[test]

@@ -65,6 +65,7 @@ src/
     presets.rs         Preset structs (see table below)
     eq.rs              biquad shelves, peaks and passes (RBJ cookbook), f64 state
     compressor.rs      RMS glue compressor, one gain for all channels, soft knee
+    clipper.rs         4x oversampled soft clipper before the limiter for targets louder than -10 LUFS, knee 3 dB over its ceiling, at most 6 dB off a peak (#144)
     limiter.rs         look-ahead true-peak limiter (4x windowed-sinc detection, -1.0 dBTP)
     reference.rs       reference matching: 31-band long-term spectrum, match curve, corrected peaking bank (#27)
   stems/
@@ -277,11 +278,11 @@ Exports go to the output folder (the Output folder setting, or `<Music>/Cratekit
 
 ```
 decode → resample to 48 kHz (or keep source rate) → [reference match EQ] → preset EQ
-       → glue compressor → makeup gain (2-pass loudness targeting) → true-peak limiter (−1 dBTP)
+       → glue compressor → makeup gain (loudness targeting) → soft clipper → true-peak limiter (−1 dBTP)
        → [TPDF dither: 16 and 24-bit] → WAV
 ```
 
-Loudness targeting: the preset's EQ and compressor run once; then makeup gain, limiter and a measurement of integrated LUFS (mono measured as dual mono, as it plays on two speakers). The limiter makes loudness move less than the gain (0.15 to 0.4 dB per dB under heavy limiting), so each correction divides the miss by the slope of the last two passes; up to 5 passes until within ±0.3 LU, stopping early when a pass gains nothing. When the limiter cannot get there (a very loud target on transient-rich material), the closest pass is kept and the result says the target was not reached. A last check with the meter trims the master if its true peak reads over -1.0 dBTP. The target is the one chosen, clamped to -30 to -5 LUFS (#25).
+Loudness targeting: the preset's EQ and compressor run once; then makeup gain, the soft clipper (#144: for targets louder than -10 LUFS only; peaks more than 3 dB over the ceiling, at most 6 dB off each; a pass clipping more than 5 % of the master is not kept; Club's -8 LUFS is reachable on hat-heavy tracks), limiter and a measurement of integrated LUFS (mono measured as dual mono, as it plays on two speakers). The limiter makes loudness move less than the gain (0.15 to 0.4 dB per dB under heavy limiting), so each correction divides the miss by the slope of the last two passes; up to 5 passes until within ±0.3 LU, stopping early when a pass gains nothing. When the limiter cannot get there (a very loud target on transient-rich material), the closest pass is kept and the result says the target was not reached. A last check with the meter trims the master if its true peak reads over -1.0 dBTP. The target is the one chosen, clamped to -30 to -5 LUFS (#25).
 
 **Presets (starting values, to tune by ear with the test DJ)**
 

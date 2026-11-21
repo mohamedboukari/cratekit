@@ -19,6 +19,7 @@ use crate::audio::AudioBuffer;
 use crate::files::safe_file_name;
 use crate::progress::{CancellationToken, ProgressSink};
 
+use super::clipper::{ClipperSettings, clip};
 use super::limiter::{LimiterSettings, limit};
 use super::presets::{PresetChain, PresetName};
 use super::reference::{MatchCurve, Spectrum, long_term_spectrum};
@@ -46,6 +47,14 @@ const STALL_LU: f32 = 0.05;
 const COLOUR_SHARE: f32 = 0.3;
 /// Of that share, measuring the track's spectrum when there is a reference.
 const SPECTRUM_SHARE: f32 = 0.1;
+/// Targets louder than this (in LUFS) may use the soft clipper (#144): a
+/// club master. At this loudness and quieter the chain is limiter-only, as
+/// before, so gentle masters never clip.
+const CLIP_FROM_LUFS: f32 = -10.0;
+/// The most of a master the clipper may touch (a share of its points): a
+/// pass that clips more is never kept, and when louder would need more, the
+/// target is out of reach.
+const MAX_CLIP_SHARE: f32 = 0.05;
 /// Headroom when the last check has to trim, in dB.
 const TRIM_MARGIN_DB: f32 = 0.05;
 
@@ -65,6 +74,13 @@ pub struct MasterSettings {
 }
 
 impl MasterSettings {
+    /// Whether this master may use the soft clipper: only for targets
+    /// louder than -10 LUFS (the live preview asks the same question).
+    #[must_use]
+    pub fn clips(&self) -> bool {
+        self.target() > CLIP_FROM_LUFS
+    }
+
     /// The target actually aimed at: clamped to -30 to -5 LUFS, and the
     /// preset's own when it is not a number.
     #[must_use]
@@ -92,6 +108,9 @@ pub struct Mastered {
     /// Whether it landed within 0.5 LU of the target (the SPEC acceptance);
     /// false when the limiter could not get there on this material.
     pub target_reached: bool,
+    /// The share of the master the soft clipper touched, 0 to 1 (#144): 0
+    /// for every master at -10 LUFS or quieter, at most 5 % on a louder one.
+    pub clipped_share: f32,
 }
 
 /// Measures planar channels. A mono track is measured as dual mono (the same
@@ -202,21 +221,37 @@ pub fn master(
     let mut best = coloured.clone();
     let mut best_measured: Option<Loudness> = None;
     let mut previous: Option<(f32, f32)> = None; // (gain, loudness) of the pass before
+    let limiter = LimiterSettings::default();
+    // The soft clipper takes the tips off peaks far over the ceiling, so the
+    // limiter has less to catch (#144): for loud targets only.
+    let clipper = settings
+        .clips()
+        .then(|| ClipperSettings::for_ceiling(limiter.ceiling_dbtp));
+    let mut best_share = 0.0;
     for pass in 0..MAX_PASSES {
         cancel.check()?;
         apply_gain(&coloured, gain_db, &mut work);
-        limit(&mut work, rate, LimiterSettings::default());
+        let share = clipper.map_or(0.0, |clipper| clip(&mut work, clipper));
+        limit(&mut work, rate, limiter);
         let measured = loudness(&work, rate)?;
         let now = measured.integrated_lufs;
         let miss = target - now;
         progress
             .progress(COLOUR_SHARE + (1.0 - COLOUR_SHARE) * (pass + 1) as f32 / MAX_PASSES as f32);
-        let closer = best_measured.is_none_or(|b| miss.abs() < (target - b.integrated_lufs).abs());
+        // A pass that clips more than the budget is never kept.
+        let within_budget = share <= MAX_CLIP_SHARE;
+        let closer = within_budget
+            && best_measured.is_none_or(|b| miss.abs() < (target - b.integrated_lufs).abs());
         if closer {
             std::mem::swap(&mut best, &mut work);
             best_measured = Some(measured);
+            best_share = share;
         }
-        if miss.abs() <= TOLERANCE_LU {
+        if within_budget && miss.abs() <= TOLERANCE_LU {
+            break;
+        }
+        // Louder would clip more than the budget: as loud as it gets.
+        if !within_budget && miss > 0.0 {
             break;
         }
         // The slope from the last two passes (1 to start: no limiting yet).
@@ -230,6 +265,15 @@ pub fn master(
         }
         previous = Some((gain_db, now));
         gain_db = next_gain(gain_db, miss, slope);
+    }
+    // Every pass clipped more than the budget: the limiter alone, at the
+    // last gain tried.
+    if best_measured.is_none() {
+        cancel.check()?;
+        apply_gain(&coloured, gain_db.min(MAX_GAIN_DB), &mut best);
+        limit(&mut best, rate, limiter);
+        best_measured = Some(loudness(&best, rate)?);
+        best_share = 0.0;
     }
     let Some(mut measured) = best_measured else {
         return Err(CoreError::Cancelled);
@@ -249,6 +293,7 @@ pub fn master(
         true_peak_dbtp: measured.true_peak_dbtp,
         target_lufs: target,
         target_reached: (target - measured.integrated_lufs).abs() <= 0.5,
+        clipped_share: best_share,
     })
 }
 
@@ -392,6 +437,74 @@ mod tests {
             -11.0,
             "hats",
         );
+    }
+
+    #[test]
+    fn club_reaches_minus_8_on_hat_heavy_material_with_the_clipper() {
+        // #144: the limiter alone stops near -8.6 LUFS here.
+        for channels in [2, 1] {
+            let hats = loop_with_hats(-1.0, channels);
+            let mastered = run(&hats, &settings(PresetName::Club, 1.0, -8.0));
+            assert!(
+                (mastered.lufs + 8.0).abs() <= TOLERANCE_LU,
+                "{channels} ch: {} LUFS",
+                mastered.lufs
+            );
+            assert_acceptance(&mastered, -8.0, "Club on hats");
+            assert!(
+                mastered.clipped_share > 0.0 && mastered.clipped_share <= MAX_CLIP_SHARE,
+                "the clipper did part of it, within its budget: {}",
+                mastered.clipped_share
+            );
+        }
+    }
+
+    /// A mix with far more peak than loudness, as unmastered tracks are: a
+    /// kick at -1 dBFS over quiet chords and bass.
+    fn peaky_mix() -> AudioBuffer {
+        let kick = synth::normalize(synth::kick(124.0, 4.0, RATE), -1.0);
+        let chords = synth::normalize(synth::chords(a_minor(), 124.0, 4.0, RATE), -18.0);
+        let bass = synth::normalize(synth::bass(a_minor(), 124.0, 4.0, RATE), -18.0);
+        let mix = synth::mix(&[&kick, &chords, &bass]);
+        AudioBuffer::new(RATE, vec![mix.clone(), mix]).unwrap()
+    }
+
+    #[test]
+    fn targets_at_minus_10_and_quieter_never_clip() {
+        // Limiter-only, exactly as before #144, however peaky the mix.
+        let (hats, peaky) = (loop_with_hats(-1.0, 2), peaky_mix());
+        for (what, audio, preset) in [
+            ("hats", &hats, PresetName::Chill),
+            ("peaky mix", &peaky, PresetName::Chill),
+            ("peaky mix", &peaky, PresetName::Club),
+        ] {
+            let mastered = run(audio, &settings(preset, 1.0, -12.0));
+            assert_eq!(mastered.clipped_share, 0.0, "{what}, {preset:?}");
+            assert_acceptance(&mastered, -12.0, what);
+        }
+        assert!(!settings(PresetName::Club, 1.0, -10.0).clips());
+        assert!(settings(PresetName::Club, 1.0, -9.9).clips());
+    }
+
+    #[test]
+    fn a_loud_target_that_needs_too_much_clipping_is_out_of_reach() {
+        let hats = loop_with_hats(-1.0, 2);
+        let mastered = run(&hats, &settings(PresetName::Club, 1.0, -6.0));
+        assert!(!mastered.target_reached, "{} LUFS", mastered.lufs);
+        assert!(
+            mastered.clipped_share <= MAX_CLIP_SHARE,
+            "{}",
+            mastered.clipped_share
+        );
+        assert!(mastered.true_peak_dbtp <= -1.0);
+        // A peaky mix at a club target stays within the budget too.
+        let peaky = run(&peaky_mix(), &settings(PresetName::HipHop, 1.0, -9.0));
+        assert!(
+            peaky.clipped_share <= MAX_CLIP_SHARE,
+            "{}",
+            peaky.clipped_share
+        );
+        assert!(peaky.true_peak_dbtp <= -1.0);
     }
 
     #[test]
