@@ -24,7 +24,7 @@ graphify-out/
 
 # Tauri generated files and test reports
 src-tauri/gen/
-# ONNX Runtime staged for the installers by .github/scripts/fetch-onnxruntime.sh (#31)
+# ONNX Runtime staged by .github/scripts/fetch-onnxruntime.sh: for the installers (#31) and by `bun run setup:stems` for tauri dev
 src-tauri/onnxruntime/
 junit.xml
 target/nextest/
