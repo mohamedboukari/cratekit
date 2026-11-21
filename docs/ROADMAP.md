@@ -148,5 +148,6 @@ Toward replacing VirtualDJ (SPEC Module 8). Starts after v0.1 ships.
 - Multi-screen: detach panels into their own windows (#93)
 - Karaoke mode (#94)
 - Playlist export and import (M3U), the offline alternative to cloud sharing (#95)
+- Remix lab: stems mashups (harmonic pairs, time-stretch and pitch-shift to match), beat-grid loop export, DJ edits; generative audio deferred (#134)
 - Plan for the retiring Intel macOS CI runner (fall 2027): cross-compile and test on owned hardware (#117)
 - **Research:** lower the macOS minimum if cpal weak-links its process-tap functions (#118)
