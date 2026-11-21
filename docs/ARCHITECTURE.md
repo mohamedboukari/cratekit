@@ -112,7 +112,8 @@ src/
   playback.rs    PlayerState (engine started on first load, on the device and buffer from the settings), playback_load / play / pause / seek,
                  audio_list_devices / audio_set_device, engine restart that keeps the track, the 30 Hz poller (playback_position, meter,
                  playback_state at the end of a track) and the device watcher (unplug, default change). Done (#19, #20)
-  commands/      mastering.rs, stems.rs, midi.rs, export.rs (planned)
+  mastering.rs   master_presets (the five presets with label, default target, description; #24); preview and export next
+  commands/      midi.rs, export.rs (planned)
   midi/          device watch, MIDI learn, mapping store, LED feedback
   jobs.rs        job queue (one worker thread; analysis jobs), job_progress / job_done / job_failed events; done: analyze_tracks, job_cancel, jobs_set_paused
 ```
@@ -179,7 +180,7 @@ Rules:
 | `playback_set_level_match(enabled)` | Master A/B compare at equal loudness (default on) |
 | `stems_split(id)` / `stems_set_gain(stem, gain)` / `stems_set_mute(stem, bool)` / `stems_set_solo(stem, bool)` | Stems; `stems_split` queues a job (`kind: stems`, 100 steps per track, cancellable) that writes `stems/<track id>/` in the app data folder and records it in the library; it rejects with `model_missing` until the model is downloaded, and the job fails with `stems_unavailable` (the reason in the message) when ONNX Runtime cannot load. `stems_set_gain` (0 to 2), `stems_set_mute` and `stems_set_solo` (while any stem is soloed, exactly the soloed ones are heard) set one stem of the mixer, ramped over 10 ms; every load starts with a neutral mix, and the settings survive an engine restart (#34) |
 | `stems_info(id)` / `stems_export(id)` | Split time, per-stem waveforms and the summed instrumental waveform (null when not split); `stems_export` copies the four cached WAVs into `<output folder>/Stems/<artist> - <title>/` as `<artist> - <title> (drums).wav` and so on (the title alone without an artist) (the output folder is the setting, else `<Music>/Cratekit`; the title made safe for every system), replacing an earlier export; returns the paths, `not_found` when the track was not split |
-| `master_presets` / `master_preview(id, settings)` / `master_export(id, settings)` | Mastering: presets with label, default target and a one-line description; B-side render for A/B; export into the output folder, returns path, LUFS and true peak |
+| `master_presets` / `master_preview(id, settings)` / `master_export(id, settings)` | Mastering: presets with label, default target and a one-line description (done, #24); B-side render for A/B; export into the output folder, returns path, LUFS and true peak |
 | `hotcue_set(id, slot, sec)` / `hotcue_clear(id, slot)` / `hotcue_update(id, slot, name, color)` | Cues (set or move, clear, rename and recolour) |
 | `midi_list_devices / midi_learn_start(target) / midi_learn_cancel / midi_mappings(device_id)` | Controller; `midi_mappings` returns one row per control target (`binding` null when unmapped) |
 | `export_virtualdj(ids, dry_run)` | Export; each track's `changes` are data (`{ field: bpm \| key \| cues, value }`), worded by the UI |

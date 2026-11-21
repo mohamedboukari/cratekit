@@ -5,6 +5,7 @@
 
 mod jobs;
 mod library;
+mod mastering;
 mod models;
 mod playback;
 mod settings;
@@ -324,6 +325,7 @@ pub fn run() -> anyhow::Result<()> {
             stems::stems_info,
             stems::stems_export,
             stems::stems_backend_status,
+            mastering::master_presets,
             playback::playback_set_mode,
             playback::stems_set_gain,
             playback::stems_set_mute,
