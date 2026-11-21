@@ -42,6 +42,8 @@ export function SetList(): JSX.Element {
   const saveAsCrate = useSetList((s) => s.saveAsCrate);
   const refreshRows = useLibrary((s) => s.refreshRows);
   const load = usePlayer((s) => s.load);
+  // The track on the deck: playing through the set moves it down the list.
+  const loadedId = usePlayer((s) => s.detail?.track.id ?? null);
   // The drop line: the slot under the pointer while an in-app drag runs.
   const dropIndex = useDrag((s) => (s.payload === null ? null : s.over));
   const [naming, setNaming] = useState(false);
@@ -198,6 +200,7 @@ export function SetList(): JSX.Element {
                     : undefined
                 }
                 dropBefore={dropIndex === index}
+                loaded={loadedId === track.id}
                 onKeyDown={onItemKeyDown(index, track)}
                 buttonRef={(el) => {
                   if (el) itemButtons.current.set(track.id, el);
@@ -231,6 +234,8 @@ interface SetListItemProps {
   index: number;
   transition: Transition | undefined;
   dropBefore: boolean;
+  /** On the deck now. */
+  loaded: boolean;
   onKeyDown: (event: KeyboardEvent<HTMLButtonElement>) => void;
   buttonRef: (el: HTMLButtonElement | null) => void;
   onRemove: () => void;
@@ -242,6 +247,7 @@ function SetListItem({
   index,
   transition,
   dropBefore,
+  loaded,
   onKeyDown,
   buttonRef,
   onRemove,
@@ -274,7 +280,14 @@ function SetListItem({
           {warnings.join(" · ")}
         </div>
       )}
-      <div className="flex items-center rounded-md hover:bg-card">
+      <div
+        className={cn(
+          "flex items-center rounded-md",
+          loaded
+            ? "bg-primary/10 shadow-[inset_2px_0_0_var(--color-primary)]"
+            : "hover:bg-card",
+        )}
+      >
         <button
           ref={buttonRef}
           type="button"
@@ -284,6 +297,7 @@ function SetListItem({
           onKeyDown={onKeyDown}
           onClick={onLoad}
           aria-label={`${t("browser.setList.itemLabel", { position: index + 1, title: track.title })}${warnings.length ? `. ${warnings.join(", ")}` : ""}`}
+          aria-current={loaded ? "true" : undefined}
           aria-keyshortcuts="Alt+ArrowUp Alt+ArrowDown Delete"
           className="flex min-w-0 flex-1 items-center gap-2 rounded-md px-2 py-1.5 text-left"
         >

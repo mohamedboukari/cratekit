@@ -11,7 +11,7 @@
 //! position and playing state (`audio_device_changed`).
 
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
+use std::sync::{Arc, Mutex, MutexGuard, PoisonError, Weak};
 use std::thread;
 use std::time::Duration;
 
@@ -451,7 +451,27 @@ pub(crate) async fn apply_audio_settings(app: AppHandle) -> Result<Option<String
 /// Tells the UI whether the deck plays (after a restart changed it).
 fn send_playing<R: Runtime>(app: &AppHandle<R>, playing: bool) {
     // A window that is closing cannot receive it; the others still do.
-    app.emit("playback_state", PlaybackState { playing }).ok();
+    app.emit(
+        "playback_state",
+        PlaybackState {
+            playing,
+            ended: false,
+        },
+    )
+    .ok();
+}
+
+/// Tells the UI the track reached its end (it stopped there), so the set
+/// list can play the next one.
+fn send_ended<R: Runtime>(app: &AppHandle<R>) {
+    app.emit(
+        "playback_state",
+        PlaybackState {
+            playing: false,
+            ended: true,
+        },
+    )
+    .ok();
 }
 
 fn internal(err: tauri::Error) -> AppError {
@@ -482,6 +502,8 @@ struct Meter {
 #[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export))]
 struct PlaybackState {
     playing: bool,
+    /// The track reached its end (not a pause or a device change).
+    ended: bool,
 }
 
 /// Why the output device changed (the UI's `AudioDeviceChanged.reason`).
@@ -565,7 +587,8 @@ fn device_switch(
 /// about 30 times a second, and the device check about every 2 s.
 pub(crate) fn start_poller<R: Runtime>(app: AppHandle<R>) {
     thread::spawn(move || {
-        let mut previous: Option<Status> = None;
+        // The last status, with the engine it came from (see `baseline`).
+        let mut previous: Option<(Weak<Engine>, Status)> = None;
         let mut devices: Option<(Vec<String>, Option<String>)> = None;
         let mut polls = 0_u32;
         loop {
@@ -590,8 +613,8 @@ pub(crate) fn start_poller<R: Runtime>(app: AppHandle<R>) {
                         previous = None;
                         continue;
                     }
-                    send_playback_events(&app, previous.as_ref(), &status);
-                    previous = Some(status);
+                    send_playback_events(&app, baseline(&previous, &engine), &status);
+                    previous = Some((Arc::downgrade(&engine), status));
                 }
                 None => previous = None,
             }
@@ -600,6 +623,19 @@ pub(crate) fn start_poller<R: Runtime>(app: AppHandle<R>) {
             }
         }
     });
+}
+
+/// The previous status, when it came from this same engine. A restarted
+/// engine (another device, a new buffer size) counts track ends from zero
+/// again: compared with the old engine's count, its next ends would be
+/// missed, and the set list would stop playing through. The `Weak` keeps the
+/// old engine's memory reserved without keeping it running, so a new engine
+/// can never sit at the same address.
+fn baseline<'a, E>(previous: &'a Option<(Weak<E>, Status)>, engine: &Arc<E>) -> Option<&'a Status> {
+    previous
+        .as_ref()
+        .filter(|(seen, _)| std::ptr::eq(seen.as_ptr(), Arc::as_ptr(engine)))
+        .map(|(_, status)| status)
 }
 
 /// Sends position, meter and end-of-track events for `status`.
@@ -617,7 +653,7 @@ fn send_playback_events<R: Runtime>(
         app.emit("meter", meter).ok();
     }
     if ended {
-        send_playing(app, false);
+        send_ended(app);
     }
 }
 
@@ -1202,6 +1238,27 @@ mod tests {
     }
 
     #[test]
+    fn a_restarted_engine_starts_a_new_baseline_so_no_end_is_missed() {
+        let first = Arc::new(1_u8);
+        let after_six_ends = Some((Arc::downgrade(&first), status(10.0, true, 6, 0.5)));
+        assert!(baseline(&after_six_ends, &first).is_some());
+        // A new engine counts from zero: comparing with 6 would miss its ends.
+        let restarted = Arc::new(2_u8);
+        assert!(baseline(&after_six_ends, &restarted).is_none());
+        let (_, _, ended) = events(
+            baseline(&after_six_ends, &restarted),
+            &status(0.0, false, 1, 0.0),
+        );
+        assert!(
+            !ended,
+            "the first status of a new engine only sets the baseline"
+        );
+        let fresh = Some((Arc::downgrade(&restarted), status(0.0, false, 1, 0.0)));
+        let (_, _, ended) = events(baseline(&fresh, &restarted), &status(0.0, false, 2, 0.0));
+        assert!(ended, "its next end is seen");
+    }
+
+    #[test]
     fn sends_position_and_meters_while_playing() {
         let (position, meter, ended) = events(
             Some(&status(1.0, true, 0, 0.5)),
@@ -1263,8 +1320,12 @@ mod tests {
             serde_json::json!({ "peakDb": -3.0, "rmsDb": -9.0 })
         );
         assert_eq!(
-            serde_json::to_value(PlaybackState { playing: false }).unwrap(),
-            serde_json::json!({ "playing": false })
+            serde_json::to_value(PlaybackState {
+                playing: false,
+                ended: true
+            })
+            .unwrap(),
+            serde_json::json!({ "playing": false, "ended": true })
         );
     }
 }

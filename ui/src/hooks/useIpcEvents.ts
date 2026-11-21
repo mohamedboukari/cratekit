@@ -46,7 +46,7 @@ export function useIpcEvents(): void {
         // A failed analysis still stored the tracks that worked.
         if (f.kind === "analysis") refreshAfterAnalysis();
       }),
-      api().onPlaybackState((s) => usePlayer.getState().onPlaybackState(s.playing)),
+      api().onPlaybackState((s) => usePlayer.getState().onPlaybackState(s)),
       api().onMidiDeviceChanged((devices) => useDevices.getState().setMidi(devices)),
       api().onMidiLearned((learned) => useController.getState().onLearned(learned)),
       // The Settings window is a separate page; Rust tells this one what changed.
