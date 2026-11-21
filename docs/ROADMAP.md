@@ -67,7 +67,7 @@ Stems
 - [x] Model download with progress + checksum (#30)
 - [x] `StemSeparator` trait; htdemucs implementation on `ort` with our own chunking (#31)
 - [ ] Backend selection: GPU provider with CPU fallback, CPU reference check, "CPU only" setting, backend in the status bar; verified on real hardware (Apple Silicon, Windows GPU, a CPU-only machine) (#32)
-- [ ] Cancel + progress; cache per track (#33)
+- [x] Cancel + progress; cache per track (#33)
 - [ ] Stem mixer in the audio engine (gain, mute, solo) (#34)
 - [ ] UI: Stems tab; export WAVs (#35)
 

@@ -27,6 +27,7 @@ export const errors = {
     checksum: "The downloaded file was not the expected one and was deleted. Try again.",
     busy: "Wait until the download finishes.",
     stems: "The stems could not be split.",
+    stems_unavailable: "Stems cannot run on this computer.",
   },
   controller: {
     load: "Could not load the controller mapping",

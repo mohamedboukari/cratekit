@@ -11,6 +11,7 @@
 | `decode.rs` | `decode_file`: any supported file to an `AudioBuffer` (`symphonia` 0.6, MPL-2.0) |
 | `resample.rs` | `resample`: change the sample rate (`rubato` 5, MIT OR Apache-2.0) |
 | `probe.rs` | `probe_file`: tags and stream properties without decoding (`FileInfo`) |
+| `wav.rs` | `write_wav`: an `AudioBuffer` to a WAV file (our own writer, no dependency) |
 
 ## `AudioBuffer`
 
@@ -45,6 +46,10 @@ rubato's FFT resampler (fixed ratio, Blackman-Harris anti-aliasing filter), run 
 ## `probe_file(path) -> Result<FileInfo, CoreError>`
 
 Reads a file's tags and headers without decoding the audio, for adding tracks to the library. `FileInfo` has the title, artist and album tags (ID3v1 and v2, MP4, Vorbis comments, RIFF INFO; file-level and stream-level tags), and the duration, sample rate and channel count from the header. A field with several values (two ARTIST comments, or an ID3v2.4 frame holding a list) keeps them all, joined with ", "; a later tag block replaces a field only when it has a value for it, so ID3v2 wins over ID3v1. An MP3 without a Xing, Info or VBRI header gets a duration estimated from the bitrate of its first frames, which can be off for VBR files (the analysis in #15 replaces it with the decoded length). Same errors as `decode_file` for opening.
+
+## `write_wav(path, audio, format) -> Result<(), CoreError>`
+
+Writes a WAV file: `WavFormat::Pcm16` (the stems cache), `Pcm24`, or `Float32` (exactly as computed). PCM samples are scaled by 2^15 or 2^23 (the convention the decoder reads back), get TPDF dither (a triangular random value of up to one step, seeded from the file's name, so stems summed together get independent noise and the same audio under the same name gives the same file), and are rounded and clamped. Float files carry the `fact` chunk; an odd-sized data chunk gets its pad byte. The file is written to `<file name>.part` next to it and renamed once complete. `InvalidAudio` when the audio does not fit a WAV file (past the format's 4 GB limit, too many channels, or a sample rate too high for the header).
 
 ## Tests
 

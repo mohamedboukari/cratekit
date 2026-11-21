@@ -4,4 +4,4 @@
  * What a job does (the UI's `JobKind`). Stems, mastering and export add
  * their own.
  */
-export type JobKind = "analysis" | "model-download";
+export type JobKind = "analysis" | "stems" | "model-download";

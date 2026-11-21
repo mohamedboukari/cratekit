@@ -25,7 +25,7 @@ pub(crate) struct ModelStatus {
 }
 
 /// The folder the models are downloaded into.
-fn models_dir<R: Runtime>(app: &AppHandle<R>) -> Result<PathBuf, AppError> {
+pub(crate) fn models_dir<R: Runtime>(app: &AppHandle<R>) -> Result<PathBuf, AppError> {
     Ok(app.path().app_data_dir()?.join("models"))
 }
 

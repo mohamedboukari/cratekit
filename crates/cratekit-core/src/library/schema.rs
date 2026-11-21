@@ -58,6 +58,12 @@ CREATE INDEX crate_tracks_track ON crate_tracks(track_id);
     r"
 ALTER TABLE analysis ADD COLUMN chroma BLOB;
 ",
+    // 3: how long a stems split took, and the stems' waveforms
+    // (`stems::cache::StemWaveforms`), for the Stems tab (#33).
+    r"
+ALTER TABLE stems ADD COLUMN split_sec REAL;
+ALTER TABLE stems ADD COLUMN waveforms BLOB;
+",
 ];
 
 /// The schema version this build knows: the number of migrations.

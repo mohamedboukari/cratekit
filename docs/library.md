@@ -37,7 +37,8 @@
 | `list(query)` | Tracks matching every filter: in the crate's order when the query names a crate, else oldest first. Crate, BPM range, near BPM (within `NEAR_BPM_TOLERANCE` = 3 BPM) and has-stems run in SQL; the search (every word must appear in the title, artist or album, any case, Unicode-aware) and the key match (`Camelot::matches`: the same code, one step either side, or the relative key) run in Rust |
 | `counts()` | All tracks, added in the last 7 days, and needing analysis (none stored, or from an older `ANALYZER_VERSION`) |
 | `track(id)` | The row, the file path, the waveform overview (up to 1200 columns, when the analysis stored one), the stored `Analysis` (as the Analyze tab shows it: key name, Camelot code, scale flags and mixing partners computed here) and the hot cues (slots 1 to 8); `NotFound` for an unknown id |
-| `remove_tracks(ids)` | Deletes the rows in one transaction; returns how many existed |
+| `remove_tracks(ids)` | Deletes the rows in one transaction; returns how many existed. Their stems records go too, but not the stems folders on disk: the caller deletes those (nothing in the app removes tracks yet) |
+| `store_stems(id, model, dir, split)` / `stems(id)` / `remove_stems(id)` | The stems of a split track (#33): the model, the folder with the WAV files, how long the split took and the stems' waveforms (`StoredStems`). Storing replaces an earlier record and marks the track `has_stems`; removing returns the folder for the caller to delete (the library never touches files); `NotFound` for a track not in the library |
 | `store_analysis(id, analysis)` | Stores a `TrackAnalysis` (replacing an older one, with `ANALYZER_VERSION` and the time) and updates the track's length, sample rate and channels from the decoded audio; `NotFound` when the track was removed meanwhile |
 
 - **Titles:** the title tag, or the file name without its extension. The artist is empty without a tag.

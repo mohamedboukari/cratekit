@@ -26,6 +26,7 @@ use crate::analysis::track::TrackAnalysis;
 use crate::analysis::waveform::{OVERVIEW_COLUMNS, Waveform, WaveformView};
 use crate::audio::{FileInfo, probe_file};
 use crate::settings::Settings;
+use crate::stems::cache::{Split, StemWaveforms};
 
 /// A track's id in the library.
 pub type TrackId = i64;
@@ -214,6 +215,19 @@ pub struct Analysis {
     pub drop_sec: Option<f64>,
     /// The mix-out point, once auto cues exist (#48).
     pub mix_out_sec: Option<f64>,
+}
+
+/// The stems recorded for a track (#33).
+#[derive(Debug, Clone, PartialEq)]
+pub struct StoredStems {
+    /// The model that split it, e.g. "htdemucs".
+    pub model: String,
+    /// The folder with the stem files (`stems::cache::STEM_FILES`).
+    pub dir: PathBuf,
+    /// How long the split took, in seconds.
+    pub split_sec: Option<f64>,
+    /// The stems' waveforms.
+    pub waveforms: Option<StemWaveforms>,
 }
 
 /// One track with everything stored about it.
@@ -896,6 +910,86 @@ impl Library {
         )?;
         transaction.commit()?;
         Ok(())
+    }
+
+    /// Records the stems of a track split into `dir` by `model` (replacing an
+    /// earlier split's record). The track then counts as having stems.
+    ///
+    /// # Errors
+    ///
+    /// [`CoreError::NotFound`] when the track is not in the library,
+    /// [`CoreError::Io`] when `dir` is not valid UTF-8, or
+    /// [`CoreError::Database`].
+    pub fn store_stems(
+        &mut self,
+        id: TrackId,
+        model: &str,
+        dir: &Path,
+        split: &Split,
+    ) -> Result<(), CoreError> {
+        let Some(dir) = dir.to_str() else {
+            return Err(CoreError::Io(std::io::Error::new(
+                std::io::ErrorKind::InvalidInput,
+                "the stems folder's path is not valid UTF-8",
+            )));
+        };
+        let exists: bool = self.connection.query_row(
+            "SELECT EXISTS (SELECT 1 FROM tracks WHERE id = ?1)",
+            [id],
+            |row| row.get(0),
+        )?;
+        if !exists {
+            return Err(CoreError::NotFound { what: "track", id });
+        }
+        self.connection.execute(
+            "INSERT OR REPLACE INTO stems (track_id, model, dir, created_at, split_sec, waveforms) \
+             VALUES (?1, ?2, ?3, strftime('%Y-%m-%dT%H:%M:%SZ', 'now'), ?4, ?5)",
+            params![id, model, dir, split.split_sec, split.waveforms.to_bytes()],
+        )?;
+        Ok(())
+    }
+
+    /// The stems recorded for a track, if it was split.
+    ///
+    /// # Errors
+    ///
+    /// [`CoreError::Database`].
+    pub fn stems(&self, id: TrackId) -> Result<Option<StoredStems>, CoreError> {
+        Ok(self
+            .connection
+            .query_row(
+                "SELECT model, dir, split_sec, waveforms FROM stems WHERE track_id = ?1",
+                [id],
+                |row| {
+                    let waveforms: Option<Vec<u8>> = row.get(3)?;
+                    Ok(StoredStems {
+                        model: row.get(0)?,
+                        dir: PathBuf::from(row.get::<_, String>(1)?),
+                        split_sec: row.get(2)?,
+                        waveforms: waveforms.as_deref().and_then(StemWaveforms::from_bytes),
+                    })
+                },
+            )
+            .optional()?)
+    }
+
+    /// Forgets a track's stems and returns the folder they were in, for the
+    /// caller to delete (the library never touches files). `None` when the
+    /// track had none.
+    ///
+    /// # Errors
+    ///
+    /// [`CoreError::Database`].
+    pub fn remove_stems(&mut self, id: TrackId) -> Result<Option<PathBuf>, CoreError> {
+        let dir: Option<String> = self
+            .connection
+            .query_row("SELECT dir FROM stems WHERE track_id = ?1", [id], |row| {
+                row.get(0)
+            })
+            .optional()?;
+        self.connection
+            .execute("DELETE FROM stems WHERE track_id = ?1", [id])?;
+        Ok(dir.map(PathBuf::from))
     }
 
     /// Removes tracks from the library: their rows, analysis, cues and crate
