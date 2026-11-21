@@ -509,10 +509,13 @@ impl Renderer {
             if let Some(old) = std::mem::replace(&mut self.track, self.incoming.take()) {
                 self.retire(Retired::Track(old));
             }
-            // The old track's stems go with it; the new one's come in.
+            // The old track's stems go with it; the new one's come in. The
+            // mix starts again from the track (silent here: the gain is 0),
+            // so stems attached a moment later crossfade in from the start.
             if let Some(old) = std::mem::replace(&mut self.stems, self.incoming_stems.take()) {
                 self.retire(Retired::Stems(old));
             }
+            self.stems_mix = 0.0;
             self.position = 0;
         }
         if let Some(frame) = self.pending_seek.take() {

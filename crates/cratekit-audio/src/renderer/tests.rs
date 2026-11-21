@@ -544,3 +544,18 @@ fn stems_sent_after_a_load_wait_for_that_track() {
         "the old track and its stems are freed elsewhere"
     );
 }
+
+#[test]
+fn stems_attached_after_a_load_crossfade_in_from_the_track() {
+    let mut rig = playing_stems(0.0, stems_of(96_000, [0.25, 0.25, 0.25, 0.25]));
+    let track = Track::from_stereo(&vec![0.0; 96_000], &vec![0.0; 96_000]);
+    rig.send(Command::Load(Box::new(track)));
+    rig.render(1_000);
+    rig.send(Command::Play);
+    rig.render(1_000);
+    // New stems a moment later: they ramp in from 0, not from the old mix.
+    rig.send(Command::AttachStems(stems_of(96_000, [0.5, 0.0, 0.0, 0.0])));
+    let out = rig.render(1_000);
+    assert!(largest_step(&out) < 0.002, "no jump when the stems arrive");
+    assert!((out[1_998] - 0.5).abs() < 1e-5);
+}
