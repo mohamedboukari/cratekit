@@ -71,6 +71,9 @@ export const browser = {
     removeFromLibrary: "Remove from library",
     comingSoon: "Arrives with the library task",
   },
+  /** The label that follows the pointer when several tracks are dragged. */
+  dragTracks_one: "{{count}} track",
+  dragTracks_other: "{{count}} tracks",
   setList: {
     title: "Set list",
     saveAsCrate: "Save as crate",

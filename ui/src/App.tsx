@@ -2,6 +2,7 @@ import { useEffect, type JSX } from "react";
 import { useTranslation } from "react-i18next";
 
 import { BrowserArea } from "@/components/browser/BrowserArea";
+import { DragGhost } from "@/components/browser/DragGhost";
 import { DropOverlay } from "@/components/dialogs/DropOverlay";
 import { ExportDialog } from "@/components/dialogs/ExportDialog";
 import { Deck } from "@/components/deck/Deck";
@@ -107,6 +108,7 @@ export function App(): JSX.Element {
         </div>
       )}
       <DropOverlay />
+      <DragGhost />
       <ExportDialog />
       {IN_PAGE_SETTINGS && isMockMode() && <SettingsDialog />}
       <Toaster position="bottom-right" />
