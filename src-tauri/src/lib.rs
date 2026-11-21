@@ -280,6 +280,7 @@ pub fn run() -> anyhow::Result<()> {
             let state = library::LibraryState::open(app.handle());
             app.manage(state);
             app.manage(playback::PlayerState::default());
+            app.manage(mastering::MasteringState::default());
             playback::start_poller(app.handle().clone());
             let jobs = jobs::Jobs::default();
             jobs.start(app.handle().clone());

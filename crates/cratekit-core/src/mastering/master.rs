@@ -1,5 +1,6 @@
-//! The whole mastering chain (SPEC Module 3, #25): the preset's EQ and
-//! compressor at its intensity, then the makeup gain that lands on the
+//! The whole mastering chain (SPEC Module 3, #25): the reference match when
+//! there is a reference (#27), the preset's EQ and compressor at its
+//! intensity, then the makeup gain that lands on the
 //! loudness target, found by measuring and correcting, then the true-peak
 //! limiter, and a last check with the meter.
 //!
@@ -20,6 +21,7 @@ use crate::progress::{CancellationToken, ProgressSink};
 
 use super::limiter::{LimiterSettings, limit};
 use super::presets::{PresetChain, PresetName};
+use super::reference::{MatchCurve, Spectrum, long_term_spectrum};
 
 /// Close enough to the target, in LU (the SPEC accepts 0.5).
 const TOLERANCE_LU: f32 = 0.3;
@@ -39,8 +41,11 @@ const SLOPE_RANGE: (f32, f32) = (0.05, 1.0);
 /// A pass that moves the loudness less than this (LU) toward the target
 /// means the limiter is at its limit: no point in more passes.
 const STALL_LU: f32 = 0.05;
-/// The share of the progress for the EQ and compressor pass.
+/// The share of the progress for the EQ and compressor pass (measuring the
+/// track's spectrum for a reference included).
 const COLOUR_SHARE: f32 = 0.3;
+/// Of that share, measuring the track's spectrum when there is a reference.
+const SPECTRUM_SHARE: f32 = 0.1;
 /// Headroom when the last check has to trim, in dB.
 const TRIM_MARGIN_DB: f32 = 0.05;
 
@@ -54,6 +59,9 @@ pub struct MasterSettings {
     pub intensity: f32,
     /// The loudness the master lands on, in LUFS (clamped to -30 to -5).
     pub target_lufs: f32,
+    /// The reference track's long-term spectrum, to match (#27); `None`
+    /// without a reference.
+    pub reference: Option<Spectrum>,
 }
 
 impl MasterSettings {
@@ -128,7 +136,9 @@ fn next_gain(gain_db: f32, miss: f32, slope: f32) -> f32 {
     (gain_db + miss / slope.clamp(SLOPE_RANGE.0, SLOPE_RANGE.1)).min(MAX_GAIN_DB)
 }
 
-/// Masters `audio`: the preset at its intensity, the loudness target within
+/// Masters `audio`: the reference match when `settings.reference` is set
+/// (the track's own spectrum is measured first, see
+/// [`MatchCurve::between`]), the preset at its intensity, the loudness target within
 /// 0.3 LU when the limiter allows it (the closest pass otherwise, with
 /// `target_reached` false), and a true peak at or under -1.0 dBTP. Takes the
 /// audio by value and works in place (three copies at most). Progress goes
@@ -152,9 +162,24 @@ pub fn master(
     }
     let target = settings.target();
 
-    // The preset's EQ and compressor, in place, a second of audio at a time.
+    // The reference match: the track's own spectrum against the reference's.
+    let (curve, colour_start) = match &settings.reference {
+        Some(reference) => {
+            let measuring = |fraction: f32| progress.progress(SPECTRUM_SHARE * fraction);
+            let track = long_term_spectrum(&audio, &measuring, cancel)?;
+            (MatchCurve::between(&track, reference), SPECTRUM_SHARE)
+        }
+        None => (MatchCurve::FLAT, 0.0),
+    };
+
+    // The reference match, the preset's EQ and compressor, in place, a
+    // second of audio at a time.
     let mut coloured = audio.into_channels();
-    let preset = settings.preset.preset().at(settings.intensity);
+    let preset = settings
+        .preset
+        .preset()
+        .at(settings.intensity)
+        .with_reference(curve);
     let mut chain = PresetChain::new(rate, coloured.len(), &preset);
     let block = rate.max(1) as usize;
     let mut start = 0;
@@ -164,7 +189,8 @@ pub fn master(
         let mut slices: Vec<&mut [f32]> = coloured.iter_mut().map(|c| &mut c[start..end]).collect();
         chain.process(&mut slices);
         start = end;
-        progress.progress(COLOUR_SHARE * start as f32 / frames as f32);
+        progress
+            .progress(colour_start + (COLOUR_SHARE - colour_start) * start as f32 / frames as f32);
     }
 
     // Makeup gain, limit, measure; correct by the miss over the measured
@@ -287,6 +313,7 @@ mod tests {
             preset,
             intensity,
             target_lufs,
+            reference: None,
         }
     }
 
@@ -461,6 +488,49 @@ mod tests {
         assert!((next_gain(10.0, 1.0, 0.0) - 30.0).abs() < 1e-6);
         assert!((next_gain(10.0, 1.0, 3.0) - 11.0).abs() < 1e-6);
         assert_eq!(next_gain(35.0, 10.0, 0.1), 40.0, "capped");
+    }
+
+    /// How far `audio`'s spectral shape is from `reference`'s: the mean
+    /// absolute difference per band from 63 Hz to 10 kHz, the overall level
+    /// taken off.
+    fn shape_distance(audio: &AudioBuffer, reference: &Spectrum) -> f32 {
+        let ours = long_term_spectrum(audio, &|_| {}, &CancellationToken::new()).unwrap();
+        let diffs: Vec<f32> = (5..=27)
+            .map(|band| reference.bands_db[band] - ours.bands_db[band])
+            .collect();
+        let level = diffs.iter().sum::<f32>() / diffs.len() as f32;
+        diffs.iter().map(|d| (d - level).abs()).sum::<f32>() / diffs.len() as f32
+    }
+
+    #[test]
+    fn a_reference_pulls_the_master_toward_its_sound() {
+        let audio = loop_with_hats(-6.0, 2);
+        // The same loop, brighter: the high shelf a darker mix would lack.
+        let mut brighter = audio.clone().into_channels();
+        let shelf = crate::mastering::eq::Coefficients::high_shelf(RATE, 5_000.0, 5.0, 1.0);
+        crate::mastering::eq::Biquad::new(shelf, 2).process(&mut brighter);
+        let reference = long_term_spectrum(
+            &AudioBuffer::new(RATE, brighter).unwrap(),
+            &|_| {},
+            &CancellationToken::new(),
+        )
+        .unwrap();
+
+        let plain = run(&audio, &settings(PresetName::Chill, 1.0, -12.0));
+        let matched = run(
+            &audio,
+            &MasterSettings {
+                reference: Some(reference),
+                ..settings(PresetName::Chill, 1.0, -12.0)
+            },
+        );
+
+        let (before, after) = (
+            shape_distance(&plain.audio, &reference),
+            shape_distance(&matched.audio, &reference),
+        );
+        assert!(after < before * 0.5, "{before:.2} dB then {after:.2} dB");
+        assert_acceptance(&matched, -12.0, "matched to a reference");
     }
 
     #[test]

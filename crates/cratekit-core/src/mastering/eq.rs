@@ -16,6 +16,8 @@ const MIN_FREQ_HZ: f64 = 10.0;
 const MAX_FREQ_FRACTION: f64 = 0.49;
 /// Smallest Q and shelf slope accepted (wider than any musical EQ).
 const MIN_Q: f64 = 0.05;
+/// The narrowest bandwidth-form peak, in octaves (as narrow as `MIN_Q` is wide).
+const MIN_OCTAVES: f64 = 0.01;
 /// Steepest shelf slope: 1 is the steepest without overshoot; above it the
 /// shelf resonates and, far enough, stops being stable.
 const MAX_SLOPE: f64 = 1.0;
@@ -84,6 +86,27 @@ impl Coefficients {
         let corner = Corner::new(sample_rate, freq_hz);
         let a = 10_f64.powf(gain_db / 40.0);
         let alpha = corner.sin / (2.0 * q.max(MIN_Q));
+        Self::normalized(
+            1.0 + alpha * a,
+            -2.0 * corner.cos,
+            1.0 - alpha * a,
+            1.0 + alpha / a,
+            -2.0 * corner.cos,
+            1.0 - alpha / a,
+        )
+    }
+
+    /// A peak (bell) of `gain_db` at `freq_hz`, `octaves` wide between its
+    /// half-gain points: the cookbook's bandwidth form, prewarped, so the
+    /// width holds at any sample rate, even close to the Nyquist frequency
+    /// (the reference match's bands use it).
+    #[must_use]
+    pub fn peaking_octaves(sample_rate: u32, freq_hz: f64, gain_db: f64, octaves: f64) -> Self {
+        let corner = Corner::new(sample_rate, freq_hz);
+        let w0 = corner.sin.atan2(corner.cos);
+        let a = 10_f64.powf(gain_db / 40.0);
+        let width = octaves.max(MIN_OCTAVES);
+        let alpha = corner.sin * (std::f64::consts::LN_2 / 2.0 * width * w0 / corner.sin).sinh();
         Self::normalized(
             1.0 + alpha * a,
             -2.0 * corner.cos,

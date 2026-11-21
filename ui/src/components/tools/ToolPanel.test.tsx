@@ -72,6 +72,15 @@ describe("tool panel", () => {
     error.mockRestore();
   });
 
+  it("says a reference that is the track on the deck has nothing to match", () => {
+    useUi.setState({ activeTool: "master" });
+    render(<Harness />);
+    expect(screen.queryByText(/nothing to match/)).toBeNull();
+    act(() => useMaster.getState().setReference({ id: 1, title: "Same track" }));
+    expect(screen.getByText(/nothing to match/)).toBeInTheDocument();
+    act(() => useMaster.getState().setReference(null));
+  });
+
   it("names the exporting track when another one is on the deck", () => {
     useUi.setState({ activeTool: "master" });
     useMaster.setState({ exportTitle: "Other track" });

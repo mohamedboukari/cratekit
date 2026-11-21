@@ -49,6 +49,7 @@ export const tools: Translation["tools"] = {
     clearReference: "Retirer le morceau de référence",
     noReference:
       "Aucune. Faites un clic droit sur un morceau et choisissez Utiliser comme référence de mastering.",
+    referenceIsThisTrack: "C'est le morceau sur la platine : rien à égaler.",
     compare: "Comparer",
     levelMatched: "Niveaux égalisés",
     abCompare: "Comparaison A/B",

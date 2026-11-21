@@ -3,6 +3,7 @@
 use std::alloc::{GlobalAlloc, Layout, System};
 use std::cell::Cell;
 
+use cratekit_core::mastering::reference::MatchCurve;
 use rtrb::RingBuffer;
 
 use super::*;
@@ -390,6 +391,8 @@ fn render_never_allocates_or_frees() {
         Command::SetMaster(preview(1.0, 6.0, -6.0)),
         Command::SetMode(PlaybackMode::Mastered),
         Command::SetMaster(preview(0.5, 3.0, -3.0)),
+        Command::SetMaster(matched(preview(0.5, 3.0, -3.0))),
+        Command::SetMaster(preview(0.5, 3.0, -3.0)),
         Command::SetLevelMatch(false),
         Command::Seek(1_000),
         Command::Load(sine(48_000, 0.3)),
@@ -578,6 +581,17 @@ fn preview(intensity: f32, makeup_db: f32, level_match_db: f32) -> MasterPreview
     }
 }
 
+/// `preview` matching a reference brighter from 4 kHz up (4 dB).
+fn matched(preview: MasterPreview) -> MasterPreview {
+    let curve = MatchCurve::new(&std::array::from_fn(
+        |band| if band >= 23 { 4.0 } else { 0.0 },
+    ));
+    MasterPreview {
+        preset: preview.preset.with_reference(curve),
+        ..preview
+    }
+}
+
 /// A rig playing `track`, past its fade in.
 fn playing(track: Box<Track>) -> Rig {
     let mut rig = rig(2);
@@ -723,6 +737,48 @@ fn tone(freq: f32, frames: usize, amplitude: f32) -> Box<Track> {
     Box::new(Track::from_stereo(&wave, &wave))
 }
 
+/// The power of `freq` in the left channel of interleaved stereo (one
+/// Goertzel bin).
+fn tone_power(stereo: &[f32], freq: f32) -> f32 {
+    let k = 2.0 * (std::f32::consts::TAU * freq / RATE as f32).cos();
+    let (mut s1, mut s2) = (0.0_f32, 0.0_f32);
+    for &x in stereo.iter().step_by(2) {
+        let s0 = x + k * s1 - s2;
+        s2 = s1;
+        s1 = s0;
+    }
+    s1 * s1 + s2 * s2 - k * s1 * s2
+}
+
+#[test]
+fn a_reference_shapes_the_mastered_side_as_in_the_export() {
+    // A low and a high tone, quiet, so the compressor and the limiter stay
+    // out of it. The makeup takes back the level the curve adds (as the
+    // export's loudness targeting does): what changes is the balance.
+    let (low, high) = (203.0, 10_007.0);
+    let wave: Vec<f32> = (0..96_000)
+        .map(|n| {
+            let t = n as f32 / RATE as f32;
+            0.03 * (std::f32::consts::TAU * low * t).sin()
+                + 0.03 * (std::f32::consts::TAU * high * t).sin()
+        })
+        .collect();
+    let balance_db = |preview: MasterPreview| {
+        let mut rig = playing(Box::new(Track::from_stereo(&wave, &wave)));
+        rig.send(Command::SetLevelMatch(false));
+        rig.send(Command::SetMaster(preview));
+        rig.send(Command::SetMode(PlaybackMode::Mastered));
+        rig.render(9_600);
+        let out = rig.render(19_200);
+        10.0 * (tone_power(&out, high) / tone_power(&out, low)).log10()
+    };
+    let lift = balance_db(matched(preview(1.0, 0.0, 0.0))) - balance_db(preview(1.0, 0.0, 0.0));
+    assert!((lift - 4.0).abs() < 0.6, "{lift:.2} dB");
+    // At intensity 0 the reference changes nothing either.
+    let none = balance_db(matched(preview(0.0, 0.0, 0.0))) - balance_db(preview(0.0, 0.0, 0.0));
+    assert!(none.abs() < 0.05, "{none:.2} dB");
+}
+
 #[test]
 fn seeks_and_loads_with_the_preview_on_do_not_click() {
     for mode in [PlaybackMode::Original, PlaybackMode::Mastered] {
@@ -762,7 +818,13 @@ fn preset_changes_while_hearing_b_glide_without_a_click() {
         makeup_db: 0.0,
         level_match_db: 0.0,
     };
-    for change in [lofi, preview(1.0, 0.0, 0.0), preview(0.0, 0.0, 0.0), lofi] {
+    for change in [
+        lofi,
+        preview(1.0, 0.0, 0.0),
+        matched(preview(1.0, 0.0, 0.0)),
+        preview(0.0, 0.0, 0.0),
+        lofi,
+    ] {
         rig.send(Command::SetMaster(change));
         let around = largest_step(&rig.render(2_000));
         assert!(

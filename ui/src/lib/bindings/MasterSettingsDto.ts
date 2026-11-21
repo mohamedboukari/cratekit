@@ -14,7 +14,8 @@ intensity: number,
  */
 targetLufs: number, 
 /**
- * Reference matching comes with #27; recorded with the master until then.
+ * The track whose sound to match (#27); none, or the track itself, for
+ * no matching.
  */
 referenceTrackId: number | null, 
 /**

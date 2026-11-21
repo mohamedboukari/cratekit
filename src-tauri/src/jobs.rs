@@ -18,6 +18,7 @@ use cratekit_core::analysis::track::{TrackAnalysis, analyze_file};
 use cratekit_core::audio::{WavFormat, decode_file_with, write_wav};
 use cratekit_core::library::{Library, TrackId};
 use cratekit_core::mastering::master::{MasterSettings, Mastered, master};
+use cratekit_core::mastering::reference::long_term_spectrum;
 use cratekit_core::progress::{CancellationToken, ProgressSink};
 use cratekit_core::stems::StemSeparator;
 use cratekit_core::stems::cache::split_to_folder;
@@ -47,10 +48,12 @@ pub(crate) enum JobKind {
     ModelDownload,
 }
 
-/// Shares of a master export's progress: decoding the original, then
-/// mastering it; writing the file is the rest.
+/// Shares of a master export's progress: decoding the original, measuring
+/// the reference (when there is one), then mastering up to
+/// `MASTER_RENDER_END`; writing the file is the rest.
 const MASTER_DECODE_SHARE: f32 = 0.1;
-const MASTER_RENDER_SHARE: f32 = 0.85;
+const MASTER_REFERENCE_SHARE: f32 = 0.1;
+const MASTER_RENDER_END: f32 = 0.95;
 
 /// A step inside a multi-step job (the UI's `JobStage`): the model download
 /// receives the files, then checks their SHA-256.
@@ -235,6 +238,9 @@ pub(crate) struct MasterRequest {
     pub(crate) source: PathBuf,
     /// The WAV file to write.
     pub(crate) file: PathBuf,
+    /// The reference track's file, to match (#27), only read.
+    pub(crate) reference: Option<PathBuf>,
+    /// How to master; its reference spectrum is measured from `reference`.
     pub(crate) settings: MasterSettings,
     pub(crate) format: WavFormat,
     /// The settings as JSON, recorded with the master.
@@ -707,11 +713,29 @@ impl Jobs {
             }
         };
         let decoding = |fraction: f32| step(MASTER_DECODE_SHARE * fraction);
-        let mastering = |fraction: f32| step(MASTER_DECODE_SHARE + MASTER_RENDER_SHARE * fraction);
+        let render_start = if request.reference.is_some() {
+            MASTER_DECODE_SHARE + MASTER_REFERENCE_SHARE
+        } else {
+            MASTER_DECODE_SHARE
+        };
+        let mastering =
+            |fraction: f32| step(render_start + (MASTER_RENDER_END - render_start) * fraction);
         // A panic in a decoder or the DSP fails this export, not the app.
         let rendered = catch_unwind(AssertUnwindSafe(|| {
             let audio = decode_file_with(&request.source, &decoding, &job.cancel)?;
-            let mastered = master(audio, &request.settings, &mastering, &job.cancel)?;
+            let mut settings = request.settings;
+            if let Some(path) = &request.reference {
+                // Decoding is most of the work; measuring is the last fifth.
+                let reading = |fraction: f32| {
+                    step(MASTER_DECODE_SHARE + MASTER_REFERENCE_SHARE * 0.8 * fraction);
+                };
+                let measuring = |fraction: f32| {
+                    step(MASTER_DECODE_SHARE + MASTER_REFERENCE_SHARE * (0.8 + 0.2 * fraction));
+                };
+                let reference = decode_file_with(path, &reading, &job.cancel)?;
+                settings.reference = Some(long_term_spectrum(&reference, &measuring, &job.cancel)?);
+            }
+            let mastered = master(audio, &settings, &mastering, &job.cancel)?;
             // The last chance to cancel: a file being written is finished.
             job.cancel.check()?;
             Ok(mastered)
@@ -1323,10 +1347,12 @@ mod tests {
             track_id: id,
             source: lock(library).track(id).unwrap().path,
             file: dir.join("master.wav"),
+            reference: None,
             settings: MasterSettings {
                 preset: PresetName::Club,
                 intensity: 0.6,
                 target_lufs: -10.0,
+                reference: None,
             },
             format: WavFormat::Pcm24,
             recorded: "{}".into(),
@@ -1416,6 +1442,92 @@ mod tests {
             jobs.lock().side.is_empty(),
             "a finished export takes no cancel"
         );
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    /// Three seconds of stereo noise (xorshift), through `shelf_db` of high
+    /// shelf at 4 kHz, written as a WAV file.
+    fn noise_file(path: &Path, shelf_db: f64) {
+        use cratekit_core::audio::AudioBuffer;
+        use cratekit_core::mastering::eq::{Biquad, Coefficients};
+        let mut state: u32 = 0x2545_F491;
+        let mut channel = || -> Vec<f32> {
+            (0..144_000)
+                .map(|_| {
+                    state ^= state << 13;
+                    state ^= state >> 17;
+                    state ^= state << 5;
+                    (state as f32 / u32::MAX as f32 - 0.5) * 0.3
+                })
+                .collect()
+        };
+        let mut channels = vec![channel(), channel()];
+        Biquad::new(Coefficients::high_shelf(48_000, 4_000.0, shelf_db, 1.0), 2)
+            .process(&mut channels);
+        let audio = AudioBuffer::new(48_000, channels).unwrap();
+        write_wav(path, &audio, WavFormat::Pcm24).unwrap();
+    }
+
+    /// How much brighter than its 250 Hz band a file's 10 kHz band is, in dB.
+    fn tilt_db(path: &Path) -> f32 {
+        let audio = cratekit_core::audio::decode_file(path).unwrap();
+        let spectrum = long_term_spectrum(
+            &audio,
+            &cratekit_core::progress::NoProgress,
+            &CancellationToken::new(),
+        )
+        .unwrap();
+        spectrum.bands_db[27] - spectrum.bands_db[14]
+    }
+
+    #[test]
+    fn a_master_with_a_reference_measures_it_inside_the_job_and_matches_it() {
+        let dir = std::env::temp_dir().join(format!(
+            "cratekit-jobs-master-reference-{}",
+            std::process::id()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        let (track, brighter) = (dir.join("track.wav"), dir.join("brighter.wav"));
+        noise_file(&track, 0.0);
+        noise_file(&brighter, 6.0);
+        let mut library = Library::open_in_memory().unwrap();
+        let id = library.add_paths(&[track]).unwrap().added[0];
+        let library = Mutex::new(library);
+        let (jobs, events) = (Jobs::default(), Recorder::default());
+        let plain = master_request(&library, id, &dir);
+        let matched = MasterRequest {
+            reference: Some(brighter),
+            file: dir.join("matched.wav"),
+            ..plain.clone()
+        };
+
+        jobs.run_master(&plain, &library, &events).unwrap();
+        events.take();
+        jobs.run_master(&matched, &library, &events).unwrap();
+
+        let seen = events.take();
+        assert_eq!(seen.last().map(String::as_str), Some("done job-2"));
+        let steps = steps(&seen);
+        assert!(steps.windows(2).all(|pair| pair[0] < pair[1]), "{steps:?}");
+        assert!(
+            steps.iter().any(|step| (11..20).contains(step)),
+            "the reference has its share: {steps:?}"
+        );
+        // Matched to a brighter version of itself (at intensity 0.6): more top.
+        let lift = tilt_db(&matched.file) - tilt_db(&plain.file);
+        assert!(lift > 2.0, "{lift:.2} dB");
+
+        // A reference that cannot be read fails the export: nothing written.
+        let missing = MasterRequest {
+            reference: Some(dir.join("gone.wav")),
+            file: dir.join("never.wav"),
+            ..plain.clone()
+        };
+        let error = jobs
+            .run_master(&missing, &library, &events)
+            .expect_err("fails");
+        assert_eq!(error.code, "io");
+        assert!(!missing.file.exists());
         std::fs::remove_dir_all(&dir).ok();
     }
 

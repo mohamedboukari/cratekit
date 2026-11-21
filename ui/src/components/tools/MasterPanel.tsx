@@ -236,6 +236,11 @@ export function MasterPanel(): JSX.Element {
             </span>
           )}
         </div>
+        {settings.referenceTrackId === trackId && (
+          <p className="mt-1 text-[11px] text-muted-foreground">
+            {t("tools.master.referenceIsThisTrack")}
+          </p>
+        )}
       </ToolCard>
 
       <ToolCard

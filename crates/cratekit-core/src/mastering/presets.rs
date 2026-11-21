@@ -6,7 +6,9 @@
 //! Ozone 12 and Logic's Mastering Assistant keep loudness separate).
 //!
 //! A [`PresetChain`] runs a preset's EQ and compressor on a signal: the part
-//! of the chain before loudness targeting and the limiter (#25).
+//! of the chain before loudness targeting and the limiter (#25). A preset can
+//! carry a reference match curve (#27, [`super::reference`]), which runs
+//! first, scaled by the intensity like the preset's own EQ.
 
 use std::f64::consts::FRAC_1_SQRT_2;
 
@@ -14,6 +16,7 @@ use serde::{Deserialize, Serialize};
 
 use super::compressor::{Compressor, CompressorSettings};
 use super::eq::{Biquad, Coefficients};
+use super::reference::{BANDS, MatchCurve};
 
 /// Where a low pass starts at intensity 0, as a fraction of the sample rate:
 /// the top of the band, so at any rate it does nothing yet.
@@ -110,6 +113,7 @@ impl PresetName {
             compressor,
             target_lufs,
             intensity: 1.0,
+            reference: MatchCurve::FLAT,
         }
     }
 
@@ -172,7 +176,8 @@ pub struct Peak {
 }
 
 /// A preset's settings: three EQ bands, an optional low pass, the glue
-/// compressor, the default loudness target, and the intensity they are at.
+/// compressor, the default loudness target, the intensity they are at, and
+/// the reference match curve (flat without a reference).
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Preset {
     /// Which preset.
@@ -193,6 +198,9 @@ pub struct Preset {
     pub target_lufs: f32,
     /// 0 (no colour) to 1 (the full preset); see [`Preset::at`].
     pub intensity: f32,
+    /// The reference match curve at full intensity (#27); the filters apply
+    /// it times the intensity. Flat without a reference.
+    pub reference: MatchCurve,
 }
 
 /// An intensity brought into 0 to 1 (one that is not a number is the full
@@ -223,7 +231,16 @@ impl Preset {
         scaled.compressor.ratio = 1.0 + (full.compressor.ratio - 1.0) * k;
         scaled.target_lufs = self.target_lufs;
         scaled.intensity = k;
+        scaled.reference = self.reference;
         scaled
+    }
+
+    /// The preset matching a reference with `curve` (see
+    /// [`MatchCurve::between`]); [`MatchCurve::FLAT`] removes it.
+    #[must_use]
+    pub fn with_reference(mut self, curve: MatchCurve) -> Self {
+        self.reference = curve;
+        self
     }
 
     /// The low pass's corner at `sample_rate`, or `None` when there is none
@@ -255,16 +272,27 @@ fn filter_coefficients(sample_rate: u32, preset: &Preset) -> [Coefficients; 4] {
 }
 
 /// A preset's EQ and compressor running on a signal, in the chain's order
-/// (EQ, then compressor). Processing never allocates, and [`Self::set`]
-/// changes the preset or intensity without restarting the filters, so the
-/// live preview (#26) can turn the intensity while it plays.
+/// (reference match, EQ, then compressor). Processing never allocates, and
+/// [`Self::set`] changes the preset or intensity without restarting the
+/// filters, so the live preview (#26) can turn the intensity while it plays.
 #[derive(Debug, Clone)]
 pub struct PresetChain {
     sample_rate: u32,
     filters: [Biquad; 4],
     /// Where [`Self::glide`] moves the filters (the newest preset).
     targets: [Coefficients; 4],
+    /// The reference match filters, one per band, and where they glide to.
+    reference: [Biquad; BANDS],
+    reference_targets: [Coefficients; BANDS],
+    /// Whether any reference filter does something, now or after the glide:
+    /// without a reference the 31 filters cost nothing.
+    reference_on: bool,
     compressor: Compressor,
+}
+
+/// Whether any of `filters` changes the sound.
+fn any_active(mut filters: impl Iterator<Item = Coefficients>) -> bool {
+    filters.any(|coefficients| coefficients != Coefficients::identity())
 }
 
 impl PresetChain {
@@ -275,10 +303,15 @@ impl PresetChain {
     pub fn new(sample_rate: u32, channels: usize, preset: &Preset) -> Self {
         let targets = filter_coefficients(sample_rate, preset);
         let filters = targets.map(|coefficients| Biquad::new(coefficients, channels));
+        let reference_targets = preset.reference.coefficients(sample_rate, preset.intensity);
+        let reference = reference_targets.map(|coefficients| Biquad::new(coefficients, channels));
         Self {
             sample_rate,
             filters,
             targets,
+            reference,
+            reference_targets,
+            reference_on: any_active(reference_targets.into_iter()),
             compressor: Compressor::new(sample_rate, preset.compressor),
         }
     }
@@ -299,36 +332,62 @@ impl PresetChain {
     /// numbers.
     pub fn glide_to(&mut self, preset: &Preset) -> bool {
         let targets = filter_coefficients(self.sample_rate, preset);
-        if !targets.iter().all(Coefficients::is_finite) {
+        let reference_targets = preset
+            .reference
+            .coefficients(self.sample_rate, preset.intensity);
+        if !targets
+            .iter()
+            .chain(&reference_targets)
+            .all(Coefficients::is_finite)
+        {
             return false;
         }
         self.targets = targets;
+        self.reference_targets = reference_targets;
+        self.reference_on |= any_active(reference_targets.into_iter());
         self.compressor.set(self.sample_rate, preset.compressor);
         true
     }
 
     /// Moves the filters `fraction` (0 to 1) of the way to the preset given
-    /// to [`Self::glide_to`]; never allocates.
+    /// to [`Self::glide_to`] (at 1, exactly there); never allocates.
     pub fn glide(&mut self, fraction: f64) {
+        let step = |filter: &mut Biquad, target: &Coefficients| {
+            filter.set(if fraction >= 1.0 {
+                *target
+            } else {
+                filter.coefficients().lerp(target, fraction)
+            });
+        };
         for (filter, target) in self.filters.iter_mut().zip(&self.targets) {
-            filter.set(filter.coefficients().lerp(target, fraction));
+            step(filter, target);
+        }
+        if self.reference_on {
+            for (filter, target) in self.reference.iter_mut().zip(&self.reference_targets) {
+                step(filter, target);
+            }
+            // A reference removed and glided out: the filters rest.
+            self.reference_on = any_active(self.reference.iter().map(Biquad::coefficients))
+                || any_active(self.reference_targets.into_iter());
         }
     }
 
     /// Forgets the signal so far (a new track, a seek), keeping the preset;
     /// never allocates.
     pub fn reset(&mut self) {
-        for filter in &mut self.filters {
+        for filter in self.filters.iter_mut().chain(&mut self.reference) {
             filter.reset();
         }
         self.compressor.reset();
     }
 
-    /// The EQ's gain at `freq_hz` in dB (the curve the Master tab can draw).
+    /// The EQ's gain at `freq_hz` in dB, reference match included (the
+    /// curve the Master tab can draw).
     #[must_use]
     pub fn eq_response_db(&self, freq_hz: f64) -> f64 {
         self.filters
             .iter()
+            .chain(&self.reference)
             .map(|filter| filter.coefficients().response_db(self.sample_rate, freq_hz))
             .sum()
     }
@@ -339,8 +398,14 @@ impl PresetChain {
         self.compressor.reduction_db()
     }
 
-    /// Runs the EQ then the compressor on `channels` in place, planar.
+    /// Runs the reference match, the EQ, then the compressor on `channels`
+    /// in place, planar.
     pub fn process<C: AsMut<[f32]>>(&mut self, channels: &mut [C]) {
+        if self.reference_on {
+            for filter in &mut self.reference {
+                filter.process(channels);
+            }
+        }
         for filter in &mut self.filters {
             filter.process(channels);
         }
@@ -632,6 +697,58 @@ mod tests {
         assert!(!chain.glide_to(&broken));
         chain.set(&broken);
         assert!((chain.eq_response_db(12_000.0) - fresh.eq_response_db(12_000.0)).abs() < 1e-9);
+    }
+
+    /// A curve 4 dB up from 4 kHz, as a brighter reference would ask.
+    fn brighter() -> MatchCurve {
+        MatchCurve::new(&std::array::from_fn(
+            |band| if band >= 23 { 4.0 } else { 0.0 },
+        ))
+    }
+
+    #[test]
+    fn a_reference_curve_runs_first_scaled_by_the_intensity() {
+        let club = PresetName::Club.preset();
+        let plain = PresetChain::new(RATE, 1, &club);
+        let matched = PresetChain::new(RATE, 1, &club.with_reference(brighter()));
+        let boost = |chain: &PresetChain| chain.eq_response_db(10_000.0);
+        assert!((boost(&matched) - boost(&plain) - 4.0).abs() < 0.5);
+        assert!((matched.eq_response_db(200.0) - plain.eq_response_db(200.0)).abs() < 0.3);
+        // Half the intensity, half the match; none at 0.
+        let half = PresetChain::new(RATE, 1, &club.with_reference(brighter()).at(0.5));
+        let half_plain = PresetChain::new(RATE, 1, &club.at(0.5));
+        assert!((boost(&half) - boost(&half_plain) - 2.0).abs() < 0.4);
+        let none = PresetChain::new(RATE, 1, &club.with_reference(brighter()).at(0.0));
+        assert!(boost(&none).abs() < 1e-9);
+        // `at` keeps the curve; the table preset has none.
+        assert_eq!(
+            club.with_reference(brighter()).at(0.3).reference,
+            brighter()
+        );
+        assert!(club.reference.is_flat());
+    }
+
+    #[test]
+    fn a_removed_reference_glides_out_and_its_filters_rest() {
+        let club = PresetName::Club.preset();
+        let mut chain = PresetChain::new(RATE, 1, &club);
+        assert!(!chain.reference_on, "no reference, no filters");
+        assert!(chain.glide_to(&club.with_reference(brighter())));
+        assert!(chain.reference_on);
+        chain.glide(0.5);
+        let halfway = chain.eq_response_db(10_000.0);
+        chain.glide(1.0);
+        let full = chain.eq_response_db(10_000.0);
+        assert!(
+            halfway < full && halfway > PresetChain::new(RATE, 1, &club).eq_response_db(10_000.0)
+        );
+        assert!(chain.glide_to(&club));
+        chain.glide(0.5);
+        assert!(chain.reference_on, "still gliding out");
+        chain.glide(1.0);
+        assert!(!chain.reference_on, "back to no filters");
+        let plain = PresetChain::new(RATE, 1, &club);
+        assert!((chain.eq_response_db(10_000.0) - plain.eq_response_db(10_000.0)).abs() < 1e-9);
     }
 
     #[test]
