@@ -13,6 +13,7 @@ use std::ffi::OsString;
 use std::fs::{self, File};
 use std::io::{BufWriter, Write};
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU64, Ordering};
 
 use super::AudioBuffer;
 use crate::CoreError;
@@ -104,8 +105,13 @@ fn quantize(sample: f32, scale: f32, dither: &mut Dither) -> i32 {
     value
 }
 
+/// Numbers each write's temporary file, so two writes to the same path at
+/// once never share one.
+static NEXT_PART: AtomicU64 = AtomicU64::new(0);
+
 /// Writes `audio` to `path` as a WAV file in `format`. The file appears only
-/// once complete (written to `<path>.part`, then renamed).
+/// once complete: it is written to a temporary `<path>.<process>-<n>.part`
+/// of its own (removed if the write fails), then renamed.
 ///
 /// # Errors
 ///
@@ -144,54 +150,67 @@ pub fn write_wav(path: &Path, audio: &AudioBuffer, format: WavFormat) -> Result<
             "the sample rate is too high for a WAV file",
         ))?;
 
-    let part = with_suffix(path, ".part");
-    let mut out = BufWriter::new(File::create(&part)?);
-    out.write_all(b"RIFF")?;
-    out.write_all(&riff_len.to_le_bytes())?;
-    out.write_all(b"WAVEfmt ")?;
-    out.write_all(&fmt_len.to_le_bytes())?;
-    out.write_all(&format.tag().to_le_bytes())?;
-    out.write_all(&channel_count.to_le_bytes())?;
-    out.write_all(&audio.sample_rate().to_le_bytes())?;
-    out.write_all(&byte_rate.to_le_bytes())?;
-    out.write_all(&block_align.to_le_bytes())?;
-    out.write_all(&format.bits().to_le_bytes())?;
-    if float {
-        out.write_all(&0_u16.to_le_bytes())?;
-        out.write_all(b"fact")?;
-        out.write_all(&4_u32.to_le_bytes())?;
-        let frame_count = u32::try_from(frames).map_err(|_| too_long())?;
-        out.write_all(&frame_count.to_le_bytes())?;
-    }
-    out.write_all(b"data")?;
-    out.write_all(&data_len.to_le_bytes())?;
-    let mut dither = Dither(seed_for(path));
-    for frame in 0..frames {
-        for channel in channels {
-            let sample = channel.get(frame).copied().unwrap_or(0.0);
-            match format {
-                WavFormat::Pcm16 => {
-                    let value = quantize(sample, 32_768.0, &mut dither);
-                    let bytes = value.to_le_bytes();
-                    out.write_all(bytes.get(..2).unwrap_or_default())?;
+    let part = with_suffix(
+        path,
+        &format!(
+            ".{}-{}.part",
+            std::process::id(),
+            NEXT_PART.fetch_add(1, Ordering::Relaxed)
+        ),
+    );
+    let write = |part: &Path| -> Result<(), CoreError> {
+        let mut out = BufWriter::new(File::create(part)?);
+        out.write_all(b"RIFF")?;
+        out.write_all(&riff_len.to_le_bytes())?;
+        out.write_all(b"WAVEfmt ")?;
+        out.write_all(&fmt_len.to_le_bytes())?;
+        out.write_all(&format.tag().to_le_bytes())?;
+        out.write_all(&channel_count.to_le_bytes())?;
+        out.write_all(&audio.sample_rate().to_le_bytes())?;
+        out.write_all(&byte_rate.to_le_bytes())?;
+        out.write_all(&block_align.to_le_bytes())?;
+        out.write_all(&format.bits().to_le_bytes())?;
+        if float {
+            out.write_all(&0_u16.to_le_bytes())?;
+            out.write_all(b"fact")?;
+            out.write_all(&4_u32.to_le_bytes())?;
+            let frame_count = u32::try_from(frames).map_err(|_| too_long())?;
+            out.write_all(&frame_count.to_le_bytes())?;
+        }
+        out.write_all(b"data")?;
+        out.write_all(&data_len.to_le_bytes())?;
+        let mut dither = Dither(seed_for(path));
+        for frame in 0..frames {
+            for channel in channels {
+                let sample = channel.get(frame).copied().unwrap_or(0.0);
+                match format {
+                    WavFormat::Pcm16 => {
+                        let value = quantize(sample, 32_768.0, &mut dither);
+                        let bytes = value.to_le_bytes();
+                        out.write_all(bytes.get(..2).unwrap_or_default())?;
+                    }
+                    WavFormat::Pcm24 => {
+                        let value = quantize(sample, 8_388_608.0, &mut dither);
+                        let bytes = value.to_le_bytes();
+                        out.write_all(bytes.get(..3).unwrap_or_default())?;
+                    }
+                    WavFormat::Float32 => out.write_all(&sample.to_le_bytes())?,
                 }
-                WavFormat::Pcm24 => {
-                    let value = quantize(sample, 8_388_608.0, &mut dither);
-                    let bytes = value.to_le_bytes();
-                    out.write_all(bytes.get(..3).unwrap_or_default())?;
-                }
-                WavFormat::Float32 => out.write_all(&sample.to_le_bytes())?,
             }
         }
+        if pad == 1 {
+            out.write_all(&[0])?;
+        }
+        out.flush()?;
+        out.get_ref().sync_all()?;
+        Ok(())
+    };
+    // A failed write leaves no temporary file behind (a full disk, a quit).
+    let finished = write(&part).and_then(|()| fs::rename(&part, path).map_err(CoreError::from));
+    if finished.is_err() {
+        fs::remove_file(&part).ok();
     }
-    if pad == 1 {
-        out.write_all(&[0])?;
-    }
-    out.flush()?;
-    out.get_ref().sync_all()?;
-    drop(out);
-    fs::rename(&part, path)?;
-    Ok(())
+    finished
 }
 
 #[cfg(test)]
@@ -209,6 +228,55 @@ mod tests {
         (0..len)
             .map(|i| amplitude * (i as f32 * 2.0 * std::f32::consts::PI * 440.0 / 44_100.0).sin())
             .collect()
+    }
+
+    #[test]
+    fn a_failed_write_leaves_no_temporary_file() {
+        // The destination is a folder: the rename fails at the end.
+        let blocked = temp("blocked.wav");
+        fs::create_dir_all(&blocked).expect("a folder in the way");
+        let audio = AudioBuffer::new(44_100, vec![sine(1_000, 0.5)]).expect("audio");
+        assert!(write_wav(&blocked, &audio, WavFormat::Pcm16).is_err());
+        let parent = blocked.parent().expect("parent");
+        let leftovers = fs::read_dir(parent)
+            .expect("list")
+            .filter_map(Result::ok)
+            .filter(|entry| {
+                entry
+                    .file_name()
+                    .to_string_lossy()
+                    .starts_with("blocked.wav.")
+            })
+            .count();
+        assert_eq!(leftovers, 0, "no part file left behind");
+        fs::remove_dir(&blocked).ok();
+    }
+
+    #[test]
+    fn two_writes_to_one_path_never_mix() {
+        let path = temp("race.wav");
+        let writers: Vec<_> = [0.5_f32, -0.5]
+            .into_iter()
+            .map(|level| {
+                let path = path.clone();
+                std::thread::spawn(move || {
+                    let audio =
+                        AudioBuffer::new(44_100, vec![vec![level; 200_000]]).expect("audio");
+                    write_wav(&path, &audio, WavFormat::Float32)
+                })
+            })
+            .collect();
+        for writer in writers {
+            assert!(writer.join().expect("thread").is_ok());
+        }
+        let written = decode_file(&path).expect("decode");
+        let samples = &written.channels()[0];
+        let all_one_sign = samples.iter().all(|s| *s > 0.0) || samples.iter().all(|s| *s < 0.0);
+        assert!(
+            all_one_sign,
+            "the file is one whole write, not a mix of both"
+        );
+        fs::remove_file(&path).ok();
     }
 
     #[test]

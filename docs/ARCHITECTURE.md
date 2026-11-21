@@ -60,7 +60,8 @@ src/
     energy.rs          1 to 10 score (loudness, onset density, brightness)
     waveform.rs        min/max/RMS columns (20 per second, one byte each), stored with the analysis; a 1200-column overview for the deck
   mastering/
-    mod.rs             the blocks (#23) and presets (#24) so far; master() -> MasterResult (#25); docs/mastering.md
+    mod.rs             the module (docs/mastering.md)
+    master.rs          master(): preset chain, makeup gain corrected over up to 4 passes, limiter, final meter check (#25)
     presets.rs         Preset structs (see table below)
     eq.rs              biquad shelves, peaks and passes (RBJ cookbook), f64 state
     compressor.rs      RMS glue compressor, one gain for all channels, soft knee
@@ -114,7 +115,7 @@ src/
                  playback_state at the end of a track) and the device watcher (unplug, default change). Done (#19, #20)
   stems.rs       stems_split / stems_info / stems_export / stems_backend_status, the ONNX Runtime lookup (#33, #35, #32)
   models.rs      models_status / models_download / models_delete (#30)
-  mastering.rs   master_presets (the five presets with label, default target, description; #24); preview and export next
+  mastering.rs   master_presets (#24), master_export (decode, master, write, record; #25); preview next
   commands/      midi.rs, export.rs (planned)
   midi/          device watch, MIDI learn, mapping store, LED feedback
   jobs.rs        job queue (one worker thread; analysis jobs), job_progress / job_done / job_failed events; done: analyze_tracks, job_cancel, jobs_set_paused
@@ -182,7 +183,7 @@ Rules:
 | `playback_set_level_match(enabled)` | Master A/B compare at equal loudness (default on) |
 | `stems_split(id)` / `stems_set_gain(stem, gain)` / `stems_set_mute(stem, bool)` / `stems_set_solo(stem, bool)` | Stems; `stems_split` queues a job (`kind: stems`, 100 steps per track, cancellable) that writes `stems/<track id>/` in the app data folder and records it in the library; it rejects with `model_missing` until the model is downloaded, and the job fails with `stems_unavailable` (the reason in the message) when ONNX Runtime cannot load. `stems_set_gain` (0 to 2), `stems_set_mute` and `stems_set_solo` (while any stem is soloed, exactly the soloed ones are heard) set one stem of the mixer, ramped over 10 ms; every load starts with a neutral mix, and the settings survive an engine restart (#34) |
 | `stems_info(id)` / `stems_export(id)` | Split time, per-stem waveforms and the summed instrumental waveform (null when not split); `stems_export` copies the four cached WAVs into `<output folder>/Stems/<artist> - <title>/` as `<artist> - <title> (drums).wav` and so on (the title alone without an artist) (the output folder is the setting, else `<Music>/Cratekit`; the title made safe for every system), replacing an earlier export; returns the paths, `not_found` when the track was not split |
-| `master_presets` / `master_preview(id, settings)` / `master_export(id, settings)` | Mastering: presets with label, default target and a one-line description (done, #24); B-side render for A/B; export into the output folder, returns path, LUFS and true peak |
+| `master_presets` / `master_preview(id, settings)` / `master_export(id, settings)` | Mastering: presets with label, default target and a one-line description (done, #24); B-side render for A/B; export into `<output folder>/Masters/` as 24 or 16-bit WAV (TPDF dither), recorded in the library, returns path, LUFS, true peak, target and whether it was reached (done, #25; a direct call for now, a job with progress and cancel comes with the Master tab, #28); errors `invalid_setting` (bit depth), `audio_processing` (silent or under 0.4 s), `io` (with the path), `not_found` |
 | `hotcue_set(id, slot, sec)` / `hotcue_clear(id, slot)` / `hotcue_update(id, slot, name, color)` | Cues (set or move, clear, rename and recolour) |
 | `midi_list_devices / midi_learn_start(target) / midi_learn_cancel / midi_mappings(device_id)` | Controller; `midi_mappings` returns one row per control target (`binding` null when unmapped) |
 | `export_virtualdj(ids, dry_run)` | Export; each track's `changes` are data (`{ field: bpm \| key \| cues, value }`), worded by the UI |
@@ -267,19 +268,20 @@ App data folder (Tauri `app_data_dir`):
 cratekit.db
 models/htdemucs/...          downloaded once, checksum verified
 stems/<track_id>/{vocals,drums,bass,other}.wav
-masters/<track_id>/<timestamp>-<preset>.wav
 backups/virtualdj/<timestamp>/  copies made before any export
 ```
+
+Exports go to the output folder (the Output folder setting, or `<Music>/Cratekit`): `Stems/<artist> - <title>/` (#35) and `Masters/<artist> - <title> (<Preset> master).wav` (#25).
 
 ## Mastering chain
 
 ```
 decode → resample to 48 kHz (or keep source rate) → [reference match EQ] → preset EQ
        → glue compressor → makeup gain (2-pass loudness targeting) → true-peak limiter (−1 dBTP)
-       → [TPDF dither if 16-bit] → WAV
+       → [TPDF dither: 16 and 24-bit] → WAV
 ```
 
-Loudness targeting: render once, measure integrated LUFS, adjust makeup gain, render again (max 3 passes) until within ±0.3 LU.
+Loudness targeting: the preset's EQ and compressor run once; then makeup gain, limiter and a measurement of integrated LUFS (mono measured as dual mono, as it plays on two speakers). The limiter makes loudness move less than the gain (0.15 to 0.4 dB per dB under heavy limiting), so each correction divides the miss by the slope of the last two passes; up to 5 passes until within ±0.3 LU, stopping early when a pass gains nothing. When the limiter cannot get there (a very loud target on transient-rich material), the closest pass is kept and the result says the target was not reached. A last check with the meter trims the master if its true peak reads over -1.0 dBTP. The target is the one chosen, clamped to -30 to -5 LUFS (#25).
 
 **Presets (starting values, to tune by ear with the test DJ)**
 

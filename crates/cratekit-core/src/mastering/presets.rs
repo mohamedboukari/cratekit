@@ -113,6 +113,18 @@ impl PresetName {
         }
     }
 
+    /// The name as the UI sends it and the library stores it (`"hip-hop"`).
+    #[must_use]
+    pub fn id(self) -> &'static str {
+        match self {
+            Self::Club => "club",
+            Self::HipHop => "hip-hop",
+            Self::Pop => "pop",
+            Self::LoFi => "lo-fi",
+            Self::Chill => "chill",
+        }
+    }
+
     /// The English name; the UI words known presets itself (i18n) and shows
     /// this for any other.
     #[must_use]
@@ -458,6 +470,13 @@ mod tests {
             .map(|n| serde_json::to_value(n).unwrap())
             .collect();
         assert_eq!(names, ["club", "hip-hop", "pop", "lo-fi", "chill"]);
+        for name in PresetName::ALL {
+            assert_eq!(
+                serde_json::to_value(name).unwrap(),
+                name.id(),
+                "id() is the serde name"
+            );
+        }
         let back: PresetName = serde_json::from_value(serde_json::json!("lo-fi")).unwrap();
         assert_eq!(back, PresetName::LoFi);
     }
