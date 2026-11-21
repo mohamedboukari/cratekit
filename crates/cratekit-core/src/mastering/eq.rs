@@ -194,6 +194,12 @@ impl Biquad {
         self.coefficients = coefficients;
     }
 
+    /// The filter's coefficients (to draw or measure its curve).
+    #[must_use]
+    pub fn coefficients(&self) -> Coefficients {
+        self.coefficients
+    }
+
     /// Clears the state (before an unrelated signal).
     pub fn reset(&mut self) {
         self.state.fill([0.0; 2]);

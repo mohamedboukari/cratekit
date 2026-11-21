@@ -11,6 +11,9 @@ const RMS_WINDOW_MS: f32 = 10.0;
 /// Levels are measured in dB above this floor, so silence is not minus
 /// infinity.
 const SILENCE: f32 = 1e-12;
+/// Detector and gain state below this is flushed to zero, so digital silence
+/// never runs on denormal numbers (very slow on some CPUs).
+const DENORMAL: f32 = 1e-30;
 
 /// A compressor's settings (the preset table in `docs/ARCHITECTURE.md`).
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -88,17 +91,31 @@ impl Compressor {
     /// clamped (ratio at least 1, knee at least 0).
     #[must_use]
     pub fn new(sample_rate: u32, settings: CompressorSettings) -> Self {
-        Self {
-            threshold_db: settings.threshold_db,
-            ratio: settings.ratio.max(1.0),
-            knee_db: settings.knee_db.max(0.0),
-            makeup_db: settings.makeup_db,
-            attack: pole(settings.attack_ms, sample_rate),
-            release: pole(settings.release_ms, sample_rate),
+        let mut compressor = Self {
+            threshold_db: 0.0,
+            ratio: 1.0,
+            knee_db: 0.0,
+            makeup_db: 0.0,
+            attack: 0.0,
+            release: 0.0,
             rms_pole: pole(RMS_WINDOW_MS, sample_rate),
             mean_square: 0.0,
             reduction_db: 0.0,
-        }
+        };
+        compressor.set(sample_rate, settings);
+        compressor
+    }
+
+    /// Changes the settings and keeps the detector and gain state, so a
+    /// change on a running signal (the live preview) does not jump.
+    pub fn set(&mut self, sample_rate: u32, settings: CompressorSettings) {
+        self.threshold_db = settings.threshold_db;
+        self.ratio = settings.ratio.max(1.0);
+        self.knee_db = settings.knee_db.max(0.0);
+        self.makeup_db = settings.makeup_db;
+        self.attack = pole(settings.attack_ms, sample_rate);
+        self.release = pole(settings.release_ms, sample_rate);
+        self.rms_pole = pole(RMS_WINDOW_MS, sample_rate);
     }
 
     /// The gain reduction right now, in dB (zero or negative), for a meter.
@@ -135,6 +152,12 @@ impl Compressor {
                 self.release
             };
             self.reduction_db = target + (self.reduction_db - target) * pole;
+            if self.mean_square < DENORMAL {
+                self.mean_square = 0.0;
+            }
+            if self.reduction_db.abs() < DENORMAL {
+                self.reduction_db = 0.0;
+            }
             let gain = 10_f32.powf((self.reduction_db + self.makeup_db) / 20.0);
             for channel in channels.iter_mut() {
                 channel.as_mut()[frame] *= gain;

@@ -2,7 +2,7 @@
 
 Mastering (SPEC, Module 3): presets, a loudness target, A/B and WAV export. The chain and the preset table are in `docs/ARCHITECTURE.md`, Mastering chain. This page covers the code.
 
-So far: the DSP blocks (#23). Presets and intensity (#24), loudness targeting and export (#25), the live preview with A/B (#26), reference matching (#27) and the Master tab (#28) come next.
+So far: the DSP blocks (#23), and the presets with their intensity (#24). Loudness targeting and export (#25), the live preview with A/B (#26), reference matching (#27) and the Master tab (#28) come next.
 
 Every block processes planar `f32` in place (one slice per channel, any type that is `AsMut<[f32]>`, so `Vec<f32>` or `&mut [f32]`) and never allocates while processing: buffers are sized when the block is made. So the live preview can run the same code in the audio callback.
 
@@ -41,6 +41,21 @@ The look-ahead true-peak limiter at the end of the chain: `limit(channels, rate,
 
 Speed (release build, M4 Pro): 8 s of stereo through the limiter, with the test signal made and measured, in about 86 ms, about 90 times faster than real time.
 
+## Presets (`mastering::presets`)
+
+The five presets of SPEC Module 3 with the starting values of the table in `docs/ARCHITECTURE.md`, Mastering chain (to tune by ear with the test DJ).
+
+| Item | What it is |
+| --- | --- |
+| `PresetName` | `club`, `hip-hop`, `pop`, `lo-fi`, `chill` (as the UI sends them); `ALL` in the Master tab's order; `preset()`, and English `label()` and `description()` (the UI words known presets itself) |
+| `Preset` | Low shelf, mid peak, high shelf (`Shelf`, `Peak`), an optional low pass (Lo-fi's 5.5 kHz), the compressor settings (soft knee 6 dB, no makeup: loudness targeting sets the level), the default target, and the intensity |
+| `Preset::at(intensity)` | The preset at 0 to 1 (the SPEC's 0 to 100 %), always computed from the full preset: EQ gains times the intensity, ratio `1 + (ratio - 1) * intensity`; at 0 the EQ and compressor change nothing. Out of range is clamped; not a number is the full preset. **The loudness target never moves:** intensity is how much the EQ and compression colour the sound, and the master lands on the target chosen (decided 2026-11-21) |
+| `PresetChain::new(rate, channels, &preset)` | The preset's EQ then compressor on a signal (`process`), four filters always (the fourth is the low pass, or a filter that changes nothing). The low pass slides on a log scale from 0.49 of the rate (intensity 0) to its corner (1), so a touch of intensity barely touches the audible band at any rate. `set(&preset)` switches preset or intensity keeping the filter and compressor state (for the live preview, #26); `eq_response_db(freq)` (the curve) and `reduction_db()` (a meter). Never allocates while processing. Extra channels beyond the count are compressed but not filtered |
+
+The compressor gained `set(rate, settings)` (new settings, same state) and flushes its detector and gain to zero below 1e-30, so digital silence never runs on denormals.
+
+In the app, `master_presets` (src-tauri `mastering.rs`) lists the presets for the Master tab: name, label, default target and description.
+
 ## Tests
 
 All with synthetic audio (`crate::synth`):
@@ -49,4 +64,5 @@ All with synthetic audio (`crate::synth`):
 - **Compressor:** the static curve (ratio, knee, edges, ratio 1); a quiet signal passes unchanged; a steady -6 dBFS sine over a -20 dB threshold at 4:1 loses `10.97 * 3/4` dB; makeup adds exactly; attack is quick and release slow; a loud left channel and a quiet right one get the same gain.
 - **EQ, more:** a gentler slope gives less gain below the shelf, slopes past 1 are clamped, a Q of 2 peaks 6 dB at the corner; `set` keeps the state and `reset` clears it; a not-a-number sample does not poison the filter; a zero sample rate does not panic.
 - **Compressor, more:** a not-a-number sample does not switch compression off.
+- **Presets:** every preset holds its full row of the architecture table (bands, Q, low pass, compressor with knee and makeup, target), in the Master tab's order; names serialize as the UI sends them; intensity scales the EQ and the ratio, always from the full preset, never the target, and is clamped; the low pass slides from the top of the band, barely touching 15 kHz at 1 % intensity at 48 and 96 kHz; intensity 0 leaves the test loop untouched on both channels for every preset; Club at full gives +3 dB at 40 Hz, -2 dB at 400 Hz and +2.5 dB at 16 kHz, measured and from its own curve, and half intensity half the lift; Lo-fi takes more than 20 dB off 12 kHz and leaves the body; the compressor reduces a loud tone by the preset's ratio; `set` changes the curve to the new preset's and keeps the filters running. In the app: `master_presets` lists all five as the UI reads them.
 - **Limiter:** both interpolators pass DC and find the peak at each point between samples (4x at 48 kHz, 2x at 96 kHz, our own alone at 192 kHz); a quiet signal comes out unchanged and in line; the test loop pushed 12 dB over full scale measures at or under -1.0 dBTP (with `analysis::loudness`, the `ebur128` meter) and not crushed; broadband transients at 44.1, 48 and 96 kHz (the loop with hats, hats alone, binary noise, high tones starting at full level, sparse spikes, also with a 2 ms look-ahead) stay under it; a sine whose true peak is 3 dB above its sample peaks is caught; high notes near Nyquist at 44.1 kHz stay under it; our own detector reads every output sample at the target or under it (an impulse, a burst, hats); the gain goes down in steps of at most 1 / look-ahead and releases over the release time; the gain recovers after a burst; odd settings and not-a-number input are handled; the stream lags by exactly its latency.
