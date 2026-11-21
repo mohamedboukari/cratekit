@@ -26,6 +26,8 @@ import type { JobProgress as RustJobProgress } from "@/lib/bindings/JobProgress"
 import type { LibraryCounts as RustLibraryCounts } from "@/lib/bindings/LibraryCounts";
 import type { LibraryQuery as RustLibraryQuery } from "@/lib/bindings/LibraryQuery";
 import type { MasterPresetDto } from "@/lib/bindings/MasterPresetDto";
+import type { MasterResultDto } from "@/lib/bindings/MasterResultDto";
+import type { MasterSettingsDto } from "@/lib/bindings/MasterSettingsDto";
 import type { MenuLabels as RustMenuLabels } from "@/lib/bindings/MenuLabels";
 import type { Meter } from "@/lib/bindings/Meter";
 import type { ModeChoice } from "@/lib/bindings/ModeChoice";
@@ -56,6 +58,8 @@ import type {
   LibraryCounts,
   LibraryQuery,
   MasterPreset,
+  MasterResult,
+  MasterSettings,
   MenuLabels,
   MeterReading,
   ModelStatus,
@@ -97,6 +101,7 @@ describe("IPC contract: Rust payloads fit the UI types", () => {
     expectTypeOf<RustModelStatus>().toExtend<ModelStatus>();
     expectTypeOf<StemsInfoDto>().toExtend<StemsInfo>();
     expectTypeOf<MasterPresetDto>().toExtend<MasterPreset>();
+    expectTypeOf<MasterResultDto>().toExtend<MasterResult>();
     expectTypeOf<StemsBackendStatusDto>().toExtend<StemsBackendStatus>();
   });
 
@@ -122,5 +127,6 @@ describe("IPC contract: UI arguments fit the Rust types", () => {
     expectTypeOf<PlaybackMode>().toExtend<ModeChoice>();
     expectTypeOf<StemName>().toExtend<RustStemName>();
     expectTypeOf<PresetName>().toExtend<RustPresetName>();
+    expectTypeOf<MasterSettings>().toExtend<MasterSettingsDto>();
   });
 });

@@ -973,6 +973,48 @@ impl Library {
             .optional()?)
     }
 
+    /// Records a master of a track: the preset, the settings it was made
+    /// with (as JSON), the file and its loudness. The track then shows as
+    /// mastered. Exporting to the same file again replaces its record.
+    ///
+    /// # Errors
+    ///
+    /// [`CoreError::NotFound`] when the track is not in the library,
+    /// [`CoreError::Io`] when `path` is not valid UTF-8, or
+    /// [`CoreError::Database`].
+    pub fn store_master(
+        &mut self,
+        id: TrackId,
+        preset: &str,
+        settings_json: &str,
+        path: &Path,
+        lufs: f32,
+    ) -> Result<(), CoreError> {
+        let Some(path) = path.to_str() else {
+            return Err(CoreError::Io(std::io::Error::new(
+                std::io::ErrorKind::InvalidInput,
+                "the master's path is not valid UTF-8",
+            )));
+        };
+        let transaction = self.connection.transaction()?;
+        let exists: bool = transaction.query_row(
+            "SELECT EXISTS (SELECT 1 FROM tracks WHERE id = ?1)",
+            [id],
+            |row| row.get(0),
+        )?;
+        if !exists {
+            return Err(CoreError::NotFound { what: "track", id });
+        }
+        transaction.execute("DELETE FROM masters WHERE path = ?1", [path])?;
+        transaction.execute(
+            "INSERT INTO masters (track_id, preset, settings_json, path, lufs, created_at) \
+             VALUES (?1, ?2, ?3, ?4, ?5, strftime('%Y-%m-%dT%H:%M:%SZ', 'now'))",
+            params![id, preset, settings_json, path, f64::from(lufs)],
+        )?;
+        transaction.commit()?;
+        Ok(())
+    }
+
     /// Forgets a track's stems and returns the folder they were in, for the
     /// caller to delete (the library never touches files). `None` when the
     /// track had none.

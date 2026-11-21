@@ -75,7 +75,7 @@ Stems
 Mastering
 - [x] Biquad EQ, compressor, true-peak limiter with tests (#23)
 - [x] Presets + intensity (#24)
-- [ ] 2-pass loudness targeting, export WAV 24/16-bit (dither) (#25)
+- [x] 2-pass loudness targeting, export WAV 24/16-bit (dither) (#25)
 - [ ] Real-time preview chain in `cratekit-audio`; level-matched A/B (#26)
 - [ ] Reference-track matching (#27)
 - [ ] UI: Master tab (#28)

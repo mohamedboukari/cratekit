@@ -2,7 +2,7 @@
 
 Mastering (SPEC, Module 3): presets, a loudness target, A/B and WAV export. The chain and the preset table are in `docs/ARCHITECTURE.md`, Mastering chain. This page covers the code.
 
-So far: the DSP blocks (#23), and the presets with their intensity (#24). Loudness targeting and export (#25), the live preview with A/B (#26), reference matching (#27) and the Master tab (#28) come next.
+So far: the DSP blocks (#23), the presets with their intensity (#24), and the whole chain with loudness targeting and the export (#25). The live preview with A/B (#26), reference matching (#27) and the Master tab (#28) come next.
 
 Every block processes planar `f32` in place (one slice per channel, any type that is `AsMut<[f32]>`, so `Vec<f32>` or `&mut [f32]`) and never allocates while processing: buffers are sized when the block is made. So the live preview can run the same code in the audio callback.
 
@@ -56,6 +56,18 @@ The compressor gained `set(rate, settings)` (new settings, same state) and flush
 
 In the app, `master_presets` (src-tauri `mastering.rs`) lists the presets for the Master tab: name, label, default target and description.
 
+## The whole chain (`mastering::master`)
+
+`master(audio, &MasterSettings { preset, intensity, target_lufs }, progress, cancel) -> Mastered { audio, lufs, true_peak_dbtp }`:
+
+1. The preset's EQ and compressor at its intensity (`PresetChain`), a second of audio at a time (progress up to 30 %, cancel checked each second).
+2. Makeup gain toward the target, the limiter (`limit`), and a measurement of integrated loudness; the gain is corrected by the miss, up to 4 passes, until within 0.3 LU (the SPEC accepts 0.5). The limiter makes loudness move less than the gain, which is why one guess is not enough. When the limiter cannot get there (a very loud target on dynamic material), the closest pass is kept. The gain is capped at +40 dB.
+3. A last check with the meter (`analysis::loudness`): if the true peak reads over -1.0 dBTP, the master is trimmed by the difference.
+
+The target is the one chosen (intensity never moves it), clamped to -30 to -5 LUFS (one that is not a number takes the preset's). A silent track is `InvalidAudio`. `master_file_name(artist, title, preset)` gives `<artist> - <title> (<preset> master).wav` (the title alone without an artist), safe on every system.
+
+In the app, `master_export(id, settings)` (src-tauri `mastering.rs`) decodes the track (at its own sample rate), masters it, writes it into `<output folder>/Masters/` as 24-bit WAV or 16-bit with TPDF dither (`audio::write_wav`, written to `.part` and renamed), records it in the library (`store_master`; the track shows as mastered), and returns the path, the loudness and the true peak. The original file is only read.
+
 ## Tests
 
 All with synthetic audio (`crate::synth`):
@@ -64,5 +76,6 @@ All with synthetic audio (`crate::synth`):
 - **Compressor:** the static curve (ratio, knee, edges, ratio 1); a quiet signal passes unchanged; a steady -6 dBFS sine over a -20 dB threshold at 4:1 loses `10.97 * 3/4` dB; makeup adds exactly; attack is quick and release slow; a loud left channel and a quiet right one get the same gain.
 - **EQ, more:** a gentler slope gives less gain below the shelf, slopes past 1 are clamped, a Q of 2 peaks 6 dB at the corner; `set` keeps the state and `reset` clears it; a not-a-number sample does not poison the filter; a zero sample rate does not panic.
 - **Compressor, more:** a not-a-number sample does not switch compression off.
+- **Whole chain:** Club at -8, Hip-hop at -9 and Chill at -14 LUFS, a track normalized to -30 dBFS raised to -9, one pushed 6 dB over full scale brought to -14, and intensity 0 and 0.6 at -10 all land within 0.5 LU of the target with a true peak at or under -1.0 dBTP, measured again on the output (the SPEC acceptance), and report what the meter reads; an unreachable target stops at the closest pass under the ceiling; progress only moves forward and ends at 1; a cancelled master stops; a silent track is an error; file names. In the app: the settings the UI sends, 16 and 24-bit only, the result as the UI reads it. Library: a stored master marks the track and one file keeps one record.
 - **Presets:** every preset holds its full row of the architecture table (bands, Q, low pass, compressor with knee and makeup, target), in the Master tab's order; names serialize as the UI sends them; intensity scales the EQ and the ratio, always from the full preset, never the target, and is clamped; the low pass slides from the top of the band, barely touching 15 kHz at 1 % intensity at 48 and 96 kHz; intensity 0 leaves the test loop untouched on both channels for every preset; Club at full gives +3 dB at 40 Hz, -2 dB at 400 Hz and +2.5 dB at 16 kHz, measured and from its own curve, and half intensity half the lift; Lo-fi takes more than 20 dB off 12 kHz and leaves the body; the compressor reduces a loud tone by the preset's ratio; `set` changes the curve to the new preset's and keeps the filters running. In the app: `master_presets` lists all five as the UI reads them.
 - **Limiter:** both interpolators pass DC and find the peak at each point between samples (4x at 48 kHz, 2x at 96 kHz, our own alone at 192 kHz); a quiet signal comes out unchanged and in line; the test loop pushed 12 dB over full scale measures at or under -1.0 dBTP (with `analysis::loudness`, the `ebur128` meter) and not crushed; broadband transients at 44.1, 48 and 96 kHz (the loop with hats, hats alone, binary noise, high tones starting at full level, sparse spikes, also with a 2 ms look-ahead) stay under it; a sine whose true peak is 3 dB above its sample peaks is caught; high notes near Nyquist at 44.1 kHz stay under it; our own detector reads every output sample at the target or under it (an impulse, a burst, hats); the gain goes down in steps of at most 1 / look-ahead and releases over the release time; the gain recovers after a burst; odd settings and not-a-number input are handled; the stream lags by exactly its latency.

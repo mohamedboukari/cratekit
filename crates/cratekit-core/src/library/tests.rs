@@ -861,6 +861,50 @@ fn removing_stems_gives_the_folder_back_and_unmarks_the_track() {
 }
 
 #[test]
+fn a_stored_master_marks_the_track_and_one_file_keeps_one_record() {
+    let mut library = library();
+    let id = library
+        .add_paths(&[fixture("tone.wav")])
+        .expect("add")
+        .added[0];
+    let mastered = |library: &Library| {
+        library
+            .list(&LibraryQuery::default())
+            .expect("list")
+            .iter()
+            .any(|row| row.id == id && row.mastered)
+    };
+    assert!(!mastered(&library));
+    let file = Path::new("/music/Cratekit/Masters/Tone (Club master).wav");
+    library
+        .store_master(id, "club", r#"{"preset":"club"}"#, file, -8.1)
+        .expect("store");
+    assert!(mastered(&library));
+    // The same file again: still one record, with the new loudness.
+    library
+        .store_master(id, "club", r#"{"preset":"club"}"#, file, -8.4)
+        .expect("store again");
+    let (count, lufs): (i64, f64) = library
+        .connection
+        .query_row(
+            "SELECT COUNT(*), MAX(lufs) FROM masters WHERE track_id = ?1",
+            [id],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
+        .expect("count");
+    assert_eq!(count, 1);
+    assert!((lufs + 8.4).abs() < 1e-4);
+    let refused = library.store_master(99, "club", "{}", file, -8.0);
+    assert!(matches!(
+        refused,
+        Err(CoreError::NotFound {
+            what: "track",
+            id: 99
+        })
+    ));
+}
+
+#[test]
 fn stems_of_a_track_not_in_the_library_are_refused() {
     let mut library = library();
     let result = library.store_stems(99, "htdemucs", Path::new("/x"), &split_of(1.0));
