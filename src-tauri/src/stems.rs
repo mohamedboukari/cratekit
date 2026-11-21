@@ -27,15 +27,20 @@ use crate::models::models_dir;
 /// `.github/scripts/fetch-onnxruntime.sh` prints).
 const LIBRARY_VARIABLE: &str = "CRATEKIT_ONNXRUNTIME";
 
-/// Where `bun run setup:stems` stages the library for development builds,
-/// which bundle nothing (`src-tauri/onnxruntime/`, git-ignored). Compiled
-/// into development builds only, so a release binary holds no source path.
-#[cfg(debug_assertions)]
+/// Where `bun run setup:stems` stages the library for `tauri dev` builds,
+/// which bundle nothing (`src-tauri/onnxruntime/`, git-ignored). `dev` is
+/// Tauri's cfg for `tauri dev` (any profile); every `tauri build`, the
+/// installers included, compiles the `None` version, so no source path ships.
+#[cfg(dev)]
 fn dev_library() -> Option<PathBuf> {
-    Some(Path::new(concat!(env!("CARGO_MANIFEST_DIR"), "/onnxruntime")).join(LIBRARY_FILE))
+    Some(
+        Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("onnxruntime")
+            .join(LIBRARY_FILE),
+    )
 }
 
-#[cfg(not(debug_assertions))]
+#[cfg(not(dev))]
 fn dev_library() -> Option<PathBuf> {
     None
 }
@@ -57,39 +62,42 @@ pub(crate) fn output_dir<R: Runtime>(
     Ok(app.path().audio_dir()?.join("Cratekit"))
 }
 
-/// ONNX Runtime's library (see [`pick_library`]).
+/// ONNX Runtime's library: the one `CRATEKIT_ONNXRUNTIME` names when set,
+/// else see [`pick_library`].
 fn library_path<R: Runtime>(app: &AppHandle<R>) -> Result<PathBuf, AppError> {
+    if let Some(path) = std::env::var_os(LIBRARY_VARIABLE) {
+        return Ok(PathBuf::from(path));
+    }
     let bundled = app
         .path()
-        .resource_dir()?
-        .join("onnxruntime")
-        .join(LIBRARY_FILE);
-    Ok(pick_library(
-        std::env::var_os(LIBRARY_VARIABLE).map(PathBuf::from),
-        bundled,
-        dev_library(),
-        |path| path.is_file(),
-    ))
+        .resource_dir()
+        .map(|dir| dir.join("onnxruntime").join(LIBRARY_FILE));
+    match pick_library(bundled.as_ref().ok().cloned(), dev_library(), |path| {
+        path.is_file()
+    }) {
+        Some(path) => Ok(path),
+        // No resource folder and not a dev build: say why.
+        None => bundled.map_err(AppError::from),
+    }
 }
 
-/// Which library to load: the variable's when set; else the bundled copy when
-/// it is there; else, in a development build, the one `bun run setup:stems`
-/// staged, when it is there. Otherwise the bundled path, so "library missing"
-/// names where an installed app keeps it. Release builds never look in the
-/// source tree (`dev` is `None`).
+/// Which library to load. In a dev build, the copy `bun run setup:stems`
+/// staged comes first (a copy an earlier overlay build left in `target/`
+/// must not win over a fresh one); then the bundled copy. When neither exists,
+/// the path to name in "library missing": the staged one in a dev build (where
+/// the docs send you), else the bundled one. `None` only without both paths.
 fn pick_library(
-    variable: Option<PathBuf>,
-    bundled: PathBuf,
+    bundled: Option<PathBuf>,
     dev: Option<PathBuf>,
     exists: impl Fn(&Path) -> bool,
-) -> PathBuf {
-    if let Some(path) = variable {
-        return path;
+) -> Option<PathBuf> {
+    if let Some(path) = dev.as_ref().filter(|path| exists(path)) {
+        return Some(path.clone());
     }
-    if exists(&bundled) {
-        return bundled;
+    if let Some(path) = bundled.as_ref().filter(|path| exists(path)) {
+        return Some(path.clone());
     }
-    dev.filter(|path| exists(path)).unwrap_or(bundled)
+    dev.or(bundled)
 }
 
 /// Why the model cannot be used yet.
@@ -269,39 +277,29 @@ mod tests {
     use super::*;
 
     #[test]
-    fn picks_the_variable_then_the_bundled_library_then_the_dev_copy() {
+    fn a_dev_build_prefers_the_staged_copy_and_names_it_when_missing() {
         let bundled = PathBuf::from("/app/onnxruntime/lib");
         let dev = PathBuf::from("/repo/src-tauri/onnxruntime/lib");
-        let variable = PathBuf::from("/custom/lib");
-        let none = |_: &Path| false;
         let all = |_: &Path| true;
-        let only_dev = |path: &Path| path.starts_with("/repo");
+        let none = |_: &Path| false;
+        let only_bundled = |path: &Path| path.starts_with("/app");
+        let pick = |dev: Option<&PathBuf>, exists: &dyn Fn(&Path) -> bool| {
+            pick_library(Some(bundled.clone()), dev.cloned(), exists)
+        };
 
-        let pick =
-            |var: Option<&PathBuf>, dev: Option<&PathBuf>, exists: &dyn Fn(&Path) -> bool| {
-                pick_library(var.cloned(), bundled.clone(), dev.cloned(), exists)
-            };
-        assert_eq!(pick(Some(&variable), Some(&dev), &all), variable);
+        // tauri dev: the staged copy beats any copy left in target/.
+        assert_eq!(pick(Some(&dev), &all), Some(dev.clone()));
+        assert_eq!(pick(Some(&dev), &only_bundled), Some(bundled.clone()));
         assert_eq!(
-            pick(None, Some(&dev), &all),
-            bundled,
-            "an installed copy wins"
+            pick(Some(&dev), &none),
+            Some(dev.clone()),
+            "missing: names the staged path"
         );
-        assert_eq!(
-            pick(None, Some(&dev), &only_dev),
-            dev,
-            "a dev build finds the staged copy"
-        );
-        assert_eq!(
-            pick(None, None, &only_dev),
-            bundled,
-            "a release build never looks in the repo"
-        );
-        assert_eq!(
-            pick(None, Some(&dev), &none),
-            bundled,
-            "missing: the error names the bundled path"
-        );
+        // tauri build (no dev path): the bundled copy, found or not.
+        assert_eq!(pick(None, &all), Some(bundled.clone()));
+        assert_eq!(pick(None, &none), Some(bundled.clone()));
+        // No resource folder and not a dev build: nothing to name.
+        assert_eq!(pick_library(None, None, all), None);
     }
 
     #[test]

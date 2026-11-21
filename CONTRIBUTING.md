@@ -8,8 +8,8 @@ Follow [README.md](README.md) for prerequisites and setup (Rust via rustup, bun,
 
 ```bash
 bun install          # also installs the git hooks
+bun run setup:stems  # once, so stems work in development builds (Windows: from Git Bash)
 bun run tauri dev    # run the app
-bun run setup:stems  # once, so stems work in development builds
 bun run check        # run every gate before pushing
 ```
 

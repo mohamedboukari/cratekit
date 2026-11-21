@@ -16,15 +16,15 @@ Tauri 2 desktop app: a Rust backend (Cargo workspace) and a React 19 + TypeScrip
 | --- | --- |
 | Rust | [rustup](https://rustup.rs). The repo pins the toolchain in `rust-toolchain.toml`, so rustup installs the right version on first build |
 | bun | [bun.sh](https://bun.sh) |
-| System libraries | macOS: Xcode Command Line Tools (`xcode-select --install`). Windows: WebView2 (preinstalled on Windows 11) and the MSVC build tools. Linux: see [Tauri prerequisites](https://v2.tauri.app/start/prerequisites/) (`libwebkit2gtk-4.1-dev` and friends), plus the ALSA headers for audio output (`libasound2-dev` on Debian and Ubuntu, `alsa-lib-devel` on Fedora, `alsa-lib` on Arch) |
+| System libraries | macOS: Xcode Command Line Tools (`xcode-select --install`). Windows: WebView2 (preinstalled on Windows 11), the MSVC build tools, and Git for Windows (run `bun run setup:stems` from its Git Bash). Linux: see [Tauri prerequisites](https://v2.tauri.app/start/prerequisites/) (`libwebkit2gtk-4.1-dev` and friends), plus the ALSA headers for audio output (`libasound2-dev` on Debian and Ubuntu, `alsa-lib-devel` on Fedora, `alsa-lib` on Arch) |
 | Dev tools (for the checks) | `cargo-nextest`, `cargo-deny`, `cargo-shear`, `typos-cli`, `taplo`. With Homebrew: `brew install cargo-nextest cargo-deny cargo-shear typos-cli taplo` |
 
 ## Getting started
 
 ```bash
 bun install          # JS dependencies for the root and ui/ (also installs the git hooks)
-bun run tauri dev    # build and open the app (the first Rust build takes a few minutes)
 bun run setup:stems  # once, for stems in development builds: downloads ONNX Runtime into src-tauri/onnxruntime/
+bun run tauri dev    # build and open the app (the first Rust build takes a few minutes)
 ```
 
 ## Scripts
@@ -33,7 +33,7 @@ bun run setup:stems  # once, for stems in development builds: downloads ONNX Run
 | --- | --- |
 | `bun run tauri dev` | Run the app with hot reload |
 | `bun run --cwd ui dev` | Run only the UI in a browser, on demo data (same as the live demo) |
-| `bun run setup:stems` | Download Microsoft's ONNX Runtime for this machine (pinned SHA-256) into `src-tauri/onnxruntime/` (git-ignored), where development builds find it; installers bundle it |
+| `bun run setup:stems` | Download Microsoft's ONNX Runtime for this machine (pinned SHA-256) into `src-tauri/onnxruntime/` (git-ignored), where `tauri dev` builds find it (on Windows, from Git Bash); installers bundle it |
 | `bun run check` | Every gate CI runs: Rust (fmt, taplo, clippy, nextest, doc tests, cargo-deny, cargo-shear, typos) then UI (tsc, oxlint, prettier, knip, vitest) |
 | `bun run test` / `bun run test:rust` | UI tests (Vitest) / Rust tests (nextest) |
 | `bun run lint` / `bun run format` | oxlint (type-aware) / Prettier |
