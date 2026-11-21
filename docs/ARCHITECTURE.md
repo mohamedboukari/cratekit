@@ -60,11 +60,11 @@ src/
     energy.rs          1 to 10 score (loudness, onset density, brightness)
     waveform.rs        min/max/RMS columns (20 per second, one byte each), stored with the analysis; a 1200-column overview for the deck
   mastering/
-    mod.rs             master() -> MasterResult
+    mod.rs             the blocks so far (#23); master() -> MasterResult (#25); docs/mastering.md
     presets.rs         Preset structs (see table below)
-    eq.rs              biquad shelves and peaks (RBJ cookbook)
-    compressor.rs      RMS glue compressor
-    limiter.rs         look-ahead true-peak limiter (4x oversampled detection)
+    eq.rs              biquad shelves, peaks and passes (RBJ cookbook), f64 state
+    compressor.rs      RMS glue compressor, one gain for all channels, soft knee
+    limiter.rs         look-ahead true-peak limiter (4x windowed-sinc detection, -1.0 dBTP)
     reference.rs       reference-track spectral matching
   stems/
     mod.rs             trait StemSeparator; separate() -> Stems (drums, bass, other, vocals)
