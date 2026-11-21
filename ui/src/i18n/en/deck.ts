@@ -32,10 +32,15 @@ export const deck = {
       mastered: "Mastered",
       stems: "Stems mix",
     },
-    filter: "Filter",
+  },
+  /** The deck's filter knob: its label, and its ends (low-pass, high-pass). */
+  filter: {
+    label: "Filter",
+    lowShort: "LP",
+    highShort: "HP",
   },
   knob: {
-    title: "{{label}}: {{value}}",
+    title: "{{label}}: {{value}}. Drag or scroll to change, double-click to reset",
   },
   cueEditor: {
     title: "Hot cue {{slot}}",
