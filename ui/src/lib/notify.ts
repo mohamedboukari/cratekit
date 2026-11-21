@@ -43,6 +43,8 @@ function codeDetail(code: string): string | null {
       return i18n.t("errors.codes.busy");
     case "stems":
       return i18n.t("errors.codes.stems");
+    case "stems_unavailable":
+      return i18n.t("errors.codes.stems_unavailable");
     default:
       return null;
   }

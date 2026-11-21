@@ -16,7 +16,9 @@ use cratekit_core::CoreError;
 use cratekit_core::analysis::track::{TrackAnalysis, analyze_file};
 use cratekit_core::library::{Library, TrackId};
 use cratekit_core::progress::{CancellationToken, ProgressSink};
-use cratekit_core::stems::models::{Model, Stage};
+use cratekit_core::stems::StemSeparator;
+use cratekit_core::stems::cache::split_to_folder;
+use cratekit_core::stems::models::{HTDEMUCS, Model, Stage};
 use serde::Serialize;
 use tauri::{AppHandle, Emitter, Manager, Runtime};
 
@@ -35,6 +37,8 @@ const STEPS_PER_TRACK: u32 = 100;
 pub(crate) enum JobKind {
     /// Tempo, key, loudness and energy of tracks.
     Analysis,
+    /// Splitting tracks into stems.
+    Stems,
     /// The stems model download.
     ModelDownload,
 }
@@ -82,11 +86,26 @@ pub(crate) struct JobProgress {
 impl JobProgress {
     /// An analysis job's progress event.
     fn analysis(job_id: &str, track_ids: &[TrackId], done: u32, queued: bool) -> Self {
+        Self::for_tracks(JobKind::Analysis, job_id, track_ids, done, queued)
+    }
+
+    /// The progress event of a job over tracks (analysis or stems).
+    fn for_tracks(
+        kind: JobKind,
+        job_id: &str,
+        track_ids: &[TrackId],
+        done: u32,
+        queued: bool,
+    ) -> Self {
         let count = u32::try_from(track_ids.len()).unwrap_or(u32::MAX);
+        let label = match kind {
+            JobKind::Stems => format!("Splitting {count} tracks into stems"),
+            _ => format!("Analyzing {count} tracks"),
+        };
         Self {
             job_id: job_id.to_owned(),
-            kind: JobKind::Analysis,
-            label: format!("Analyzing {count} tracks"),
+            kind,
+            label,
             stage: None,
             track_ids: track_ids.to_vec(),
             done,
@@ -178,6 +197,7 @@ type Analyzer =
 #[derive(Debug, Clone)]
 struct Job {
     id: String,
+    kind: JobKind,
     track_ids: Vec<TrackId>,
     cancel: CancellationToken,
 }
@@ -210,10 +230,22 @@ impl Jobs {
     /// UI right away (a queued `job_progress`), before the worker can start
     /// it, so a waiting job can be seen and cancelled.
     pub(crate) fn queue_analysis(&self, track_ids: Vec<TrackId>, events: &dyn JobEvents) -> String {
+        self.queue(JobKind::Analysis, track_ids, events)
+    }
+
+    /// Queues a job of `kind` over `track_ids` (analysis or stems) and
+    /// returns its id, telling the UI right away, as [`Self::queue_analysis`].
+    pub(crate) fn queue(
+        &self,
+        kind: JobKind,
+        track_ids: Vec<TrackId>,
+        events: &dyn JobEvents,
+    ) -> String {
         let id = format!("job-{}", self.next_id.fetch_add(1, Ordering::Relaxed) + 1);
-        events.progress(JobProgress::analysis(&id, &track_ids, 0, true));
+        events.progress(JobProgress::for_tracks(kind, &id, &track_ids, 0, true));
         self.lock().waiting.push_back(Job {
             id: id.clone(),
+            kind,
             track_ids,
             cancel: CancellationToken::new(),
         });
@@ -371,10 +403,22 @@ impl Jobs {
                 let outcome = catch_unwind(AssertUnwindSafe(|| {
                     let state = app.state::<LibraryState>();
                     match state.library() {
-                        Ok(library) => jobs.run_analysis(&job, library, &app, analyze_file),
+                        Ok(library) => match job.kind {
+                            JobKind::Stems => match crate::stems::stems_dir(&app) {
+                                Ok(root) => jobs.run_stems(&job, library, &app, &root, &|| {
+                                    crate::stems::separator(&app)
+                                }),
+                                Err(error) => app.failed(JobFailed {
+                                    job_id: job.id.clone(),
+                                    kind: job.kind,
+                                    error,
+                                }),
+                            },
+                            _ => jobs.run_analysis(&job, library, &app, analyze_file),
+                        },
                         Err(error) => app.failed(JobFailed {
                             job_id: job.id.clone(),
-                            kind: JobKind::Analysis,
+                            kind: job.kind,
                             error,
                         }),
                     }
@@ -382,10 +426,10 @@ impl Jobs {
                 if outcome.is_err() {
                     app.failed(JobFailed {
                         job_id: job.id.clone(),
-                        kind: JobKind::Analysis,
+                        kind: job.kind,
                         error: AppError {
                             code: "internal",
-                            message: "the analysis job stopped unexpectedly".into(),
+                            message: "the job stopped unexpectedly".into(),
                         },
                     });
                 }
@@ -440,27 +484,110 @@ impl Jobs {
                 Err(err) => failures.push(err),
             }
         }
-        if job.cancel.is_cancelled() {
-            return;
-        }
-        let failed = failures.len();
-        match failures.into_iter().next() {
-            None => events.done(JobDone {
-                job_id: job.id.clone(),
-                kind: JobKind::Analysis,
-            }),
-            Some(first) => {
-                let mut error = AppError::from(first);
-                error.message = format!(
-                    "{failed} of {count} tracks could not be analyzed; first: {}",
-                    error.message
-                );
+        finish_tracks(job, failures, count, "analyzed", events);
+    }
+
+    /// Splits every track of `job` into stems, writes them into
+    /// `<stems_root>/<track id>/` and records them in the library. The
+    /// separator (ONNX Runtime and the model) is made once per job by
+    /// `make_separator`; if that fails, the job fails with its reason. Tracks
+    /// that fail are skipped, as in an analysis.
+    fn run_stems(
+        &self,
+        job: &Job,
+        library: &Mutex<Library>,
+        events: &dyn JobEvents,
+        stems_root: &Path,
+        make_separator: &dyn Fn() -> Result<Box<dyn StemSeparator>, AppError>,
+    ) {
+        let count = u32::try_from(job.track_ids.len()).unwrap_or(u32::MAX);
+        let report = |done: u32| {
+            events.progress(JobProgress::for_tracks(
+                JobKind::Stems,
+                &job.id,
+                &job.track_ids,
+                done,
+                false,
+            ));
+        };
+        report(0);
+        let mut separator = match make_separator() {
+            Ok(separator) => separator,
+            Err(error) => {
                 events.failed(JobFailed {
                     job_id: job.id.clone(),
-                    kind: JobKind::Analysis,
+                    kind: JobKind::Stems,
                     error,
                 });
+                return;
             }
+        };
+        let mut failures: Vec<CoreError> = Vec::new();
+        for (index, &track_id) in (0_u32..).zip(&job.track_ids) {
+            if !self.wait_while_paused(&job.cancel) {
+                return;
+            }
+            let before = index * STEPS_PER_TRACK;
+            let dir = stems_root.join(track_id.to_string());
+            let path = lock(library).track(track_id).map(|detail| detail.path);
+            let split = path.and_then(|path: PathBuf| {
+                let last = AtomicU64::new(u64::MAX);
+                let sink = |fraction: f32| {
+                    let step = (fraction.clamp(0.0, 1.0) * STEPS_PER_TRACK as f32) as u32;
+                    if last.swap(u64::from(step), Ordering::Relaxed) != u64::from(step) {
+                        report(before + step);
+                    }
+                };
+                // A panic in the decoder or the model fails this track only.
+                catch_unwind(AssertUnwindSafe(|| {
+                    split_to_folder(separator.as_mut(), &path, &dir, &sink, &job.cancel)
+                }))
+                .unwrap_or(Err(CoreError::Stems(
+                    "splitting this track panicked".to_owned(),
+                )))
+            });
+            match split
+                .and_then(|split| lock(library).store_stems(track_id, HTDEMUCS.name, &dir, &split))
+            {
+                Ok(()) => {}
+                Err(CoreError::Cancelled) => return,
+                Err(CoreError::NotFound { .. }) => {}
+                Err(err) => failures.push(err),
+            }
+        }
+        finish_tracks(job, failures, count, "split", events);
+    }
+}
+
+/// Ends a job over tracks: `job_done`, or `job_failed` saying how many tracks
+/// failed and the first reason. A cancelled job sends nothing.
+fn finish_tracks(
+    job: &Job,
+    failures: Vec<CoreError>,
+    count: u32,
+    verb: &str,
+    events: &dyn JobEvents,
+) {
+    if job.cancel.is_cancelled() {
+        return;
+    }
+    let failed = failures.len();
+    match failures.into_iter().next() {
+        None => events.done(JobDone {
+            job_id: job.id.clone(),
+            kind: job.kind,
+        }),
+        Some(first) => {
+            let mut error = AppError::from(first);
+            error.message = format!(
+                "{failed} of {count} tracks could not be {verb}; first: {}",
+                error.message
+            );
+            events.failed(JobFailed {
+                job_id: job.id.clone(),
+                kind: job.kind,
+                error,
+            });
         }
     }
 }
@@ -647,6 +774,107 @@ mod tests {
     fn job(jobs: &Jobs, ids: Vec<TrackId>) -> Job {
         jobs.queue_analysis(ids, &Recorder::default());
         jobs.next()
+    }
+
+    /// A stand-in for the model: drums get half the mix, bass and other a
+    /// quarter each, vocals nothing.
+    struct Halves;
+
+    impl StemSeparator for Halves {
+        fn separate(
+            &mut self,
+            audio: cratekit_core::audio::AudioBuffer,
+            progress: &dyn ProgressSink,
+            cancel: &CancellationToken,
+        ) -> Result<cratekit_core::stems::Stems, CoreError> {
+            cancel.check()?;
+            progress.progress(1.0);
+            let scaled = |k: f32| {
+                cratekit_core::audio::AudioBuffer::new(
+                    audio.sample_rate(),
+                    audio
+                        .channels()
+                        .iter()
+                        .map(|c| c.iter().map(|s| s * k).collect())
+                        .collect(),
+                )
+            };
+            Ok(cratekit_core::stems::Stems {
+                drums: scaled(0.5)?,
+                bass: scaled(0.25)?,
+                other: scaled(0.25)?,
+                vocals: scaled(0.0)?,
+            })
+        }
+    }
+
+    fn stems_job(jobs: &Jobs, ids: Vec<TrackId>) -> Job {
+        jobs.queue(JobKind::Stems, ids, &Recorder::default());
+        jobs.next()
+    }
+
+    #[test]
+    fn splits_every_track_into_the_cache_and_records_it() {
+        let (library, ids) = library_with(&["tone.wav", "tone.flac"]);
+        let root = std::env::temp_dir().join(format!("cratekit-jobs-stems-{}", std::process::id()));
+        let (jobs, events) = (Jobs::default(), Recorder::default());
+        let job = stems_job(&jobs, ids.clone());
+
+        jobs.run_stems(&job, &library, &events, &root, &|| Ok(Box::new(Halves)));
+
+        let seen = events.take();
+        assert_eq!(seen.first().map(String::as_str), Some("progress 0/200"));
+        assert_eq!(seen.last().map(String::as_str), Some("done job-1"));
+        for id in ids {
+            let dir = root.join(id.to_string());
+            for file in cratekit_core::stems::cache::STEM_FILES {
+                assert!(dir.join(file).is_file(), "{file}");
+            }
+            let stored = lock(&library).stems(id).unwrap().expect("recorded");
+            assert_eq!(stored.dir, dir);
+            assert!(stored.waveforms.is_some());
+            assert!(lock(&library).track(id).unwrap().track.has_stems);
+        }
+        std::fs::remove_dir_all(&root).ok();
+    }
+
+    #[test]
+    fn a_separator_that_cannot_be_made_fails_the_job_with_its_reason() {
+        let (library, ids) = library_with(&["tone.wav"]);
+        let root =
+            std::env::temp_dir().join(format!("cratekit-jobs-nostems-{}", std::process::id()));
+        let (jobs, events) = (Jobs::default(), Recorder::default());
+        let job = stems_job(&jobs, ids.clone());
+
+        jobs.run_stems(&job, &library, &events, &root, &|| {
+            Err(AppError {
+                code: "stems_unavailable",
+                message: "stems need a newer CPU".into(),
+            })
+        });
+
+        let seen = events.take();
+        assert_eq!(
+            seen.last().map(String::as_str),
+            Some("failed job-1 stems_unavailable: stems need a newer CPU")
+        );
+        assert!(lock(&library).stems(ids[0]).unwrap().is_none());
+        assert!(!root.exists());
+    }
+
+    #[test]
+    fn a_cancelled_stems_job_sends_nothing_more_and_records_nothing() {
+        let (library, ids) = library_with(&["tone.wav"]);
+        let root =
+            std::env::temp_dir().join(format!("cratekit-jobs-cancel-{}", std::process::id()));
+        let (jobs, events) = (Jobs::default(), Recorder::default());
+        let job = stems_job(&jobs, ids.clone());
+        job.cancel.cancel();
+
+        jobs.run_stems(&job, &library, &events, &root, &|| Ok(Box::new(Halves)));
+
+        assert_eq!(events.take(), vec!["progress 0/100".to_owned()]);
+        assert!(lock(&library).stems(ids[0]).unwrap().is_none());
     }
 
     #[test]
