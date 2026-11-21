@@ -42,6 +42,11 @@ impl HtDemucs {
     pub fn new(runtime: &Runtime, model_dir: &Path) -> Result<Self, CoreError> {
         let session = Session::builder(runtime.environment())
             .map_err(stems_error)?
+            // ONNX Runtime's memory pattern keeps every planned buffer for the
+            // whole run: 4.8 GB peak on one segment, 2.6 GB without it, at
+            // the same speed (measured on an M4 Pro). The SPEC allows about 4.
+            .with_memory_pattern(false)
+            .map_err(stems_error)?
             .commit_from_file(model_dir.join(GRAPH_FILE))
             .map_err(stems_error)?;
         Ok(Self {

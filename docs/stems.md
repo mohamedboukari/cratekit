@@ -40,7 +40,9 @@ A connection that stalls mid-file (no data for 30 s) fails the download, keeping
 
 ## The separator (`stems::htdemucs`, `stems::dsp`)
 
-`HtDemucs::new(runtime, model_dir)` loads the model on the CPU; `separate(audio, progress, cancel)` (the `StemSeparator` trait) returns `Stems { drums, bass, other, vocals }`, each 44.1 kHz stereo. The app depends on the trait, not on the model.
+`HtDemucs::new(runtime, model_dir)` loads the model on the CPU; `separate(audio, progress, cancel)` (the `StemSeparator` trait) returns `Stems { drums, bass, other, vocals }`, each 44.1 kHz stereo. The app depends on the trait, not on the model. `Stems::instrumental()` gives the 2-stem mode's instrumental (drums, bass and other summed, the mix without the vocals).
+
+The session runs with ONNX Runtime's memory pattern off: with it, the process peaked at 5.5 GB splitting a 236 s track; without it, 3.3 GB, at the same speed (34 s on an M4 Pro).
 
 Intel's split export runs only the network; `stems::dsp` does the rest, as the reference implementation (adefossez/demucs `spec.py`, `htdemucs.py`, `apply.py`, `api.py`, MIT):
 
@@ -62,6 +64,7 @@ Checked against StemSplitio's export of the same weights (STFT inside its graph)
 ## Tests
 
 - Download tests against a small HTTP server inside the test (no internet): every file verified and progress moving forward to `Verify` 1.0; a wrong checksum deletes the file; a connection cut halfway keeps the partial file and the next call resumes it with a Range request; a server that ignores ranges, resumes at the wrong place or answers 416 starts over; a downloaded model makes no request; cancel before any request; an HTTP 404; delete. `the_real_model_downloads_and_verifies` (ignored, 171 MB) downloads the pinned model from Hugging Face: about 80 s, both checksums match.
+- `the_instrumental_is_everything_but_the_vocals`: the 2-stem instrumental is drums plus bass plus other, sample by sample.
 - Signal processing tests (synthetic signals): the constants, reflection padding, the window, a tone in its bin at the normalized level, the STFT round trip (error under 1e-4 away from the dropped edge frames), segments covering a track and centring the last one, blending an identity model back to the track, the track normalization undone, the spectrogram channel layout, and both output branches back to audio.
 - `the_stems_sum_back_to_the_mix` (ignored; needs `CRATEKIT_ONNXRUNTIME` and `CRATEKIT_STEMS_MODEL`): splits a 12 s synthetic mix (kick, bass line, chord) with the real model; the stems sum back exactly and the bass line lands in the bass stem. About 3 s in release on Apple Silicon.
 - Unit tests: the CPU verdict for every AVX2 and FMA combination, a missing file, a relative path, a file that is not ONNX Runtime, reading a version string, the wording of the reasons.
