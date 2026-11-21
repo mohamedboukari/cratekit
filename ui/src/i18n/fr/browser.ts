@@ -69,6 +69,8 @@ export const browser: Translation["browser"] = {
     removeFromLibrary: "Retirer de la bibliothèque",
     comingSoon: "Disponible avec la tâche bibliothèque",
   },
+  dragTracks_one: "{{count}} morceau",
+  dragTracks_other: "{{count}} morceaux",
   setList: {
     title: "Set list",
     saveAsCrate: "Enregistrer comme bac",

@@ -135,12 +135,12 @@ ui/
       shortcuts.ts     the single keyboard shortcut map
       notify.ts        command errors as toasts
       format.ts        display formatting only (times, durations, filter text, backend and job labels)
-      dnd.ts           drag and drop payload type and validation
+      drag.ts          in-app drags on pointer events (rows to the set list, reordering; docs/UI.md)
       focus.ts         focus helpers (buttons give focus back after a mouse click)
     i18n/              i18next instance (English for every user by default), typed keys, en/ (source) and one folder per language; see docs/UI.md, Languages
     mock/              fake-data CratekitApi + fixtures (browser dev server, Pages demo, tests);
                        only loaded when DEV or VITE_MOCK=1, so production Tauri builds never contain it
-    stores/            Zustand stores per domain: library, player, jobs, settings, ui, devices, setlist, master, stems, controller
+    stores/            Zustand stores per domain: library, player, jobs, settings, ui, devices, setlist, master, stems, controller, drag
     components/        one component per file, PascalCase .tsx (see docs/UI.md); controls/ holds shared widgets (Knob)
     hooks/             useIpcEvents (Rust events into stores), usePlaybackRefs (30 Hz refs), useShortcuts, usePaneLayout (saved pane sizes), useHearing (what you hear follows the tool tab)
     canvas/            waveform, overview bar, meters: imperative drawing code

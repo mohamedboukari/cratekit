@@ -12,17 +12,17 @@ import {
   useMemo,
   useRef,
   useState,
-  type DragEvent,
   type JSX,
   type KeyboardEvent,
   type MouseEvent,
+  type PointerEvent,
 } from "react";
 import { useTranslation } from "react-i18next";
 
 import { browserColumns, browserFeatures } from "@/components/browser/columns";
 import { TrackContextMenu } from "@/components/browser/TrackContextMenu";
 import { Button } from "@/components/ui/button";
-import { TRACK_DRAG_MIME } from "@/lib/dnd";
+import { pressToDrag } from "@/lib/drag";
 import { formatDuration, formatTime } from "@/lib/format";
 import { audioFormatsText } from "@/lib/formats";
 import { api } from "@/lib/ipc";
@@ -219,11 +219,15 @@ export function TrackBrowser(): JSX.Element {
     }
   };
 
-  const onRowDragStart = (id: TrackId) => (event: DragEvent<HTMLTableRowElement>) => {
-    const ids = selected.has(id) ? selectedIds : [id];
-    event.dataTransfer.setData(TRACK_DRAG_MIME, JSON.stringify(ids));
-    event.dataTransfer.effectAllowed = "copy";
-  };
+  // A drag carries the selection when it starts on a selected row, else that row.
+  const onRowPointerDown =
+    (id: TrackId, title: string) => (event: PointerEvent<HTMLTableRowElement>) =>
+      pressToDrag(event, () => {
+        const ids = selected.has(id) ? selectedIds : [id];
+        const label =
+          ids.length === 1 ? title : t("browser.dragTracks", { count: ids.length });
+        return { kind: "tracks", ids, label };
+      });
 
   const crateName =
     query.crateId === null
@@ -396,7 +400,7 @@ export function TrackBrowser(): JSX.Element {
                       }
                       onClick={onRowClick(item.index, track.id)}
                       onDoubleClick={() => void load(track.id)}
-                      onDragStart={onRowDragStart(track.id)}
+                      onPointerDown={onRowPointerDown(track.id, track.title)}
                     />
                   );
                 })}
@@ -421,7 +425,7 @@ interface TrackRowViewProps {
   keyMatch: boolean;
   onClick: (event: MouseEvent<HTMLTableRowElement>) => void;
   onDoubleClick: () => void;
-  onDragStart: (event: DragEvent<HTMLTableRowElement>) => void;
+  onPointerDown: (event: PointerEvent<HTMLTableRowElement>) => void;
 }
 
 function TrackRowView({
@@ -435,7 +439,7 @@ function TrackRowView({
   keyMatch,
   onClick,
   onDoubleClick,
-  onDragStart,
+  onPointerDown,
 }: TrackRowViewProps): JSX.Element {
   const { t } = useTranslation();
   return (
@@ -446,10 +450,9 @@ function TrackRowView({
       data-track-id={track.id}
       aria-rowindex={index + 2}
       aria-selected={selected}
-      draggable
       onClick={onClick}
       onDoubleClick={onDoubleClick}
-      onDragStart={onDragStart}
+      onPointerDown={onPointerDown}
       style={{ transform: `translateY(${top}px)`, height: ROW_HEIGHT }}
       className={cn(
         GRID_COLUMNS,
