@@ -15,7 +15,7 @@ use std::time::Instant;
 use super::{StemSeparator, Stems};
 use crate::CoreError;
 use crate::analysis::waveform::Waveform;
-use crate::audio::{WavFormat, decode_file_with, with_suffix, write_wav};
+use crate::audio::{WavFormat, decode_file, decode_file_with, with_suffix, write_wav};
 use crate::progress::{CancellationToken, ProgressSink};
 
 /// The files in a track's stems folder, in the model's order.
@@ -145,6 +145,21 @@ pub fn split_to_folder(
     Ok(Split {
         waveforms,
         split_sec: start.elapsed().as_secs_f64(),
+    })
+}
+
+/// Reads the four stems [`split_to_folder`] wrote into `dir` (for playback).
+///
+/// # Errors
+///
+/// The decoder's errors, for example when a file is missing or damaged.
+pub fn read_folder(dir: &Path) -> Result<Stems, CoreError> {
+    let [drums, bass, other, vocals] = STEM_FILES;
+    Ok(Stems {
+        drums: decode_file(&dir.join(drums))?,
+        bass: decode_file(&dir.join(bass))?,
+        other: decode_file(&dir.join(other))?,
+        vocals: decode_file(&dir.join(vocals))?,
     })
 }
 
@@ -292,6 +307,37 @@ mod tests {
             "progress goes forward"
         );
         assert_eq!(seen.last(), Some(&1.0));
+        fs::remove_dir_all(dir.parent().expect("parent")).ok();
+    }
+
+    #[test]
+    fn the_folder_reads_back_as_the_four_stems() {
+        let dir = temp("read").join("3");
+        split_to_folder(
+            &mut Halves,
+            &fixture(),
+            &dir,
+            &NoProgress,
+            &CancellationToken::new(),
+        )
+        .expect("split");
+
+        let stems = read_folder(&dir).expect("read");
+
+        let original = decode_file(&fixture()).expect("decode");
+        let level = |stem: &crate::audio::AudioBuffer| -> f32 {
+            stem.channels()[0]
+                .iter()
+                .map(|s| s.abs())
+                .fold(0.0, f32::max)
+        };
+        let peak = level(&original);
+        assert!((level(&stems.drums) - peak * 0.5).abs() < 1e-3);
+        assert!((level(&stems.bass) - peak * 0.25).abs() < 1e-3);
+        assert!(level(&stems.vocals) < 1e-3);
+        assert_eq!(stems.other.frames(), original.frames());
+        fs::remove_dir(&dir).ok();
+        assert!(read_folder(&dir.join("missing")).is_err());
         fs::remove_dir_all(dir.parent().expect("parent")).ok();
     }
 

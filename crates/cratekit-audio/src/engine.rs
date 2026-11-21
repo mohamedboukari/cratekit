@@ -12,7 +12,9 @@ use cratekit_core::CoreError;
 use cratekit_core::audio::{AudioBuffer, resample};
 use rtrb::{Consumer, Producer, RingBuffer};
 
-use crate::renderer::{Command, DeckId, Renderer, Shared, Track};
+use crate::renderer::{
+    Command, DeckId, PlaybackMode, Renderer, Retired, STEM_COUNT, Shared, Stem, StemSet, Track,
+};
 
 /// Commands waiting for the audio thread (it reads them every callback).
 const COMMAND_CAPACITY: usize = 64;
@@ -156,6 +158,31 @@ pub fn is_fatal(kind: cpal::ErrorKind) -> bool {
 /// [`EngineError::Audio`] if resampling fails.
 pub fn prepare_track(audio: AudioBuffer, rate: u32) -> Result<Track, EngineError> {
     Ok(prepare(audio, rate)?)
+}
+
+/// Makes a track's split stems ready for an engine at `rate`, each as
+/// [`prepare_track`] does, in the order of [`Stem::ALL`]. Needs no engine.
+///
+/// # Errors
+///
+/// [`EngineError::Audio`] if resampling fails.
+pub fn prepare_stems(
+    stems: cratekit_core::stems::Stems,
+    rate: u32,
+) -> Result<StemSet, EngineError> {
+    let cratekit_core::stems::Stems {
+        drums,
+        bass,
+        other,
+        vocals,
+    } = stems;
+    let tracks: [Track; STEM_COUNT] = [
+        prepare(drums, rate)?,
+        prepare(bass, rate)?,
+        prepare(other, rate)?,
+        prepare(vocals, rate)?,
+    ];
+    Ok(StemSet::from_tracks(tracks))
 }
 
 /// The id of the system's default output, if there is one.
@@ -393,6 +420,54 @@ impl Engine {
         self.send(deck, Command::SetFilter(value))
     }
 
+    /// Gives the track on `deck` its stems (prepared with [`prepare_stems`]).
+    /// Sent right after [`Self::load`], they wait for that track.
+    ///
+    /// # Errors
+    ///
+    /// [`EngineError::Busy`] if the audio thread does not take commands.
+    pub fn attach_stems(&self, deck: DeckId, stems: StemSet) -> Result<(), EngineError> {
+        self.send(deck, Command::AttachStems(Box::new(stems)))
+    }
+
+    /// Plays the track on `deck` or its stems (crossfaded over 10 ms; the
+    /// track while no stems are attached).
+    ///
+    /// # Errors
+    ///
+    /// [`EngineError::Busy`] if the audio thread does not take commands.
+    pub fn set_mode(&self, deck: DeckId, mode: PlaybackMode) -> Result<(), EngineError> {
+        self.send(deck, Command::SetMode(mode))
+    }
+
+    /// A stem's gain, 0 to 2 (clamped; not a number counts as 1), ramped.
+    ///
+    /// # Errors
+    ///
+    /// [`EngineError::Busy`] if the audio thread does not take commands.
+    pub fn set_stem_gain(&self, deck: DeckId, stem: Stem, gain: f32) -> Result<(), EngineError> {
+        self.send(deck, Command::SetStemGain(stem, gain))
+    }
+
+    /// Mutes or unmutes a stem, ramped.
+    ///
+    /// # Errors
+    ///
+    /// [`EngineError::Busy`] if the audio thread does not take commands.
+    pub fn set_stem_mute(&self, deck: DeckId, stem: Stem, muted: bool) -> Result<(), EngineError> {
+        self.send(deck, Command::SetStemMute(stem, muted))
+    }
+
+    /// Solos or unsolos a stem (while any stem is soloed, exactly the soloed
+    /// ones are heard), ramped.
+    ///
+    /// # Errors
+    ///
+    /// [`EngineError::Busy`] if the audio thread does not take commands.
+    pub fn set_stem_solo(&self, deck: DeckId, stem: Stem, soloed: bool) -> Result<(), EngineError> {
+        self.send(deck, Command::SetStemSolo(stem, soloed))
+    }
+
     /// Position, playing state and meters, read from the audio thread's
     /// atomics. Reading resets the peak, so each status has the peak since
     /// the previous one.
@@ -434,7 +509,7 @@ impl Drop for Engine {
 /// integer format at this boundary.
 fn open_stream(
     commands: Consumer<(DeckId, Command)>,
-    garbage: Producer<Box<Track>>,
+    garbage: Producer<Retired>,
     shared: Arc<Shared>,
     device_error: Arc<AtomicBool>,
     options: &EngineOptions,
@@ -545,9 +620,9 @@ where
     )
 }
 
-/// Frees the tracks the audio thread replaced, off the audio thread, until
-/// the engine stops.
-fn free_replaced_tracks(mut garbage: Consumer<Box<Track>>, stopping: &AtomicBool) {
+/// Frees the tracks and stems the audio thread replaced, off the audio
+/// thread, until the engine stops.
+fn free_replaced_tracks(mut garbage: Consumer<Retired>, stopping: &AtomicBool) {
     loop {
         while garbage.pop().is_ok() {}
         if stopping.load(Ordering::Relaxed) {

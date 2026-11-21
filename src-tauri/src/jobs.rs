@@ -405,9 +405,12 @@ impl Jobs {
                     match state.library() {
                         Ok(library) => match job.kind {
                             JobKind::Stems => match crate::stems::stems_dir(&app) {
-                                Ok(root) => jobs.run_stems(&job, library, &app, &root, &|| {
-                                    crate::stems::separator(&app)
-                                }),
+                                Ok(root) => {
+                                    jobs.run_stems(&job, library, &app, &root, &|| {
+                                        crate::stems::separator(&app)
+                                    });
+                                    crate::playback::stems_split_done(&app, &job.track_ids);
+                                }
                                 Err(error) => app.failed(JobFailed {
                                     job_id: job.id.clone(),
                                     kind: job.kind,
