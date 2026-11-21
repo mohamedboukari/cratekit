@@ -7,6 +7,7 @@ import { useIpcEvents } from "@/hooks/useIpcEvents";
 import { setApiForTests, type CratekitApi, type Listener } from "@/lib/ipc";
 import type { ControlEvent, MasterSettings, TrackId } from "@/lib/types";
 import { createMockApi } from "@/mock/api";
+import { useDevices } from "@/stores/devices";
 import { useJobs } from "@/stores/jobs";
 import { useMaster } from "@/stores/master";
 import { usePlayer } from "@/stores/player";
@@ -100,5 +101,17 @@ describe("tool tab regressions", () => {
     useUi.setState({ activeTool: "master" });
     act(() => press("ab-toggle"));
     expect(useMaster.getState().side).toBe("a");
+  });
+
+  it("asks for the stems backend again when Rust reports a settings change", async () => {
+    globalThis.localStorage.clear();
+    const mock = createMockApi();
+    setApiForTests(mock);
+    await useDevices.getState().load();
+    expect(useDevices.getState().backend?.reason).toBe("gpu_unsupported");
+    renderHook(() => useIpcEvents());
+    // The Settings window changes it; Rust saves it and tells every window.
+    await act(() => mock.settingsSet("stemsBackend", "cpu"));
+    await waitFor(() => expect(useDevices.getState().backend?.reason).toBe("cpu_chosen"));
   });
 });

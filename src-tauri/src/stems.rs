@@ -1,13 +1,15 @@
-//! Stems commands (#33, #35): splitting tracks (a job on the queue), what the
-//! Stems tab shows, and exporting the stems. Stems are written to
-//! `stems/<track id>/` in the app data folder as 16-bit WAV files and recorded
-//! in the library; an export copies them into the output folder.
+//! Stems commands (#33, #35, #32): splitting tracks (a job on the queue), what
+//! the Stems tab shows, exporting the stems, and the backend they split on.
+//! Stems are written to `stems/<track id>/` in the app data folder as 16-bit
+//! WAV files and recorded in the library; an export copies them into the
+//! output folder.
 
 use std::path::PathBuf;
 
 use cratekit_core::CoreError;
 use cratekit_core::analysis::waveform::{OVERVIEW_COLUMNS, WaveformView};
 use cratekit_core::library::TrackId;
+use cratekit_core::settings::StemsBackend;
 use cratekit_core::stems::StemSeparator;
 use cratekit_core::stems::cache::export_folder;
 use cratekit_core::stems::htdemucs::HtDemucs;
@@ -61,6 +63,58 @@ fn model_missing() -> AppError {
         code: "model_missing",
         message: "the stems model is not downloaded".to_owned(),
     }
+}
+
+/// The backend that splits stems, as the UI's `StemsBackendStatus.active`.
+/// Only the CPU in v0.1 (decided 2026-11-21, #32): CoreML joins when an ONNX
+/// Runtime release is fast on the CPU and runs htdemucs on CoreML.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export))]
+#[serde(rename_all = "lowercase")]
+pub(crate) enum StemsActiveBackend {
+    Cpu,
+}
+
+/// Why stems run on the CPU, as a code the UI words.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export))]
+#[serde(rename_all = "snake_case")]
+pub(crate) enum StemsCpuReason {
+    /// "CPU only" is chosen in Settings.
+    CpuChosen,
+    /// This version splits on the CPU on every platform.
+    GpuUnsupported,
+}
+
+/// The UI's `StemsBackendStatus`: the active backend and, when it is the
+/// CPU, why.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export))]
+pub(crate) struct StemsBackendStatusDto {
+    active: StemsActiveBackend,
+    reason: Option<StemsCpuReason>,
+}
+
+/// Which backend a split uses with this preference. Both preferences give the
+/// CPU in v0.1; only the reason differs.
+fn backend_status(preference: StemsBackend) -> StemsBackendStatusDto {
+    let reason = match preference {
+        StemsBackend::Cpu => StemsCpuReason::CpuChosen,
+        StemsBackend::Auto => StemsCpuReason::GpuUnsupported,
+    };
+    StemsBackendStatusDto {
+        active: StemsActiveBackend::Cpu,
+        reason: Some(reason),
+    }
+}
+
+/// The backend stems split on, for the status bar, the Stems tab and Settings.
+#[tauri::command]
+pub(crate) async fn stems_backend_status(
+    app: AppHandle,
+) -> Result<StemsBackendStatusDto, AppError> {
+    let settings = with_library(app, |library| library.settings()).await?;
+    Ok(backend_status(settings.stems_backend))
 }
 
 /// The separator for a stems job: ONNX Runtime loaded (once per process) and
@@ -173,4 +227,29 @@ pub(crate) async fn stems_export(app: AppHandle, id: TrackId) -> Result<Vec<Stri
         code: "internal",
         message: err.to_string(),
     })?
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn every_preference_splits_on_the_cpu_with_its_reason() {
+        let chosen = backend_status(StemsBackend::Cpu);
+        assert_eq!(chosen.active, StemsActiveBackend::Cpu);
+        assert_eq!(chosen.reason, Some(StemsCpuReason::CpuChosen));
+
+        let auto = backend_status(StemsBackend::Auto);
+        assert_eq!(auto.active, StemsActiveBackend::Cpu);
+        assert_eq!(auto.reason, Some(StemsCpuReason::GpuUnsupported));
+    }
+
+    #[test]
+    fn the_status_serializes_as_the_ui_reads_it() {
+        let json = serde_json::to_value(backend_status(StemsBackend::Auto)).expect("serializes");
+        assert_eq!(
+            json,
+            serde_json::json!({ "active": "cpu", "reason": "gpu_unsupported" })
+        );
+    }
 }

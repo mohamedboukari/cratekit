@@ -49,15 +49,15 @@ export const settings: Translation["settings"] = {
     description: "Comment la séparation des stems s'exécute sur cet ordinateur.",
     backend: "Moteur des stems",
     auto: "Utiliser le GPU si disponible",
-    autoHint: "CoreML sur macOS, DirectML sur Windows. Sinon, le CPU.",
+    autoHint:
+      "Le GPU dès que Cratekit le prend en charge sur cet ordinateur. Sinon, le CPU.",
     cpu: "CPU uniquement",
     cpuHint: "Plus lent, mais fonctionne sur toutes les machines.",
     inUse: "Utilisé actuellement : {{backend}}",
     inUseReason: "Utilisé actuellement : {{backend}} ({{reason}})",
     cpuReasons: {
-      no_gpu: "aucun GPU compatible trouvé",
       cpu_chosen: "le mode CPU seul est choisi ci-dessous",
-      gpu_check_failed: "la vérification du GPU a échoué, le CPU est utilisé",
+      gpu_unsupported: "cette version utilise le CPU pour séparer les stems",
     },
     checking: "Vérification du moteur...",
   },

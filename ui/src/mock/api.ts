@@ -454,7 +454,12 @@ export function createMockApi(): CratekitApi {
     stemsSetGain: () => resolve(undefined),
     stemsSetMute: () => resolve(undefined),
     stemsSetSolo: () => resolve(undefined),
-    stemsBackendStatus: () => resolve({ active: "coreml", reason: null }),
+    // Like Rust in v0.1: always the CPU, with the reason following the setting.
+    stemsBackendStatus: () =>
+      resolve({
+        active: "cpu",
+        reason: settings.stemsBackend === "cpu" ? "cpu_chosen" : "gpu_unsupported",
+      }),
     stemsInfo: (id) => {
       const t = byId.get(id);
       if (!t?.track.hasStems || !t.waveform) return resolve(null);

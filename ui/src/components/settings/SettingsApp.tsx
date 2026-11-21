@@ -21,7 +21,11 @@ export function SettingsApp(): JSX.Element {
     void loadSettings();
     void loadDevices();
     const subscriptions = [
-      api().onSettingsChanged((settings) => useSettings.getState().applyRemote(settings)),
+      api().onSettingsChanged((settings) => {
+        useSettings.getState().applyRemote(settings);
+        // Rust saved the change: the stems backend follows the CPU only setting.
+        void useDevices.getState().loadBackend();
+      }),
       api().onMidiDeviceChanged((devices) => useDevices.getState().setMidi(devices)),
       api().onAudioDeviceChanged(() => void useDevices.getState().load()),
     ];

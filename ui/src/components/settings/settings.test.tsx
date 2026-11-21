@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it } from "vitest";
 
 import { CueEditDialog } from "@/components/deck/CueEditDialog";
 import { ExportDialog } from "@/components/dialogs/ExportDialog";
+import { SettingsApp } from "@/components/settings/SettingsApp";
 import { SettingsDialog } from "@/components/settings/SettingsDialog";
 import { SettingsView } from "@/components/settings/SettingsView";
 import { DEFAULT_SETTINGS } from "@/lib/defaults";
@@ -39,6 +40,20 @@ describe("settings, dialogs and first run", () => {
     await waitFor(() =>
       expect(useSettings.getState().settings?.stemsBackend).toBe("cpu"),
     );
+  });
+
+  it("shows why stems run on the CPU, and follows the CPU only setting in the Settings window", async () => {
+    globalThis.localStorage.clear();
+    setApiForTests(createMockApi());
+    render(<SettingsApp />);
+    fireEvent.click(await screen.findByRole("button", { name: "Processing" }));
+    expect(
+      await screen.findByText("In use now: CPU (this version splits stems on the CPU)"),
+    ).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("radio", { name: /CPU only/ }));
+    expect(
+      await screen.findByText("In use now: CPU (CPU only is chosen below)"),
+    ).toBeInTheDocument();
   });
 
   it("opens Settings in the page in the browser demo, and a native window in the app", async () => {
