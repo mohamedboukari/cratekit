@@ -27,6 +27,8 @@ export const common = {
   import: {
     added_one: "Added {{count}} track",
     added_other: "Added {{count}} tracks",
+    /** Under "Added n tracks": new tracks are analyzed right away. */
+    analyzing: "BPM, key and loudness will be analyzed in the background",
     none: "No new audio files found",
   },
   /** Display formatting (lib/format.ts). */

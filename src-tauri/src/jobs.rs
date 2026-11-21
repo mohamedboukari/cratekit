@@ -23,7 +23,7 @@ use serde::Serialize;
 use tauri::{AppHandle, Emitter, Manager, Runtime};
 
 use crate::AppError;
-use crate::library::LibraryState;
+use crate::library::{LibraryState, lock};
 
 /// Steps of progress per track in `job_progress` (`done` and `total` count
 /// these, so a single track still moves smoothly).
@@ -231,6 +231,20 @@ impl Jobs {
     /// it, so a waiting job can be seen and cancelled.
     pub(crate) fn queue_analysis(&self, track_ids: Vec<TrackId>, events: &dyn JobEvents) -> String {
         self.queue(JobKind::Analysis, track_ids, events)
+    }
+
+    /// Queues an analysis of tracks just added to the library, so they are
+    /// analyzed in the background after an import (SPEC Module 1); returns
+    /// the job id, or `None` when nothing was added.
+    pub(crate) fn analyze_added(
+        &self,
+        added: &[TrackId],
+        events: &dyn JobEvents,
+    ) -> Option<String> {
+        if added.is_empty() {
+            return None;
+        }
+        Some(self.queue_analysis(added.to_vec(), events))
     }
 
     /// Queues a job of `kind` over `track_ids` (analysis or stems) and
@@ -615,11 +629,6 @@ fn finish_tracks(
             });
         }
     }
-}
-
-fn lock(library: &Mutex<Library>) -> MutexGuard<'_, Library> {
-    // A poisoned lock still holds a usable connection (SQLite rolled back).
-    library.lock().unwrap_or_else(PoisonError::into_inner)
 }
 
 /// Queues an analysis of the tracks; returns the job id. Progress, done and
@@ -1025,6 +1034,54 @@ mod tests {
         jobs.run_analysis(&job, &library, &events, analyze_file);
         assert_eq!(events.take(), ["progress 0/200"]);
         assert!(!lock(&library).track(ids[0]).unwrap().track.analyzed);
+    }
+
+    #[test]
+    fn an_import_queues_one_analysis_of_the_stored_tracks() {
+        let library = Mutex::new(Library::open_in_memory().unwrap());
+        let (jobs, events) = (Jobs::default(), Recorder::default());
+        let paths = [fixture("tone.mp3"), fixture("tone.flac")];
+
+        let added = crate::library::add_paths(&library, &jobs, &events, &paths).unwrap();
+        assert_eq!(added.len(), 2);
+        assert_eq!(events.take(), ["queued job-1 0/200"]);
+        let job = jobs.next();
+        assert_eq!(job.kind, JobKind::Analysis);
+        assert_eq!(job.track_ids, added);
+        // Queued after the store: the worker finds every track.
+        for id in &added {
+            assert!(lock(&library).track(*id).is_ok());
+        }
+
+        // The same files again: nothing new, nothing queued.
+        let again = crate::library::add_paths(&library, &jobs, &events, &paths).unwrap();
+        assert!(again.is_empty());
+        assert!(events.take().is_empty());
+    }
+
+    #[test]
+    fn an_import_analyzes_only_the_files_it_could_add() {
+        let dir = std::env::temp_dir().join(format!("cratekit-import-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let fake = dir.join("not audio.mp3");
+        std::fs::write(&fake, b"this is not an mp3").unwrap();
+        let library = Mutex::new(Library::open_in_memory().unwrap());
+        let (jobs, events) = (Jobs::default(), Recorder::default());
+
+        // Only a bad file: its error, and no job.
+        let failed =
+            crate::library::add_paths(&library, &jobs, &events, std::slice::from_ref(&fake));
+        assert!(failed.is_err());
+        assert!(events.take().is_empty());
+
+        // A good and a bad file: the good one is added and analyzed.
+        let added =
+            crate::library::add_paths(&library, &jobs, &events, &[fake, fixture("tone.mp3")])
+                .unwrap();
+        assert_eq!(added.len(), 1);
+        assert_eq!(events.take(), ["queued job-1 0/100"]);
+        assert_eq!(jobs.next().track_ids, added);
+        std::fs::remove_dir_all(&dir).ok();
     }
 
     #[test]
