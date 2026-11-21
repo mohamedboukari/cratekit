@@ -6,7 +6,7 @@
 //! window.
 
 use std::path::PathBuf;
-use std::sync::{Mutex, PoisonError};
+use std::sync::{Mutex, MutexGuard, PoisonError};
 
 use cratekit_core::CoreError;
 use cratekit_core::analysis::waveform::WaveformView;
@@ -18,7 +18,7 @@ use serde::Serialize;
 use tauri::{AppHandle, Manager, Runtime};
 
 use crate::AppError;
-use crate::jobs::Jobs;
+use crate::jobs::{JobEvents, Jobs};
 
 /// The open library, or why it could not be opened (every command then
 /// returns that error, so the UI can say so).
@@ -45,6 +45,12 @@ impl LibraryState {
     }
 }
 
+/// Locks the library. A poisoned lock still holds a usable connection:
+/// SQLite rolled back any transaction the panicking thread had open.
+pub(crate) fn lock(library: &Mutex<Library>) -> MutexGuard<'_, Library> {
+    library.lock().unwrap_or_else(PoisonError::into_inner)
+}
+
 /// Runs `work` on the library on a blocking worker thread.
 pub(crate) async fn with_library<T, F>(app: AppHandle, work: F) -> Result<T, AppError>
 where
@@ -53,10 +59,7 @@ where
 {
     tauri::async_runtime::spawn_blocking(move || {
         let state = app.state::<LibraryState>();
-        let library = state.library()?;
-        // A poisoned lock still holds a usable connection: SQLite rolled back
-        // any transaction the panicking thread had open.
-        let mut library = library.lock().unwrap_or_else(PoisonError::into_inner);
+        let mut library = lock(state.library()?);
         work(&mut library).map_err(AppError::from)
     })
     .await
@@ -102,33 +105,47 @@ pub(crate) struct TrackDetailDto {
 }
 
 /// Adds files and folders (searched with their subfolders); returns the new
-/// track ids and queues their analysis. Files that cannot be read are skipped; when none could be
-/// added and some failed, the first failure is the error, so the user sees
-/// why instead of "no new files".
+/// track ids and queues their analysis (see [`add_paths`]).
+#[tauri::command]
+pub(crate) async fn library_add_paths(
+    app: AppHandle,
+    jobs: tauri::State<'_, Jobs>,
+    paths: Vec<PathBuf>,
+) -> Result<Vec<TrackId>, AppError> {
+    let jobs = jobs.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        let state = app.state::<LibraryState>();
+        add_paths(state.library()?, &jobs, &app, &paths)
+    })
+    .await
+    .map_err(internal)?
+}
+
+/// The import behind `library_add_paths`. Files that cannot be read are
+/// skipped; when none could be added and some failed, the first failure is
+/// the error, so the user sees why instead of "no new files". The tracks
+/// added are then analyzed in the background (SPEC Module 1): one job on the
+/// queue, queued once they are stored, so the UI shows progress and can
+/// cancel it.
 ///
 /// Reading the files (the slow part) runs without the library lock, so the
 /// browser keeps answering during a big scan; the lock is held only to read
 /// the known paths and to store the result.
-#[tauri::command]
-pub(crate) async fn library_add_paths(
-    app: AppHandle,
-    paths: Vec<PathBuf>,
+pub(crate) fn add_paths(
+    library: &Mutex<Library>,
+    jobs: &Jobs,
+    events: &dyn JobEvents,
+    paths: &[PathBuf],
 ) -> Result<Vec<TrackId>, AppError> {
-    let known = with_library(app.clone(), |library| library.known_paths()).await?;
-    let prepared = tauri::async_runtime::spawn_blocking(move || prepare_add(&paths, &known))
-        .await
-        .map_err(internal)?;
-    let result = with_library(app.clone(), move |library| library.store(prepared)).await?;
-    // New tracks are analyzed in the background (SPEC Module 1), on the job
-    // queue, so the UI shows progress and can cancel it.
-    if let Some(jobs) = app.try_state::<Jobs>() {
-        jobs.analyze_added(&result.added, &app);
-    }
+    let known = lock(library).known_paths()?;
+    let prepared = prepare_add(paths, &known);
+    let result = lock(library).store(prepared)?;
     if result.added.is_empty()
         && let Some((_, first_failure)) = result.failed.into_iter().next()
     {
         return Err(first_failure.into());
     }
+    jobs.analyze_added(&result.added, events);
     Ok(result.added)
 }
 

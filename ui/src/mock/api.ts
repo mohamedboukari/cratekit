@@ -251,7 +251,21 @@ export function createMockApi(): CratekitApi {
       400,
       (i) => {
         const t = byId.get(ids[i] ?? -1);
-        if (t) t.track.analyzed = true;
+        if (!t) return;
+        if (t.track.bpm === null) {
+          // An imported track: the values an analysis would find (fake data).
+          const made = makeTrack(t.track.id);
+          t.track = {
+            ...made.track,
+            title: t.track.title,
+            artist: t.track.artist,
+            hasStems: t.track.hasStems,
+            mastered: t.track.mastered,
+          };
+          t.analysis = made.analysis;
+          t.waveform = made.waveform;
+        }
+        t.track.analyzed = true;
       },
     );
   }

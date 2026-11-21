@@ -124,6 +124,10 @@ describe("mock CratekitApi", () => {
 });
 
 describe("mock rules that stand in for Rust", () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
   it("analyzes imported tracks in the background, like Rust", async () => {
     vi.useFakeTimers();
     const mock = createMockApi();
@@ -134,7 +138,8 @@ describe("mock rules that stand in for Rust", () => {
     expect(done).toHaveBeenCalledWith(expect.objectContaining({ kind: "analysis" }));
     const detail = await mock.trackDetail(ids[0] ?? -1);
     expect(detail.track.analyzed).toBe(true);
-    vi.useRealTimers();
+    expect(detail.track.bpm).not.toBeNull();
+    expect(detail.analysis).not.toBeNull();
   });
 
   it("refuses to split stems before the model is downloaded", async () => {
