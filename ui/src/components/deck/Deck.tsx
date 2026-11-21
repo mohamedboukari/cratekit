@@ -1,11 +1,12 @@
 import type { JSX } from "react";
 import { useTranslation } from "react-i18next";
 
+import { DeckFilter } from "@/components/deck/DeckFilter";
 import { Transport } from "@/components/deck/Transport";
 import { Waveform } from "@/components/deck/Waveform";
 import { usePlayer } from "@/stores/player";
 
-/** The deck: track header with stats, waveform with cue flags, transport. */
+/** The deck: track header with stats, waveform with cue flags, transport, and the filter beside them. */
 export function Deck(): JSX.Element {
   const { t } = useTranslation();
   const detail = usePlayer((s) => s.detail);
@@ -62,10 +63,15 @@ export function Deck(): JSX.Element {
           <Stat label="LUFS" value={track.lufs?.toFixed(1) ?? "--"} />
         </dl>
       </div>
-      <div className="min-h-16 flex-1">
-        <Waveform detail={detail} />
+      <div className="flex min-h-0 flex-1 gap-3">
+        <div className="flex min-w-0 flex-1 flex-col gap-2.5">
+          <div className="min-h-16 flex-1">
+            <Waveform detail={detail} />
+          </div>
+          <Transport detail={detail} />
+        </div>
+        <DeckFilter />
       </div>
-      <Transport detail={detail} />
     </section>
   );
 }

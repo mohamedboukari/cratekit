@@ -34,7 +34,7 @@ Laptop-first: designed for 1366x768, works down to the 1024x640 minimum window. 
 
 ```
 ┌──────────────────────────────── native titlebar and menu (Settings... Cmd/Ctrl+,) ───────────────────┐
-│ Sidebar        │ Deck: header and stats · waveform with cue flags · transport and filter knob         │
+│ Sidebar        │ Deck: header and stats · waveform with cue flags · transport · filter knob beside    │
 │ library counts │──────────────────────────────────────────────────────────────────────────────────────│
 │ crates         │ Track browser                        │ Set list         │ Tools: Analyze · Master ·  │
 │ devices        │ search · filter chips · virtual table │ (collapsible)    │ Stems · Controller          │
@@ -58,7 +58,7 @@ Laptop-first: designed for 1366x768, works down to the 1024x640 minimum window. 
 
 | Screen | What it shows | States |
 | --- | --- | --- |
-| Deck | Title, artist, BPM (with confidence), key, Camelot, energy, LUFS; canvas waveform (played/unplayed, phrase grid, overview strip, cue ticks); 8 hot cue flags; CUE, play, pads 1 to 4 / 5 to 8, time, "Hearing", bipolar filter knob | no track loaded; not analyzed (no waveform) |
+| Deck | Title, artist, BPM (with confidence), key, Camelot, energy, LUFS; canvas waveform (played/unplayed, phrase grid, overview strip, cue ticks); 8 hot cue flags; CUE, play, pads 1 to 4 / 5 to 8, time, "Hearing"; the bipolar filter knob (80 px, LP and HP ends, value always shown) in its own column beside the waveform, where v0.2's channel strip goes | no track loaded; not analyzed (no waveform) |
 | Track browser | Crate name, count and total time; search; chips "Matches 8A", "Near 124 BPM", "Has stems" (Rust filters); columns #, title, artist, BPM, key, energy, time, ready tags (energy and tags hide below 36rem) | empty library (drop zone, Add tracks, Add folder); no matches; a running job shows on its rows |
 | Set list | Running order with key-clash and BPM-jump warnings from Rust; save as crate; clear | empty (drop target) |
 | Analyze | Camelot and key, chroma bars (the key's notes from Rust), mixes-well-with chips that filter the browser, BPM, first downbeat, energy, drop and mix-out (click to seek), loudness, re-analyze | no track; not analyzed; analyzing (progress) |
@@ -74,6 +74,7 @@ Laptop-first: designed for 1366x768, works down to the 1024x640 minimum window. 
 - **What you hear follows the tab** (`hooks/useHearing.ts`): Analyze and Controller play the original, Master plays the A/B side, Stems plays the stem mix.
 - Waveform: click to seek; drag a cue flag to move it; Delete clears it; right-click, Shift+Enter or F2 on a flag to rename, recolour or delete.
 - Pads: click jumps to the cue, or sets it when empty; Shift-click clears.
+- Knobs (`controls/Knob.tsx`): click the ring to jump there (not the gap at the bottom); drag from anywhere on the control, up or right to raise, down or left to lower; scroll with a trackpad or wheel (the fingers' direction, also with macOS natural scrolling; a pinch does nothing), Shift for fine moves; the filter clicks into Off near the centre; double-click, Cmd+click (Ctrl+click on Windows and Linux) or Delete resets; arrow keys, Page Up/Down, Home and End when focused. A reset or a key press ends a drag or scroll gesture, so trackpad momentum cannot undo it.
 - Track browser: arrows move, Shift extends the selection, Enter or double-click loads, Cmd/Ctrl+A selects all; sort headers are buttons; right-click (or Shift+F10) for the context menu (load, set list, analyze, split stems, mastering reference, VirtualDJ export, crates).
 - Set list: drag tracks in, drag or Alt+Arrow to reorder, Delete to remove.
 - Keyboard (one map in `lib/shortcuts.ts`): Space play/pause, C cue, 1 to 8 hot cues, Q/W/E/R stem mutes, B A/B (Master tab), Cmd/Ctrl+, Settings. Shortcuts never fire while typing. After a mouse click, transport buttons give focus back so Space keeps meaning play/pause.
