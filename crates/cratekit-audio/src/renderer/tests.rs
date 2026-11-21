@@ -601,7 +601,8 @@ fn the_mastered_mode_plays_the_track_until_a_preview_is_set() {
 
 #[test]
 fn turning_the_preview_on_while_playing_fades_out_and_back_in() {
-    let mut rig = playing(sine(48_000, 0.3));
+    let mut rig = playing(tone(437.3, 48_000, 0.3));
+    rig.render(37); // any phase
     rig.send(Command::SetMaster(preview(0.0, 0.0, 0.0)));
     let out = rig.render(FADE * 6);
     let quietest = out
@@ -622,13 +623,16 @@ fn turning_the_preview_on_while_playing_fades_out_and_back_in() {
 fn with_a_neutral_preview_a_and_b_are_the_same_sample_for_sample() {
     // Intensity 0, no makeup, no level match: the B side is the A side
     // through a limiter that does nothing; the A side is delayed to match.
+    // Level match off: it follows live meters, which this test is not about.
     let mut rig = playing(sine(48_000, 0.3));
+    rig.send(Command::SetLevelMatch(false));
     rig.send(Command::SetMaster(preview(0.0, 0.0, 0.0)));
     rig.render(FADE * 4);
     let a = rig.render(1_000);
     rig.send(Command::SetMode(PlaybackMode::Mastered));
     rig.render(1_000); // past the 10 ms crossfade
     let mut reference = playing(sine(48_000, 0.3));
+    reference.send(Command::SetLevelMatch(false));
     reference.send(Command::SetMaster(preview(0.0, 0.0, 0.0)));
     reference.render(FADE * 4 + 1_000 + 1_000);
     let b = rig.render(1_000);
@@ -707,5 +711,127 @@ fn a_new_track_starts_without_the_old_ones_tail_on_the_mastered_side() {
     assert!(
         after.iter().all(|s| *s == 0.0),
         "nothing of the old track came out"
+    );
+}
+
+/// A stereo tone at `freq` (not a whole number of periods per callback, so
+/// no test passes by phase luck).
+fn tone(freq: f32, frames: usize, amplitude: f32) -> Box<Track> {
+    let wave: Vec<f32> = (0..frames)
+        .map(|n| amplitude * (std::f32::consts::TAU * freq * n as f32 / RATE as f32).sin())
+        .collect();
+    Box::new(Track::from_stereo(&wave, &wave))
+}
+
+#[test]
+fn seeks_and_loads_with_the_preview_on_do_not_click() {
+    for mode in [PlaybackMode::Original, PlaybackMode::Mastered] {
+        let mut rig = playing(tone(1_013.7, 96_000, 0.5));
+        rig.send(Command::SetMaster(preview(0.0, 0.0, 0.0)));
+        rig.send(Command::SetMode(mode));
+        rig.render(FADE * 6);
+        let steady = largest_step(&rig.render(1_000));
+        for offset in [7_013, 20_001, 33_337] {
+            rig.send(Command::Seek(offset));
+            let around = largest_step(&rig.render(1_500));
+            assert!(
+                around < steady * 1.5 + 0.01,
+                "{mode:?} seek: {around} vs {steady}"
+            );
+        }
+        rig.send(Command::Load(tone(733.1, 48_000, 0.5)));
+        rig.send(Command::Play);
+        let around = largest_step(&rig.render(1_500));
+        assert!(
+            around < steady * 1.5 + 0.01,
+            "{mode:?} load: {around} vs {steady}"
+        );
+    }
+}
+
+#[test]
+fn preset_changes_while_hearing_b_glide_without_a_click() {
+    let mut rig = playing(tone(437.3, 96_000, 0.3));
+    rig.send(Command::SetLevelMatch(false));
+    rig.send(Command::SetMaster(preview(1.0, 0.0, 0.0)));
+    rig.send(Command::SetMode(PlaybackMode::Mastered));
+    rig.render(4_000);
+    let steady = largest_step(&rig.render(1_000));
+    let lofi = MasterPreview {
+        preset: PresetName::LoFi.preset(),
+        makeup_db: 0.0,
+        level_match_db: 0.0,
+    };
+    for change in [lofi, preview(1.0, 0.0, 0.0), preview(0.0, 0.0, 0.0), lofi] {
+        rig.send(Command::SetMaster(change));
+        let around = largest_step(&rig.render(2_000));
+        assert!(
+            around < steady * 1.5 + 0.01,
+            "{:?}: {around} vs {steady}",
+            change.preset.name
+        );
+    }
+}
+
+#[test]
+fn the_last_milliseconds_play_out_with_the_preview_on() {
+    let frames = 3_000;
+    let mut rig = rig(2);
+    rig.send(Command::SetMaster(preview(0.0, 0.0, 0.0)));
+    rig.send(Command::Load(Box::new(Track::from_stereo(
+        &vec![0.25; frames],
+        &vec![0.25; frames],
+    ))));
+    rig.send(Command::Play);
+    let out = rig.render(frames + 2_000);
+    let heard = out.chunks(2).filter(|frame| frame[0] != 0.0).count();
+    // Every frame of the track comes out (the warm up runs silently first).
+    assert!(heard >= frames - 1, "{heard} of {frames} frames heard");
+    assert_eq!(rig.shared.ends.load(Ordering::Relaxed), 1);
+}
+
+#[test]
+fn the_preview_stops_at_a_silent_point_while_b_is_not_heard() {
+    let mut with_preview = playing(tone(437.3, 96_000, 0.3));
+    with_preview.send(Command::SetMaster(preview(1.0, 6.0, -6.0)));
+    with_preview.send(Command::SetMode(PlaybackMode::Mastered));
+    with_preview.render(4_000);
+    with_preview.send(Command::SetMode(PlaybackMode::Original));
+    with_preview.send(Command::Seek(10_000));
+    with_preview.render(FADE * 4);
+    let mut plain = playing(tone(437.3, 96_000, 0.3));
+    plain.send(Command::Seek(10_000));
+    plain.render(FADE * 4);
+    // After the seek both play the same frames: the preview (and its
+    // delay) is off.
+    let (a, b) = (with_preview.render(500), plain.render(500));
+    assert_eq!(with_preview.position(), plain.position());
+    for (x, y) in a.iter().zip(&b) {
+        assert!((x - y).abs() < 1e-6, "{x} vs {y}");
+    }
+}
+
+#[test]
+fn level_match_follows_the_original_with_the_compressor_working() {
+    // Club at 0.6 compresses this tone hard: the live meters still bring
+    // the B side to the A side's loudness (and, without level match, add
+    // back what the compressor took).
+    let measure = |level_match: bool| {
+        let mut rig = playing(tone(437.3, 48_000 * 6, 0.4));
+        rig.send(Command::SetLevelMatch(level_match));
+        rig.send(Command::SetMaster(preview(0.6, 3.0, -3.0)));
+        rig.render(FADE * 4);
+        let a = rms(&rig.render(24_000));
+        rig.send(Command::SetMode(PlaybackMode::Mastered));
+        rig.render(48_000 * 3); // the meters settle
+        let b = rms(&rig.render(24_000));
+        20.0 * (b / a).log10()
+    };
+    let matched = measure(true);
+    assert!(matched.abs() < 1.0, "level matched: {matched} dB");
+    let raw = measure(false);
+    assert!(
+        (raw - 3.0).abs() < 1.5,
+        "the compressor's loss made up: {raw} dB"
     );
 }

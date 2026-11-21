@@ -72,7 +72,7 @@ In the app, `master_export(id, settings)` (src-tauri `mastering.rs`) creates `<o
 
 ## The live preview (#26)
 
-The Master tab's B side is mastered as it plays: the renderer runs the same `PresetChain` and limiter in the audio callback (`PlaybackMode::Mastered`, docs/playback.md). `master_preview(id, settings)` (src-tauri `mastering.rs`) sends the preset at its intensity, the makeup (the target, clamped as in the export, minus the track's analysed LUFS) and the level match (minus the makeup), so with level match on the two sides compare at about the same loudness. The preview is a single pass with a fixed makeup, so its loudness is close to, not exactly, the export's; the export measures and corrects. The blocks gained `reset()` (no allocation) for loads and seeks.
+The Master tab's B side is mastered as it plays: the renderer runs the same `PresetChain` and limiter in the audio callback, in the export's order (`PlaybackMode::Mastered`, docs/playback.md). `master_preview(id, settings)` (src-tauri `mastering.rs`) sends the preset at its intensity and the makeup: the target, clamped as in the export, minus the track's analysed LUFS (none when not analysed). The renderer adds back what the chain takes off, measured live from matched meters on its input and output, so the B side drives the limiter about as the export does; with level match on, it then follows the original's loudness, also measured live. The preview is a running approximation (meters over 3 s, a fixed makeup otherwise); the export measures and corrects exactly. A preset or intensity change glides the filters over about 10 ms. The blocks gained `reset()`, and `PresetChain` `glide_to` and `glide` (all without allocating), and `Coefficients::lerp`.
 
 ## Tests
 

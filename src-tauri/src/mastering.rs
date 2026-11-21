@@ -110,10 +110,10 @@ fn preview_for(settings: &MasterSettingsDto, lufs: Option<f64>) -> MasterPreview
     }
 }
 
-/// Sets the live mastered side of A/B (#26) for track `id` (the one on the
-/// deck): heard in the mastered mode, at about the original's loudness while
-/// level match is on. Fast: nothing is rendered, the engine masters as it
-/// plays.
+/// Sets the live mastered side of A/B (#26) for track `id`, the one on the
+/// deck (a call for another track is ignored): heard in the mastered mode,
+/// at about the original's loudness while level match is on. Fast: nothing
+/// is rendered, the engine masters as it plays.
 #[tauri::command]
 pub(crate) async fn master_preview(
     app: AppHandle,
@@ -124,7 +124,7 @@ pub(crate) async fn master_preview(
         Ok(library.track(id)?.track.lufs)
     })
     .await?;
-    crate::playback::set_master_preview(app, preview_for(&settings, lufs)).await
+    crate::playback::set_master_preview(app, id, preview_for(&settings, lufs)).await
 }
 
 /// The WAV format for a bit depth: 24-bit, or 16-bit with TPDF dither.
