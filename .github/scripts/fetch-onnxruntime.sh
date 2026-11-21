@@ -37,9 +37,18 @@ CACHE="${ORT_CACHE:-$HOME/.cache/cratekit-onnxruntime}"
 SHA_1_32_0="a9150bc2992cbbb6722070da9910e1ffa989a8bfc67bdd5bb8e745ca755641db"
 SHA_1_23_2="25fe172f7fcdf34f2b5b02c8b997f6b88abc282956849d4af4335af23d0c4e4a"
 
-# The runner's architecture when CI says it (Git Bash on Windows ARM64 may run
-# emulated, so `uname -m` would not be the machine's), else uname.
-arch="${RUNNER_ARCH:-$(uname -m)}"
+# The CPU to fetch for: the runner's when CI says it (Git Bash on Windows
+# ARM64 may run emulated, so `uname -m` would not be the machine's); else the
+# Rust toolchain's host, which is what a development build targets (x64 Git
+# Bash on ARM64 Windows, or a shell under Rosetta, report another CPU); else
+# uname.
+if [ -n "${RUNNER_ARCH:-}" ]; then
+  arch="$RUNNER_ARCH"
+elif host="$(rustc -vV 2>/dev/null | sed -n 's/^host: //p')" && [ -n "$host" ]; then
+  arch="${host%%-*}"
+else
+  arch="$(uname -m)"
+fi
 case "$arch" in
   X64 | x86_64 | amd64) arch=x64 ;;
   ARM64 | arm64 | aarch64) arch=arm64 ;;
@@ -56,6 +65,12 @@ case "$os" in
     file=libonnxruntime.dylib
     ;;
   Linux)
+    # `bun run setup:stems` from a Windows shell can reach WSL's bash, which
+    # would put the Linux library in a Windows checkout.
+    if grep -qi microsoft /proc/version 2>/dev/null && [[ "$PWD" == /mnt/* ]]; then
+      echo "this is WSL in a Windows folder: on Windows, run this from Git Bash (Git for Windows)" >&2
+      exit 1
+    fi
     version=1.32.0
     file=libonnxruntime.so
     ;;

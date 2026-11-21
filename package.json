@@ -9,6 +9,7 @@
   "scripts": {
     "tauri": "tauri",
     "dev": "tauri dev",
+    "setup:stems": "bash .github/scripts/fetch-onnxruntime.sh src-tauri/onnxruntime",
     "typecheck": "bun run --cwd ui typecheck",
     "lint": "oxlint --type-aware --deny-warnings ui/src",
     "lint:fix": "oxlint --type-aware --fix ui/src",
