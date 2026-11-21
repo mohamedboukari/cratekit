@@ -99,6 +99,7 @@ The app keeps a local library of tracks the user adds. Original files are never 
 **Acceptance**
 - Exported master measures within ±0.5 LU of the chosen target and ≤ −1.0 dBTP.
 - A/B switching is click-free (short crossfade).
+- The export shows its progress and can be cancelled; the UI stays responsive during it.
 
 ## Module 4: Stems
 

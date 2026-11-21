@@ -70,6 +70,10 @@ export const tools = {
     bits16Title: "WAV 16-bit with dither",
     rendering: "Rendering...",
     exportWav: "Export WAV",
+    exportProgress: "Export progress",
+    exportingTrack: "Exporting {{title}}",
+    cancelling: "Cancelling...",
+    cancel: "Cancel",
     exported: "Master exported",
     /** Preset names and descriptions, by preset `name` (Rust sends English). */
     presets: {

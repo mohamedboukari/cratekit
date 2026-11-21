@@ -1,15 +1,32 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { toast } from "sonner";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { setApiForTests, type CratekitApi } from "@/lib/ipc";
-import type { StemName } from "@/lib/types";
+import type { JobId, MasterResult, StemName } from "@/lib/types";
 import { createMockApi } from "@/mock/api";
 import { useController } from "@/stores/controller";
+import { useJobs } from "@/stores/jobs";
 import { useLibrary } from "@/stores/library";
 import { useMaster } from "@/stores/master";
 import { useStems } from "@/stores/stems";
 
+/** Runs a mock export to its end (its fake job takes 2 s). */
+async function exportToEnd(id: number): Promise<MasterResult | null> {
+  const pending = useMaster.getState().exportMaster(id);
+  await vi.advanceTimersByTimeAsync(2100);
+  return pending;
+}
+
 describe("master store", () => {
-  beforeEach(() => setApiForTests(createMockApi()));
+  beforeEach(() => {
+    setApiForTests(createMockApi());
+    vi.useFakeTimers();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.restoreAllMocks();
+  });
 
   it("takes the loudness target from Rust's preset when a preset is picked", async () => {
     await useMaster.getState().loadPresets();
@@ -23,7 +40,7 @@ describe("master store", () => {
   });
 
   it("remembers which track an export belongs to", async () => {
-    const result = await useMaster.getState().exportMaster(3);
+    const result = await exportToEnd(3);
     expect(result?.path).toMatch(/\/Masters\/.+ master\)\.wav$/);
     expect(result?.targetReached).toBe(true);
     expect(useMaster.getState().result?.trackId).toBe(3);
@@ -34,10 +51,45 @@ describe("master store", () => {
     await useLibrary.getState().load();
     const before = useLibrary.getState().rows.find((row) => row.id === 4);
     expect(before?.mastered).toBe(false);
-    await useMaster.getState().exportMaster(4);
+    await exportToEnd(4);
     await vi.waitFor(() =>
       expect(useLibrary.getState().rows.find((row) => row.id === 4)?.mastered).toBe(true),
     );
+  });
+
+  it("ends a cancelled export quietly: no error, no result", async () => {
+    const error = vi.spyOn(toast, "error");
+    const mock = createMockApi();
+    setApiForTests(mock);
+    const jobs: JobId[] = [];
+    await mock.onJobProgress((p) => {
+      jobs.push(p.jobId);
+      useJobs.getState().onProgress(p);
+    });
+    useMaster.setState({ result: null });
+
+    const pending = useMaster.getState().exportMaster(5);
+    expect(useMaster.getState().exporting).toBe(true);
+    await vi.advanceTimersByTimeAsync(500);
+    const cancel = useMaster.getState().cancelExport(jobs[0] ?? "missing");
+    expect(useMaster.getState().cancelling).toBe(true);
+    await cancel;
+
+    expect(await pending).toBeNull();
+    expect(useMaster.getState()).toMatchObject({
+      exporting: false,
+      cancelling: false,
+      result: null,
+    });
+    expect(useJobs.getState().jobs[jobs[0] ?? "missing"]).toBeUndefined();
+    expect(error).not.toHaveBeenCalled();
+  });
+
+  it("fails an export of an unknown track before any job, with a toast", async () => {
+    const error = vi.spyOn(toast, "error");
+    expect(await useMaster.getState().exportMaster(9999)).toBeNull();
+    expect(error).toHaveBeenCalledTimes(1);
+    expect(useMaster.getState().exporting).toBe(false);
   });
 });
 
