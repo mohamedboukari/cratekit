@@ -14,6 +14,7 @@
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering};
 
+use cratekit_core::mastering::clipper::{Clipper, ClipperSettings};
 use cratekit_core::mastering::limiter::{Limiter, LimiterSettings};
 use cratekit_core::mastering::presets::{Preset, PresetChain, PresetName};
 use rtrb::{Consumer, Producer};
@@ -196,6 +197,9 @@ pub struct MasterPreview {
     /// First guess of the gain after the limiter while level match is on,
     /// in dB (minus the makeup), until the meters take over.
     pub level_match_db: f32,
+    /// Whether the soft clipper runs (#144): only for targets louder than
+    /// -10 LUFS, as in the export. Off, it only delays.
+    pub clip: bool,
 }
 
 /// Something the audio thread replaced, handed to another thread to be
@@ -320,6 +324,8 @@ pub struct Renderer {
     /// The mastered side's preset chain and limiter, made before the stream
     /// starts so the audio thread never allocates for them.
     master_chain: PresetChain,
+    /// The soft clipper before the limiter (#144), as in the export.
+    clipper: Clipper,
     limiter: Limiter,
     /// What plays (track or stems) delayed by the limiter's latency while
     /// the preview runs, so A and B stay sample-aligned through a crossfade.
@@ -345,6 +351,10 @@ pub struct Renderer {
     meter_in: f32,
     meter_chain: f32,
     meter_out: f32,
+    /// The mean square of the A side as heard (delayed like the B side), for
+    /// the level match: compared with `meter_out`, which lags the input by
+    /// the same latency, so the match is not biased after a reset.
+    meter_a: f32,
     meter_pole: f32,
     meter_tick: u32,
     /// Steps left in a preset glide, and frames to the next one.
@@ -371,8 +381,14 @@ impl Renderer {
     ) -> Self {
         let mut dj_filter = DjFilter::new(sample_rate);
         dj_filter.jump(filter);
-        let limiter = Limiter::new(sample_rate, 2, LimiterSettings::default());
-        let a_delay = vec![(0.0, 0.0); limiter.latency().max(1)];
+        let limiter_settings = LimiterSettings::default();
+        let limiter = Limiter::new(sample_rate, 2, limiter_settings);
+        let clipper = Clipper::new(
+            2,
+            ClipperSettings::for_ceiling(limiter_settings.ceiling_dbtp),
+        );
+        // The A side waits as long as the B side's clipper and limiter.
+        let a_delay = vec![(0.0, 0.0); (clipper.latency() + limiter.latency()).max(1)];
         let fade_frames = (FADE_SECONDS * sample_rate as f32).max(1.0);
         let mix_frames = (MIX_SECONDS * sample_rate as f32).max(1.0);
         Self {
@@ -401,6 +417,7 @@ impl Renderer {
             stem_gain: [1.0; STEM_COUNT],
             stem_target: [1.0; STEM_COUNT],
             master_chain: PresetChain::new(sample_rate, 2, &PresetName::Club.preset().at(0.0)),
+            clipper,
             limiter,
             a_delay,
             a_delay_next: 0,
@@ -417,6 +434,7 @@ impl Renderer {
             meter_in: 0.0,
             meter_chain: 0.0,
             meter_out: 0.0,
+            meter_a: 0.0,
             meter_pole: (-1.0 / (METER_SECONDS * sample_rate.max(1) as f32)).exp(),
             meter_tick: 0,
             glide_steps: 0,
@@ -576,6 +594,7 @@ impl Renderer {
             self.master_chain.set(&preview.preset);
             self.glide_steps = 0;
         }
+        self.clipper.set_enabled(preview.clip);
         self.base_makeup_db = finite_or_zero(preview.makeup_db);
         self.first_match_db = finite_or_zero(preview.level_match_db);
         self.update_preview_gains();
@@ -604,12 +623,14 @@ impl Renderer {
         self.master_chain.glide(1.0);
         self.glide_steps = 0;
         self.master_chain.reset();
+        self.clipper.reset();
         self.limiter.reset();
         self.a_delay.fill((0.0, 0.0));
         self.a_delay_next = 0;
         self.meter_in = 0.0;
         self.meter_chain = 0.0;
         self.meter_out = 0.0;
+        self.meter_a = 0.0;
         self.drained = 0;
         self.warmup = if self.master_on {
             self.a_delay.len()
@@ -632,14 +653,14 @@ impl Renderer {
         self.makeup_target = db_to_gain(self.base_makeup_db + chain_loss_db);
         self.match_target = if !self.level_match {
             1.0
-        } else if heard(self.meter_in) && heard(self.meter_out) {
-            db_to_gain(10.0 * (self.meter_in / self.meter_out).log10())
+        } else if heard(self.meter_a) && heard(self.meter_out) {
+            db_to_gain(10.0 * (self.meter_a / self.meter_out).log10())
         } else {
             db_to_gain(self.first_match_db)
         };
     }
 
-    /// What plays, delayed by the limiter's latency.
+    /// What plays, delayed by the clipper's and the limiter's latency.
     fn delayed(&mut self, frame: (f32, f32)) -> (f32, f32) {
         let len = self.a_delay.len();
         let Some(slot) = self.a_delay.get_mut(self.a_delay_next) else {
@@ -650,8 +671,9 @@ impl Renderer {
         old
     }
 
-    /// The mastered side of a frame: the preset's EQ and compressor, the
-    /// makeup, the limiter, then the level match; the meters follow along.
+    /// The mastered side of a frame: the preset's EQ and compressor (with the
+    /// reference match), the makeup, the soft clipper, the limiter, then the
+    /// level match; the meters follow along.
     fn mastered(&mut self, (left, right): (f32, f32)) -> (f32, f32) {
         if self.glide_steps > 0 {
             self.glide_frames += 1;
@@ -667,6 +689,7 @@ impl Renderer {
         let [[l], [r]] = planar;
         self.meter_chain = follow(self.meter_chain, l, r, self.meter_pole);
         let mut frame = [l * self.makeup, r * self.makeup];
+        self.clipper.process_frame(&mut frame);
         self.limiter.process_frame(&mut frame);
         let [l, r] = frame;
         self.meter_out = follow(self.meter_out, l, r, self.meter_pole);
@@ -683,6 +706,7 @@ impl Renderer {
     /// aligned and B's state is warm).
     fn preview_mix(&mut self, frame: (f32, f32)) -> (f32, f32) {
         let (a_left, a_right) = self.delayed(frame);
+        self.meter_a = follow(self.meter_a, a_left, a_right, self.meter_pole);
         let (b_left, b_right) = self.mastered(frame);
         (
             a_left + (b_left - a_left) * self.master_mix,

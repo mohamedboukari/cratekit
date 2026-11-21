@@ -578,6 +578,7 @@ fn preview(intensity: f32, makeup_db: f32, level_match_db: f32) -> MasterPreview
         preset: PresetName::Club.preset().at(intensity),
         makeup_db,
         level_match_db,
+        clip: true,
     }
 }
 
@@ -636,25 +637,35 @@ fn turning_the_preview_on_while_playing_fades_out_and_back_in() {
 #[test]
 fn with_a_neutral_preview_a_and_b_are_the_same_sample_for_sample() {
     // Intensity 0, no makeup, no level match: the B side is the A side
-    // through a limiter that does nothing; the A side is delayed to match.
-    // Level match off: it follows live meters, which this test is not about.
-    let mut rig = playing(sine(48_000, 0.3));
-    rig.send(Command::SetLevelMatch(false));
-    rig.send(Command::SetMaster(preview(0.0, 0.0, 0.0)));
-    rig.render(FADE * 4);
-    let a = rig.render(1_000);
-    rig.send(Command::SetMode(PlaybackMode::Mastered));
-    rig.render(1_000); // past the 10 ms crossfade
-    let mut reference = playing(sine(48_000, 0.3));
-    reference.send(Command::SetLevelMatch(false));
-    reference.send(Command::SetMaster(preview(0.0, 0.0, 0.0)));
-    reference.render(FADE * 4 + 1_000 + 1_000);
-    let b = rig.render(1_000);
-    let a_again = reference.render(1_000);
-    for (x, y) in b.iter().zip(&a_again) {
-        assert!((x - y).abs() < 1e-5, "A and B aligned: {x} vs {y}");
+    // through a clipper and a limiter that do nothing (or a clipper switched
+    // off, which only delays); the A side is delayed to match. Level match
+    // off: it follows live meters, which this test is not about.
+    for clip in [true, false] {
+        let neutral = MasterPreview {
+            clip,
+            ..preview(0.0, 0.0, 0.0)
+        };
+        let mut rig = playing(sine(48_000, 0.3));
+        rig.send(Command::SetLevelMatch(false));
+        rig.send(Command::SetMaster(neutral));
+        rig.render(FADE * 4);
+        let a = rig.render(1_000);
+        rig.send(Command::SetMode(PlaybackMode::Mastered));
+        rig.render(1_000); // past the 10 ms crossfade
+        let mut reference = playing(sine(48_000, 0.3));
+        reference.send(Command::SetLevelMatch(false));
+        reference.send(Command::SetMaster(neutral));
+        reference.render(FADE * 4 + 1_000 + 1_000);
+        let b = rig.render(1_000);
+        let a_again = reference.render(1_000);
+        for (x, y) in b.iter().zip(&a_again) {
+            assert!(
+                (x - y).abs() < 1e-5,
+                "clip {clip}: A and B aligned: {x} vs {y}"
+            );
+        }
+        assert!(rms(&a) > 0.15);
     }
-    assert!(rms(&a) > 0.15);
 }
 
 #[test]
@@ -780,6 +791,29 @@ fn a_reference_shapes_the_mastered_side_as_in_the_export() {
 }
 
 #[test]
+fn level_match_holds_right_after_a_seek() {
+    // A neutral B side must play at A's level as soon as it fades back in:
+    // the level match compares A as heard (delayed) with B's output, which
+    // lag the input by the same latency.
+    let after_seek = |mode: PlaybackMode| {
+        let mut rig = playing(tone(1_013.7, 96_000, 0.5));
+        rig.send(Command::SetMaster(preview(0.0, 0.0, 0.0)));
+        rig.send(Command::SetMode(mode));
+        rig.render(9_600);
+        rig.send(Command::Seek(20_001));
+        // Fade out, the delay's warm-up, fade in.
+        rig.render(1_000);
+        rms(&rig.render(960))
+    };
+    let (a, b) = (
+        after_seek(PlaybackMode::Original),
+        after_seek(PlaybackMode::Mastered),
+    );
+    let off_db = 20.0 * (b / a).log10();
+    assert!(off_db.abs() < 0.3, "B is {off_db:.2} dB off A");
+}
+
+#[test]
 fn seeks_and_loads_with_the_preview_on_do_not_click() {
     for mode in [PlaybackMode::Original, PlaybackMode::Mastered] {
         let mut rig = playing(tone(1_013.7, 96_000, 0.5));
@@ -817,6 +851,7 @@ fn preset_changes_while_hearing_b_glide_without_a_click() {
         preset: PresetName::LoFi.preset(),
         makeup_db: 0.0,
         level_match_db: 0.0,
+        clip: false,
     };
     for change in [
         lofi,

@@ -24,11 +24,11 @@ use std::collections::VecDeque;
 use std::f64::consts::PI;
 
 /// Points interpolated between two samples, the original included (4x).
-const OVERSAMPLE: usize = 4;
+pub(super) const OVERSAMPLE: usize = 4;
 /// Samples on each side used for each interpolated point.
-const HALF_TAPS: usize = 12;
+pub(super) const HALF_TAPS: usize = 12;
 /// Kaiser window shape for the interpolation filter.
-const KAISER_BETA: f64 = 8.0;
+pub(super) const KAISER_BETA: f64 = 8.0;
 /// Headroom kept under the ceiling, in dB: the gain moves smoothly but still
 /// moves between samples.
 const SAFETY_DB: f32 = 0.15;
@@ -61,7 +61,7 @@ impl Default for LimiterSettings {
 }
 
 /// The zeroth-order modified Bessel function, for the Kaiser window.
-fn bessel_i0(x: f64) -> f64 {
+pub(super) fn bessel_i0(x: f64) -> f64 {
     let (mut sum, mut term) = (1.0, 1.0);
     for k in 1..50 {
         term *= (x / (2.0 * k as f64)).powi(2);
@@ -76,7 +76,7 @@ fn bessel_i0(x: f64) -> f64 {
 /// The interpolation filter: for each fractional position `phase / 4`
 /// (phases 1 to 3), the weights of the `2 * HALF_TAPS` samples around it,
 /// from `-(HALF_TAPS - 1)` to `HALF_TAPS`. Each set sums to 1.
-fn interpolation_taps() -> [[f32; 2 * HALF_TAPS]; OVERSAMPLE - 1] {
+pub(super) fn interpolation_taps() -> [[f32; 2 * HALF_TAPS]; OVERSAMPLE - 1] {
     let mut taps = [[0.0_f32; 2 * HALF_TAPS]; OVERSAMPLE - 1];
     let half = HALF_TAPS as f64;
     let norm = bessel_i0(KAISER_BETA);
@@ -158,13 +158,13 @@ fn meter_taps(sample_rate: u32) -> MeterTaps {
 
 /// A fixed-size ring of the last `capacity` values of something.
 #[derive(Debug, Clone)]
-struct Ring<T> {
+pub(super) struct Ring<T> {
     values: Vec<T>,
     next: usize,
 }
 
 impl<T: Copy> Ring<T> {
-    fn new(capacity: usize, fill: T) -> Self {
+    pub(super) fn new(capacity: usize, fill: T) -> Self {
         Self {
             values: vec![fill; capacity.max(1)],
             next: 0,
@@ -172,14 +172,14 @@ impl<T: Copy> Ring<T> {
     }
 
     /// Stores `value` and returns the one it replaces (the oldest).
-    fn push(&mut self, value: T) -> T {
+    pub(super) fn push(&mut self, value: T) -> T {
         let old = std::mem::replace(&mut self.values[self.next], value);
         self.next = (self.next + 1) % self.values.len();
         old
     }
 
     /// Copies the ring into `out`, oldest first (`out` as long as the ring).
-    fn ordered(&self, out: &mut [T]) {
+    pub(super) fn ordered(&self, out: &mut [T]) {
         let (newer, older) = self.values.split_at(self.next);
         let (head, tail) = out.split_at_mut(older.len().min(out.len()));
         head.copy_from_slice(&older[..head.len()]);
@@ -188,13 +188,13 @@ impl<T: Copy> Ring<T> {
     }
 
     /// Fills the ring with `value`, as new.
-    fn clear(&mut self, value: T) {
+    pub(super) fn clear(&mut self, value: T) {
         self.values.fill(value);
         self.next = 0;
     }
 
     /// The value `age` pushes ago (0 is the newest).
-    fn get(&self, age: usize) -> T {
+    pub(super) fn get(&self, age: usize) -> T {
         let len = self.values.len();
         self.values[(self.next + len - 1 - age % len) % len]
     }
