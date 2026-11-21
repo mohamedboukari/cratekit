@@ -14,6 +14,7 @@
 pub mod analysis;
 pub mod audio;
 mod error;
+pub mod files;
 pub mod library;
 pub mod progress;
 pub mod settings;

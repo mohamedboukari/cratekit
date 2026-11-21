@@ -9,7 +9,7 @@
 //! `.old` folder left by a crash is restored or removed on the next split.
 
 use std::fs;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::time::Instant;
 
 use super::{StemSeparator, Stems};
@@ -146,6 +146,40 @@ pub fn split_to_folder(
         waveforms,
         split_sec: start.elapsed().as_secs_f64(),
     })
+}
+
+/// What the exported files are called: `<title> (<stem>).wav`, in the order
+/// of [`STEM_FILES`].
+const EXPORT_LABELS: [&str; 4] = ["drums", "bass", "other", "vocals"];
+
+/// Copies a split track's four stems from its cache folder `dir` into
+/// `<dest>/<title>/` as `<title> (drums).wav` and so on (the title made safe
+/// for every system with [`crate::files::safe_file_name`]), replacing an
+/// earlier export of the same track. Each file is copied to `<name>.part`
+/// and renamed once complete. Returns the four paths, in the order of
+/// [`STEM_FILES`].
+///
+/// # Errors
+///
+/// [`CoreError::Io`] when a stem file is missing or a copy fails.
+pub fn export_folder(dir: &Path, dest: &Path, title: &str) -> Result<Vec<PathBuf>, CoreError> {
+    let name = crate::files::safe_file_name(title, "track");
+    let folder = dest.join(&name);
+    fs::create_dir_all(&folder)?;
+    STEM_FILES
+        .iter()
+        .zip(EXPORT_LABELS)
+        .map(|(file, label)| {
+            let target = folder.join(format!("{name} ({label}).wav"));
+            let part = with_suffix(&target, ".part");
+            if let Err(err) = fs::copy(dir.join(file), &part) {
+                fs::remove_file(&part).ok();
+                return Err(err.into());
+            }
+            fs::rename(&part, &target)?;
+            Ok(target)
+        })
+        .collect()
 }
 
 /// Cleans up after an earlier split that stopped halfway: a `.part` folder
@@ -293,6 +327,57 @@ mod tests {
         );
         assert_eq!(seen.last(), Some(&1.0));
         fs::remove_dir_all(dir.parent().expect("parent")).ok();
+    }
+
+    #[test]
+    fn exports_the_four_stems_under_the_track_title() {
+        let root = temp("export");
+        let dir = root.join("cache").join("8");
+        split_to_folder(
+            &mut Halves,
+            &fixture(),
+            &dir,
+            &NoProgress,
+            &CancellationToken::new(),
+        )
+        .expect("split");
+        let dest = root.join("Music").join("Cratekit").join("Stems");
+
+        let paths = export_folder(&dir, &dest, "AC/DC: Live?").expect("export");
+
+        let folder = dest.join("AC_DC_ Live_");
+        let names: Vec<String> = paths
+            .iter()
+            .map(|path| path.file_name().unwrap().to_string_lossy().into_owned())
+            .collect();
+        assert_eq!(
+            names,
+            [
+                "AC_DC_ Live_ (drums).wav",
+                "AC_DC_ Live_ (bass).wav",
+                "AC_DC_ Live_ (other).wav",
+                "AC_DC_ Live_ (vocals).wav",
+            ]
+        );
+        for (path, file) in paths.iter().zip(STEM_FILES) {
+            assert_eq!(path.parent(), Some(folder.as_path()));
+            assert_eq!(
+                fs::read(path).expect("exported"),
+                fs::read(dir.join(file)).expect("cached")
+            );
+        }
+        // Exporting again replaces the files, with nothing left over.
+        export_folder(&dir, &dest, "AC/DC: Live?").expect("export again");
+        assert_eq!(fs::read_dir(&folder).expect("folder").count(), 4);
+        fs::remove_dir_all(&root).ok();
+    }
+
+    #[test]
+    fn exporting_stems_that_are_gone_is_an_error() {
+        let root = temp("export-missing");
+        let result = export_folder(&root.join("nothing"), &root.join("out"), "Song");
+        assert!(matches!(result, Err(CoreError::Io(_))), "{result:?}");
+        fs::remove_dir_all(&root).ok();
     }
 
     #[test]

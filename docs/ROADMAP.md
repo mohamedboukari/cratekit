@@ -69,7 +69,7 @@ Stems
 - [ ] Backend selection: GPU provider with CPU fallback, CPU reference check, "CPU only" setting, backend in the status bar; verified on real hardware (Apple Silicon, Windows GPU, a CPU-only machine) (#32)
 - [x] Cancel + progress; cache per track (#33)
 - [ ] Stem mixer in the audio engine (gain, mute, solo) (#34)
-- [ ] UI: Stems tab; export WAVs (#35)
+- [x] UI: Stems tab; export WAVs (#35)
 
 Mastering
 - [ ] Biquad EQ, compressor, true-peak limiter with tests (#23)
