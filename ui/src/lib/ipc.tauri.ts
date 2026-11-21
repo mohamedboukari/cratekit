@@ -117,7 +117,7 @@ export function createTauriApi(): CratekitApi {
     onControlEvent: (l) => on("control_event", l),
     onAudioDeviceChanged: (l) => on("audio_device_changed", l),
     onFilesDropped: (l) => {
-      // Only drags that carry files from the OS; in-app drags of tracks report no paths.
+      // Only drags that carry files from the OS; drags without files report no paths.
       let carriesFiles = false;
       return getCurrentWebview().onDragDropEvent((e) => {
         const p = e.payload;

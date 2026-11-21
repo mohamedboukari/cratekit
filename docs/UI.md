@@ -75,11 +75,11 @@ Laptop-first: designed for 1366x768, works down to the 1024x640 minimum window. 
 - Waveform: click to seek; drag a cue flag to move it; Delete clears it; right-click, Shift+Enter or F2 on a flag to rename, recolour or delete.
 - Pads: click jumps to the cue, or sets it when empty; Shift-click clears.
 - Track browser: arrows move, Shift extends the selection, Enter or double-click loads, Cmd/Ctrl+A selects all; sort headers are buttons; right-click (or Shift+F10) for the context menu (load, set list, analyze, split stems, mastering reference, VirtualDJ export, crates).
-- Set list: drag tracks in, drag or Alt+Arrow to reorder, Delete to remove.
+- Set list: drag tracks in, drag or Alt+Arrow to reorder, Delete to remove. In-app drags (rows to the set list, reordering) run on pointer events (`lib/drag.ts`: a press becomes a drag after 4 px, Escape cancels, drop slots carry `data-drop-index`, a `data-drop-scroll` area scrolls when the pointer nears its top or bottom, `DragGhost` shows what is dragged), not HTML5 drag and drop, which Tauri's native file drop takes over on macOS and Windows.
 - Keyboard (one map in `lib/shortcuts.ts`): Space play/pause, C cue, 1 to 8 hot cues, Q/W/E/R stem mutes, B A/B (Master tab), Cmd/Ctrl+, Settings. Shortcuts never fire while typing. After a mouse click, transport buttons give focus back so Space keeps meaning play/pause.
 - Long jobs never block the UI: progress shows in the status bar, on the track rows and in the tab that started them.
 - Every control is reachable by keyboard, with a visible focus ring. Dialogs trap focus and close on Escape.
-- Drop files or folders anywhere on the window to add them (macOS and Linux). On Windows, Tauri's native file drop would turn off the HTML5 drag and drop the set list uses, so `src-tauri/tauri.windows.conf.json` disables it there; Windows users add tracks with Add tracks, Add folder or watched folders.
+- Drop files or folders anywhere on the window to add them, on every platform (Tauri's native file drop, `onFilesDropped`).
 - While a dialog is open, deck shortcuts do nothing (Cmd/Ctrl+, still opens Settings).
 
 ## Languages

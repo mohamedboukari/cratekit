@@ -153,4 +153,10 @@
   :focus-visible {
     @apply outline-2 outline-offset-2 outline-ring;
   }
+
+  /* During an in-app drag (lib/drag.ts): the grabbing cursor everywhere. */
+  body.ck-dragging,
+  body.ck-dragging * {
+    cursor: grabbing !important;
+  }
 }
