@@ -291,7 +291,8 @@ fn filters_by_bpm_key_stems_and_crate() {
     library
         .connection()
         .execute_batch(&format!(
-            "INSERT INTO stems VALUES ({}, 'htdemucs', '/stems', 'now'); \
+            "INSERT INTO stems (track_id, model, dir, created_at) \
+             VALUES ({}, 'htdemucs', '/stems', 'now'); \
              INSERT INTO crates (id, name) VALUES (1, 'Friday'); \
              INSERT INTO crate_tracks (crate_id, track_id) VALUES (1, {}), (1, {});",
             ids[2], ids[1], ids[3]
@@ -791,4 +792,86 @@ fn crate_names_and_ids_are_checked() {
             id: 42
         })
     ));
+}
+
+fn split_of(seconds: f64) -> crate::stems::cache::Split {
+    let audio = crate::audio::decode_file(&fixture("tone.wav")).expect("decode");
+    let stems = crate::stems::Stems {
+        drums: audio.clone(),
+        bass: audio.clone(),
+        other: audio.clone(),
+        vocals: audio,
+    };
+    crate::stems::cache::Split {
+        waveforms: crate::stems::cache::StemWaveforms::of(&stems).expect("waveforms"),
+        split_sec: seconds,
+    }
+}
+
+#[test]
+fn stored_stems_come_back_and_mark_the_track() {
+    let mut library = library();
+    let id = library
+        .add_paths(&[fixture("tone.wav")])
+        .expect("add")
+        .added[0];
+    assert_eq!(library.stems(id).expect("stems"), None);
+    let split = split_of(12.5);
+
+    library
+        .store_stems(id, "htdemucs", Path::new("/data/stems/1"), &split)
+        .expect("store");
+
+    let stored = library.stems(id).expect("stems").expect("some stems");
+    assert_eq!(stored.model, "htdemucs");
+    assert_eq!(stored.dir, PathBuf::from("/data/stems/1"));
+    assert_eq!(stored.split_sec, Some(12.5));
+    assert_eq!(stored.waveforms, Some(split.waveforms.clone()));
+    let rows = library.list(&LibraryQuery::default()).expect("list");
+    assert!(rows.iter().any(|row| row.id == id && row.has_stems));
+
+    // A new split replaces the record.
+    library
+        .store_stems(id, "htdemucs", Path::new("/data/stems/1b"), &split_of(3.0))
+        .expect("store again");
+    let stored = library.stems(id).expect("stems").expect("some stems");
+    assert_eq!(stored.dir, PathBuf::from("/data/stems/1b"));
+    assert_eq!(stored.split_sec, Some(3.0));
+}
+
+#[test]
+fn removing_stems_gives_the_folder_back_and_unmarks_the_track() {
+    let mut library = library();
+    let id = library
+        .add_paths(&[fixture("tone.wav")])
+        .expect("add")
+        .added[0];
+    library
+        .store_stems(id, "htdemucs", Path::new("/data/stems/2"), &split_of(1.0))
+        .expect("store");
+
+    assert_eq!(
+        library.remove_stems(id).expect("remove"),
+        Some(PathBuf::from("/data/stems/2"))
+    );
+    assert_eq!(library.remove_stems(id).expect("remove again"), None);
+    assert_eq!(library.stems(id).expect("stems"), None);
+    let rows = library.list(&LibraryQuery::default()).expect("list");
+    assert!(rows.iter().all(|row| !row.has_stems));
+}
+
+#[test]
+fn stems_of_a_track_not_in_the_library_are_refused() {
+    let mut library = library();
+    let result = library.store_stems(99, "htdemucs", Path::new("/x"), &split_of(1.0));
+    assert!(
+        matches!(
+            result,
+            Err(CoreError::NotFound {
+                what: "track",
+                id: 99
+            })
+        ),
+        "{result:?}"
+    );
 }

@@ -1,10 +1,12 @@
 //! Stem separation (SPEC, Module 4): [`runtime`] loads ONNX Runtime at run
 //! time and says why stems cannot run when it cannot, [`models`] is the
 //! opt-in model download (the only network call in the app), [`dsp`] is the
-//! signal processing around the model, and [`htdemucs::HtDemucs`] splits a
-//! track behind the [`StemSeparator`] trait. See docs/stems.md and
+//! signal processing around the model, [`htdemucs::HtDemucs`] splits a
+//! track behind the [`StemSeparator`] trait, and [`cache`] writes the stems
+//! to a folder as WAV files. See docs/stems.md and
 //! docs/ARCHITECTURE.md, Stems notes.
 
+pub mod cache;
 pub mod dsp;
 pub mod htdemucs;
 pub mod models;

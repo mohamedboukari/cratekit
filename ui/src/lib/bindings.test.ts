@@ -31,6 +31,7 @@ import type { ModelStatus as RustModelStatus } from "@/lib/bindings/ModelStatus"
 import type { PlaybackState as RustPlaybackState } from "@/lib/bindings/PlaybackState";
 import type { Position } from "@/lib/bindings/Position";
 import type { Settings as RustSettings } from "@/lib/bindings/Settings";
+import type { StemsInfoDto } from "@/lib/bindings/StemsInfoDto";
 import type { TrackDetailDto } from "@/lib/bindings/TrackDetailDto";
 import type { TrackRow as RustTrackRow } from "@/lib/bindings/TrackRow";
 import type { TrackRowDto } from "@/lib/bindings/TrackRowDto";
@@ -54,6 +55,7 @@ import type {
   ModelStatus,
   PlaybackState,
   Settings,
+  StemsInfo,
   TrackDetail,
   TrackRow,
   Transition,
@@ -81,8 +83,9 @@ describe("IPC contract: Rust payloads fit the UI types", () => {
     expectTypeOf<RustAppError>().toExtend<AppError>();
   });
 
-  it("models", () => {
+  it("models and stems", () => {
     expectTypeOf<RustModelStatus>().toExtend<ModelStatus>();
+    expectTypeOf<StemsInfoDto>().toExtend<StemsInfo>();
   });
 
   it("playback and audio devices", () => {

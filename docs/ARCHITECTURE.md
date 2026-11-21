@@ -48,7 +48,7 @@ src/
   lib.rs
   error.rs             CoreError (thiserror)
   synth.rs             synthetic test audio (kick, chords, bass, sine, SPEC loop); tests or `test-helpers` feature only
-  audio/               AudioBuffer, decode_file (symphonia), resample (rubato), probe_file (tags and stream properties); write WAV (hound) later; see docs/audio.md
+  audio/               AudioBuffer, decode_file (symphonia), resample (rubato), probe_file (tags and stream properties), write_wav (our own: 16/24-bit dithered or 32-bit float); see docs/audio.md
   analysis/
     mod.rs             ANALYZER_VERSION
     track.rs           analyze_file() -> TrackAnalysis (progress, cancellation)
@@ -71,6 +71,7 @@ src/
     dsp.rs             STFT and inverse STFT, normalizations, segments and their blending, as the reference
     runtime.rs         load ONNX Runtime at run time; CPU check; why stems are unavailable (docs/stems.md)
     htdemucs.rs        HtDemucs: impl StemSeparator on `ort`; "other" is the mix minus the other three
+    cache.rs           split_to_folder: decode, split, write the four stems as 16-bit WAV (folder replaced only when complete); StemWaveforms
     models.rs          the pinned model; download (resume, SHA-256, rename when verified), status, delete; the only network call
   library/
     mod.rs             Library: open (WAL, foreign keys), add_paths, list, counts, track, remove_tracks; see docs/library.md
@@ -176,7 +177,7 @@ Rules:
 | `playback_set_mode(mode)` | Original / Mastered / Stems |
 | `playback_set_filter(value)` | DJ filter knob: -1 full low-pass, 0 off, +1 full high-pass (#56) |
 | `playback_set_level_match(enabled)` | Master A/B compare at equal loudness (default on) |
-| `stems_split(id)` / `stems_set_gain(stem, gain)` / `stems_set_mute(stem, bool)` / `stems_set_solo(stem, bool)` | Stems; `stems_split` rejects with `model_missing` until the model is downloaded |
+| `stems_split(id)` / `stems_set_gain(stem, gain)` / `stems_set_mute(stem, bool)` / `stems_set_solo(stem, bool)` | Stems; `stems_split` queues a job (`kind: stems`, 100 steps per track, cancellable) that writes `stems/<track id>/` in the app data folder and records it in the library; it rejects with `model_missing` until the model is downloaded, and the job fails with `stems_unavailable` (the reason in the message) when ONNX Runtime cannot load. The gain, mute and solo commands come with the stem mixer (#34) |
 | `stems_info(id)` / `stems_export(id)` | Split time, per-stem waveforms and the summed instrumental waveform (null when not split); one WAV per stem into the output folder, returns the paths |
 | `master_presets` / `master_preview(id, settings)` / `master_export(id, settings)` | Mastering: presets with label, default target and a one-line description; B-side render for A/B; export into the output folder, returns path, LUFS and true peak |
 | `hotcue_set(id, slot, sec)` / `hotcue_clear(id, slot)` / `hotcue_update(id, slot, name, color)` | Cues (set or move, clear, rename and recolour) |
@@ -234,7 +235,9 @@ CREATE TABLE cues (
 );
 CREATE TABLE stems (
   track_id INTEGER PRIMARY KEY REFERENCES tracks(id) ON DELETE CASCADE,
-  model TEXT NOT NULL, dir TEXT NOT NULL, created_at TEXT NOT NULL
+  model TEXT NOT NULL, dir TEXT NOT NULL, created_at TEXT NOT NULL,
+  split_sec REAL,   -- migration 3: how long the split took
+  waveforms BLOB    -- migration 3: the four stems' and the instrumental's waveforms
 );
 CREATE TABLE masters (
   id INTEGER PRIMARY KEY, track_id INTEGER REFERENCES tracks(id) ON DELETE CASCADE,
