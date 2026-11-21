@@ -72,4 +72,5 @@ All notable changes to Cratekit are documented here. The format follows [Keep a 
 
 ### Fixed
 
+- Dragging tracks onto the set list, and reordering it by drag, now work on macOS: Tauri's native file drop took every drag over the window there, so the set list never saw a drop. In-app drags now run on pointer events (`lib/drag.ts`), with a label that follows the pointer, Escape to cancel and the set list scrolling near its edges, and dropping files from the system to add them keeps working. Windows gets the file drop back too (`tauri.windows.conf.json`, which turned it off there, is gone).
 - Desktop app: a control whose Rust command is not built yet (for example the Original, Mastered and Stems switch) shows a calm "Not built yet" note instead of an error saying the command was not found.
