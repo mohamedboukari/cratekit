@@ -8,7 +8,8 @@
 //! (musical keys and the Camelot wheel), [`analysis::tempo`] and
 //! [`analysis::key_detect`] (tempo and key detection), [`analysis::loudness`]
 //! (integrated LUFS and true peak), [`analysis::energy`] (the 1 to 10 energy
-//! score), [`stems::runtime`] (loading ONNX Runtime for stems), and `synth` (synthetic test audio, compiled for tests or with the
+//! score), [`stems::runtime`] (loading ONNX Runtime for stems), [`mastering`] (the EQ,
+//! compressor and true-peak limiter of the mastering chain), and `synth` (synthetic test audio, compiled for tests or with the
 //! `test-helpers` feature).
 
 pub mod analysis;
@@ -16,6 +17,7 @@ pub mod audio;
 mod error;
 pub mod files;
 pub mod library;
+pub mod mastering;
 pub mod progress;
 pub mod settings;
 pub mod stems;
