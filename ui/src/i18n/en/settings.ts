@@ -37,7 +37,8 @@ export const settings = {
     addFolder: "Add folder...",
     autoAdd: "Add new files automatically",
     output: "Output folder",
-    outputHint: "Masters and stems are written here.",
+    outputHint:
+      "Masters and stems are written here. When it is empty: your Music folder, in Cratekit.",
     notSet: "Not set",
     choose: "Choose...",
   },

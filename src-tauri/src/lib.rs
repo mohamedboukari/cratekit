@@ -322,6 +322,7 @@ pub fn run() -> anyhow::Result<()> {
             models::models_delete,
             stems::stems_split,
             stems::stems_info,
+            stems::stems_export,
             playback::playback_set_mode,
             playback::stems_set_gain,
             playback::stems_set_mute,

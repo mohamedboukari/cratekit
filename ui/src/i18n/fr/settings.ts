@@ -40,7 +40,8 @@ export const settings: Translation["settings"] = {
     addFolder: "Ajouter un dossier...",
     autoAdd: "Ajouter les nouveaux fichiers automatiquement",
     output: "Dossier de sortie",
-    outputHint: "Les masters et les stems sont enregistrés ici.",
+    outputHint:
+      "Les masters et les stems sont enregistrés ici. S'il est vide : votre dossier Musique, dans Cratekit.",
     notSet: "Non défini",
     choose: "Choisir...",
   },
