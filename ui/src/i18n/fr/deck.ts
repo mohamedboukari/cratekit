@@ -35,10 +35,15 @@ export const deck: Translation["deck"] = {
       mastered: "Masterisé",
       stems: "Mix des stems",
     },
-    filter: "Filtre",
+  },
+  filter: {
+    label: "Filtre",
+    lowShort: "LP",
+    highShort: "HP",
   },
   knob: {
-    title: "{{label}} : {{value}}",
+    title:
+      "{{label}} : {{value}}. Glissez ou faites défiler pour régler, double-cliquez pour réinitialiser",
   },
   cueEditor: {
     title: "Hot cue {{slot}}",

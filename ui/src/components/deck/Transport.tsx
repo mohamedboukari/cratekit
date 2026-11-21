@@ -3,12 +3,11 @@ import { Pause, Play } from "lucide-react";
 import { useEffect, useRef, type JSX, type MouseEvent } from "react";
 import { useTranslation } from "react-i18next";
 
-import { Knob } from "@/components/controls/Knob";
 import { CUE_BG } from "@/components/deck/cueColors";
 import { Button } from "@/components/ui/button";
 import { usePlaybackPositionRef } from "@/hooks/usePlaybackRefs";
 import { releasePointerFocus } from "@/lib/focus";
-import { filterText, formatTime } from "@/lib/format";
+import { formatTime } from "@/lib/format";
 import type { CueSlot, TrackDetail } from "@/lib/types";
 import { usePlayer } from "@/stores/player";
 import { useUi } from "@/stores/ui";
@@ -18,17 +17,15 @@ const PAGE_SLOTS: Record<1 | 2, readonly CueSlot[]> = {
   2: [5, 6, 7, 8],
 };
 
-/** Transport row: CUE, play, hot cue pads (paged), time, what you hear, filter. */
+/** Transport row: CUE, play, hot cue pads (paged), time, what you hear (the filter is beside it, DeckFilter). */
 export function Transport({ detail }: { detail: TrackDetail }): JSX.Element {
   const { t } = useTranslation();
   const playing = usePlayer((s) => s.playing);
   const mode = usePlayer((s) => s.mode);
-  const filter = usePlayer((s) => s.filter);
   const togglePlay = usePlayer((s) => s.togglePlay);
   const cue = usePlayer((s) => s.cue);
   const triggerHotCue = usePlayer((s) => s.triggerHotCue);
   const clearHotCue = usePlayer((s) => s.clearHotCue);
-  const setFilter = usePlayer((s) => s.setFilter);
   const padPage = useUi((s) => s.padPage);
   const togglePadPage = useUi((s) => s.togglePadPage);
   const position = usePlaybackPositionRef();
@@ -141,17 +138,6 @@ export function Transport({ detail }: { detail: TrackDetail }): JSX.Element {
           {t(`deck.transport.hearing.${mode}`)}
         </b>
       </span>
-      <Knob
-        label={t("deck.transport.filter")}
-        value={filter}
-        min={-1}
-        max={1}
-        defaultValue={0}
-        bipolar
-        valueText={filterText(filter)}
-        onChange={(v) => void setFilter(v)}
-        size={40}
-      />
     </div>
   );
 }
