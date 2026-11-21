@@ -65,7 +65,7 @@ Stems
 - [x] **Research:** stems on Intel Macs: ONNX Runtime 1.23.2, the last Intel build, loaded at run time (#114)
 - [ ] ONNX Runtime linking (run-time load or static) and the CPU (AVX2), glibc and Windows 10 checks for stems (#115)
 - [x] Model download with progress + checksum (#30)
-- [ ] `StemSeparator` trait; htdemucs implementation on `ort` with our own chunking (#31)
+- [x] `StemSeparator` trait; htdemucs implementation on `ort` with our own chunking (#31)
 - [ ] Backend selection: GPU provider with CPU fallback, CPU reference check, "CPU only" setting, backend in the status bar; verified on real hardware (Apple Silicon, Windows GPU, a CPU-only machine) (#32)
 - [ ] Cancel + progress; cache per track (#33)
 - [ ] Stem mixer in the audio engine (gain, mute, solo) (#34)

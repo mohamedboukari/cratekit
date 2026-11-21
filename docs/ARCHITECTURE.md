@@ -326,7 +326,7 @@ Decided in #29 (research: ONNX Runtime per target, CoreML, DirectML and Windows 
   - Whole-track normalization: subtract the mean of the mono mix and divide by its standard deviation (plus 1e-8); undone on the output.
   - Segments of 7.8 s (343,980 samples), overlap 25% (stride 257,985), triangular weights; outputs summed with the weights and divided by the summed weight; the last segment is zero-padded and cropped. No random shifts (deterministic).
   - STFT: n_fft 4096, hop 1024, Hann, normalized, centred with reflect padding, plus the model's own padding; the last bin is dropped (2048 bins, 336 frames), complex values as channels, giving `[1, 4, 2048, 336]`. The inverse STFT output is added to the time-branch output `[1, 4, 2, 343980]`. Stem order: drums, bass, other, vocals.
-- **Memory:** about 3.5 GB peak on CPU and 2.6 GB with CoreML (measured), within the SPEC's 4 GB; to check on an 8 GB machine (#31).
+- **Memory:** the session runs with ONNX Runtime's memory pattern off: it otherwise keeps every planned buffer for the whole run. Measured on an M4 Pro, splitting a 236 s track: 3.3 GB peak for the whole process (5.5 GB with the pattern on), at the same speed (34 s), within the SPEC's 4 GB. Still to check on a real 8 GB machine.
 
 **Speed per 4-minute track** (measured, or scaled from measurements): Apple Silicon about 21 s on CPU and 7 s on CoreML; a modern x86 desktop about 60 s on CPU (inference); older laptops and Intel Macs 2 to 4 minutes (inference). Stems run as a background job with progress, which the DJ research found acceptable at 30 to 60 s per track. Not measured anywhere yet: ONNX Runtime on an x86 laptop and on Linux.
 
