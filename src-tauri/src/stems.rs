@@ -143,23 +143,23 @@ pub(crate) async fn stems_info(
     .await
 }
 
-/// Copies a split track's four stems into `<output folder>/Stems/<title>/`
-/// as `<title> (drums).wav` and so on, replacing an earlier export; returns
-/// the paths. `not_found` when the track was not split.
+/// Copies a split track's four stems into `<output folder>/Stems/<artist> -
+/// <title>/` as `<artist> - <title> (drums).wav` and so on (the title alone
+/// without an artist), replacing an earlier export; returns the paths. `not_found` when the track was not split.
 #[tauri::command]
 pub(crate) async fn stems_export(app: AppHandle, id: TrackId) -> Result<Vec<String>, AppError> {
-    let (stored, title, setting) = with_library(app.clone(), move |library| {
+    let (stored, artist, title, setting) = with_library(app.clone(), move |library| {
         let stored = library
             .stems(id)?
             .ok_or(CoreError::NotFound { what: "stems", id })?;
-        let title = library.track(id)?.track.title;
+        let track = library.track(id)?.track;
         let setting = library.settings()?.output_folder;
-        Ok((stored, title, setting))
+        Ok((stored, track.artist, track.title, setting))
     })
     .await?;
     let dest = output_dir(&app, &setting)?.join("Stems");
     tauri::async_runtime::spawn_blocking(move || {
-        export_folder(&stored.dir, &dest, &title)
+        export_folder(&stored.dir, &dest, &artist, &title)
             .map(|paths| {
                 paths
                     .iter()

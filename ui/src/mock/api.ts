@@ -465,10 +465,12 @@ export function createMockApi(): CratekitApi {
       });
     },
     stemsExport: (id) => {
-      const title = byId.get(id)?.track.title ?? `track-${id}`;
-      // As Rust does: <output folder or Music/Cratekit>/Stems/<title>/<title> (<stem>).wav
-      const folder = `${settings.outputFolder || "~/Music/Cratekit"}/Stems/${title}`;
-      return resolve(STEM_NAMES.map((stem) => `${folder}/${title} (${stem}).wav`));
+      const track = byId.get(id)?.track;
+      const title = track?.title ?? `track-${id}`;
+      // As Rust does: <output folder or Music/Cratekit>/Stems/<artist> - <title>/<name> (<stem>).wav
+      const name = track?.artist ? `${track.artist} - ${title}` : title;
+      const folder = `${settings.outputFolder || "~/Music/Cratekit"}/Stems/${name}`;
+      return resolve(STEM_NAMES.map((stem) => `${folder}/${name} (${stem}).wav`));
     },
 
     masterPresets: () => resolve(structuredClone(MASTER_PRESETS)),

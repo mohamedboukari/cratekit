@@ -13,7 +13,7 @@ The UI's `Settings` (`ui/src/lib/types.ts`), with the defaults of `ui/src/lib/de
 | `bufferSize` | 128, 256, 512 or 1024 (`BUFFER_SIZES`) | 512 |
 | `watchedFolders` | list of paths | empty |
 | `watchFolders` | boolean | false |
-| `outputFolder` | path | empty: exports go to the system's Music folder, in `Cratekit` (`~/Music/Cratekit`, `Music\Cratekit` on Windows); stems under `Stems/<title>/` |
+| `outputFolder` | path | empty: exports go to the system's Music folder, in `Cratekit` (`~/Music/Cratekit`, `Music\Cratekit` on Windows); stems under `Stems/<artist> - <title>/` |
 | `stemsBackend` | `"auto"` or `"cpu"` | `"auto"` |
 | `paneLayouts` | panes by group, sizes in percent | empty |
 | `setList` | track ids, in order | empty |

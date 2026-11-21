@@ -153,17 +153,29 @@ pub fn split_to_folder(
 const EXPORT_LABELS: [&str; 4] = ["drums", "bass", "other", "vocals"];
 
 /// Copies a split track's four stems from its cache folder `dir` into
-/// `<dest>/<title>/` as `<title> (drums).wav` and so on (the title made safe
-/// for every system with [`crate::files::safe_file_name`]), replacing an
-/// earlier export of the same track. Each file is copied to `<name>.part`
+/// `<dest>/<name>/` as `<name> (drums).wav` and so on, replacing an earlier
+/// export of the same track. The name is `<artist> - <title>`, or the title
+/// alone without an artist (so same-titled tracks by different artists do
+/// not share a folder), made safe for every system with
+/// [`crate::files::safe_file_name`]. Each file is copied to `<name>.part`
 /// and renamed once complete. Returns the four paths, in the order of
 /// [`STEM_FILES`].
 ///
 /// # Errors
 ///
 /// [`CoreError::Io`] when a stem file is missing or a copy fails.
-pub fn export_folder(dir: &Path, dest: &Path, title: &str) -> Result<Vec<PathBuf>, CoreError> {
-    let name = crate::files::safe_file_name(title, "track");
+pub fn export_folder(
+    dir: &Path,
+    dest: &Path,
+    artist: &str,
+    title: &str,
+) -> Result<Vec<PathBuf>, CoreError> {
+    let label = if artist.trim().is_empty() {
+        title.to_owned()
+    } else {
+        format!("{} - {}", artist.trim(), title.trim())
+    };
+    let name = crate::files::safe_file_name(&label, "track");
     let folder = dest.join(&name);
     fs::create_dir_all(&folder)?;
     STEM_FILES
@@ -343,7 +355,7 @@ mod tests {
         .expect("split");
         let dest = root.join("Music").join("Cratekit").join("Stems");
 
-        let paths = export_folder(&dir, &dest, "AC/DC: Live?").expect("export");
+        let paths = export_folder(&dir, &dest, "", "AC/DC: Live?").expect("export");
 
         let folder = dest.join("AC_DC_ Live_");
         let names: Vec<String> = paths
@@ -367,15 +379,23 @@ mod tests {
             );
         }
         // Exporting again replaces the files, with nothing left over.
-        export_folder(&dir, &dest, "AC/DC: Live?").expect("export again");
+        export_folder(&dir, &dest, "", "AC/DC: Live?").expect("export again");
         assert_eq!(fs::read_dir(&folder).expect("folder").count(), 4);
+        // With an artist, the name says who: same titles by other artists
+        // get their own folder.
+        let with_artist = export_folder(&dir, &dest, " Kevin MacLeod ", "Intro").expect("artist");
+        assert_eq!(
+            with_artist[3].file_name().unwrap().to_string_lossy(),
+            "Kevin MacLeod - Intro (vocals).wav"
+        );
+        assert_eq!(fs::read_dir(&dest).expect("dest").count(), 2);
         fs::remove_dir_all(&root).ok();
     }
 
     #[test]
     fn exporting_stems_that_are_gone_is_an_error() {
         let root = temp("export-missing");
-        let result = export_folder(&root.join("nothing"), &root.join("out"), "Song");
+        let result = export_folder(&root.join("nothing"), &root.join("out"), "", "Song");
         assert!(matches!(result, Err(CoreError::Io(_))), "{result:?}");
         fs::remove_dir_all(&root).ok();
     }
