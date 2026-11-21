@@ -4,7 +4,7 @@
 //! WAV files and recorded in the library; an export copies them into the
 //! output folder.
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use cratekit_core::CoreError;
 use cratekit_core::analysis::waveform::{OVERVIEW_COLUMNS, WaveformView};
@@ -23,9 +23,22 @@ use crate::jobs::{JobKind, Jobs};
 use crate::library::{LibraryState, with_library};
 use crate::models::models_dir;
 
-/// Development builds have no bundled library: this variable points at one
-/// (the path `.github/scripts/fetch-onnxruntime.sh` prints).
+/// Points at a library to use instead of the bundled one (the path
+/// `.github/scripts/fetch-onnxruntime.sh` prints).
 const LIBRARY_VARIABLE: &str = "CRATEKIT_ONNXRUNTIME";
+
+/// Where `bun run setup:stems` stages the library for development builds,
+/// which bundle nothing (`src-tauri/onnxruntime/`, git-ignored). Compiled
+/// into development builds only, so a release binary holds no source path.
+#[cfg(debug_assertions)]
+fn dev_library() -> Option<PathBuf> {
+    Some(Path::new(concat!(env!("CARGO_MANIFEST_DIR"), "/onnxruntime")).join(LIBRARY_FILE))
+}
+
+#[cfg(not(debug_assertions))]
+fn dev_library() -> Option<PathBuf> {
+    None
+}
 
 /// The folder the stems are written into, one sub-folder per track.
 pub(crate) fn stems_dir<R: Runtime>(app: &AppHandle<R>) -> Result<PathBuf, AppError> {
@@ -44,17 +57,39 @@ pub(crate) fn output_dir<R: Runtime>(
     Ok(app.path().audio_dir()?.join("Cratekit"))
 }
 
-/// ONNX Runtime's library: `CRATEKIT_ONNXRUNTIME` when set, else the copy the
-/// installer bundles in the resources.
+/// ONNX Runtime's library (see [`pick_library`]).
 fn library_path<R: Runtime>(app: &AppHandle<R>) -> Result<PathBuf, AppError> {
-    if let Some(path) = std::env::var_os(LIBRARY_VARIABLE) {
-        return Ok(PathBuf::from(path));
-    }
-    Ok(app
+    let bundled = app
         .path()
         .resource_dir()?
         .join("onnxruntime")
-        .join(LIBRARY_FILE))
+        .join(LIBRARY_FILE);
+    Ok(pick_library(
+        std::env::var_os(LIBRARY_VARIABLE).map(PathBuf::from),
+        bundled,
+        dev_library(),
+        |path| path.is_file(),
+    ))
+}
+
+/// Which library to load: the variable's when set; else the bundled copy when
+/// it is there; else, in a development build, the one `bun run setup:stems`
+/// staged, when it is there. Otherwise the bundled path, so "library missing"
+/// names where an installed app keeps it. Release builds never look in the
+/// source tree (`dev` is `None`).
+fn pick_library(
+    variable: Option<PathBuf>,
+    bundled: PathBuf,
+    dev: Option<PathBuf>,
+    exists: impl Fn(&Path) -> bool,
+) -> PathBuf {
+    if let Some(path) = variable {
+        return path;
+    }
+    if exists(&bundled) {
+        return bundled;
+    }
+    dev.filter(|path| exists(path)).unwrap_or(bundled)
 }
 
 /// Why the model cannot be used yet.
@@ -232,6 +267,42 @@ pub(crate) async fn stems_export(app: AppHandle, id: TrackId) -> Result<Vec<Stri
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn picks_the_variable_then_the_bundled_library_then_the_dev_copy() {
+        let bundled = PathBuf::from("/app/onnxruntime/lib");
+        let dev = PathBuf::from("/repo/src-tauri/onnxruntime/lib");
+        let variable = PathBuf::from("/custom/lib");
+        let none = |_: &Path| false;
+        let all = |_: &Path| true;
+        let only_dev = |path: &Path| path.starts_with("/repo");
+
+        let pick =
+            |var: Option<&PathBuf>, dev: Option<&PathBuf>, exists: &dyn Fn(&Path) -> bool| {
+                pick_library(var.cloned(), bundled.clone(), dev.cloned(), exists)
+            };
+        assert_eq!(pick(Some(&variable), Some(&dev), &all), variable);
+        assert_eq!(
+            pick(None, Some(&dev), &all),
+            bundled,
+            "an installed copy wins"
+        );
+        assert_eq!(
+            pick(None, Some(&dev), &only_dev),
+            dev,
+            "a dev build finds the staged copy"
+        );
+        assert_eq!(
+            pick(None, None, &only_dev),
+            bundled,
+            "a release build never looks in the repo"
+        );
+        assert_eq!(
+            pick(None, Some(&dev), &none),
+            bundled,
+            "missing: the error names the bundled path"
+        );
+    }
 
     #[test]
     fn every_preference_splits_on_the_cpu_with_its_reason() {

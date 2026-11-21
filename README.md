@@ -24,6 +24,7 @@ Tauri 2 desktop app: a Rust backend (Cargo workspace) and a React 19 + TypeScrip
 ```bash
 bun install          # JS dependencies for the root and ui/ (also installs the git hooks)
 bun run tauri dev    # build and open the app (the first Rust build takes a few minutes)
+bun run setup:stems  # once, for stems in development builds: downloads ONNX Runtime into src-tauri/onnxruntime/
 ```
 
 ## Scripts
@@ -32,6 +33,7 @@ bun run tauri dev    # build and open the app (the first Rust build takes a few 
 | --- | --- |
 | `bun run tauri dev` | Run the app with hot reload |
 | `bun run --cwd ui dev` | Run only the UI in a browser, on demo data (same as the live demo) |
+| `bun run setup:stems` | Download Microsoft's ONNX Runtime for this machine (pinned SHA-256) into `src-tauri/onnxruntime/` (git-ignored), where development builds find it; installers bundle it |
 | `bun run check` | Every gate CI runs: Rust (fmt, taplo, clippy, nextest, doc tests, cargo-deny, cargo-shear, typos) then UI (tsc, oxlint, prettier, knip, vitest) |
 | `bun run test` / `bun run test:rust` | UI tests (Vitest) / Rust tests (nextest) |
 | `bun run lint` / `bun run format` | oxlint (type-aware) / Prettier |
