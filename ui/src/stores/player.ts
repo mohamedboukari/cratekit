@@ -3,7 +3,15 @@ import { create } from "zustand";
 import { i18n } from "@/i18n";
 import { api } from "@/lib/ipc";
 import { notifyError } from "@/lib/notify";
-import type { CueColor, CueSlot, PlaybackMode, TrackDetail, TrackId } from "@/lib/types";
+import type {
+  CueColor,
+  CueSlot,
+  PlaybackMode,
+  PlaybackState,
+  TrackDetail,
+  TrackId,
+} from "@/lib/types";
+import { useSetList } from "@/stores/setlist";
 
 /** Only the newest load may update the deck or the engine (clicks can overlap). */
 let loadSeq = 0;
@@ -45,8 +53,12 @@ interface PlayerState {
   clearHotCue: (slot: CueSlot) => Promise<void>;
   /** Renames or recolours a hot cue. */
   updateHotCue: (slot: CueSlot, name: string | null, color: CueColor) => Promise<void>;
-  /** Rust reports a playback state change (e.g. the track reached its end). */
-  onPlaybackState: (playing: boolean) => void;
+  /**
+   * Rust reports a playback state change. When the track reached its end and
+   * it is in the set list, the next one loads and plays (no blend; blends
+   * need the second deck of v0.2).
+   */
+  onPlaybackState: (state: PlaybackState) => void;
   /** Re-reads the loaded track (after a job changed its analysis or stems). */
   refresh: () => Promise<void>;
 }
@@ -202,6 +214,17 @@ export const usePlayer = create<PlayerState>()((set, get) => {
       }
     },
 
-    onPlaybackState: (playing) => set({ playing }),
+    onPlaybackState: ({ playing, ended }) => {
+      set({ playing });
+      if (!ended) return;
+      const id = get().detail?.track.id;
+      const next = id === undefined ? null : useSetList.getState().nextAfter(id);
+      if (next === null) return;
+      void (async () => {
+        await get().load(next);
+        // Another track picked meanwhile keeps the deck.
+        if (get().detail?.track.id === next && !get().playing) await get().togglePlay();
+      })();
+    },
   };
 });

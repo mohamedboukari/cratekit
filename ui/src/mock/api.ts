@@ -176,7 +176,7 @@ export function createMockApi(): CratekitApi {
         position = 0;
         playing = false;
         stopTicker();
-        ch.playbackState.emit({ playing: false });
+        ch.playbackState.emit({ playing: false, ended: true });
       }
       ch.position.emit(position);
       const wobble = Math.sin(position * 7) * 2 + Math.random() * 1.5;

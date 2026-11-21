@@ -451,7 +451,27 @@ pub(crate) async fn apply_audio_settings(app: AppHandle) -> Result<Option<String
 /// Tells the UI whether the deck plays (after a restart changed it).
 fn send_playing<R: Runtime>(app: &AppHandle<R>, playing: bool) {
     // A window that is closing cannot receive it; the others still do.
-    app.emit("playback_state", PlaybackState { playing }).ok();
+    app.emit(
+        "playback_state",
+        PlaybackState {
+            playing,
+            ended: false,
+        },
+    )
+    .ok();
+}
+
+/// Tells the UI the track reached its end (it stopped there), so the set
+/// list can play the next one.
+fn send_ended<R: Runtime>(app: &AppHandle<R>) {
+    app.emit(
+        "playback_state",
+        PlaybackState {
+            playing: false,
+            ended: true,
+        },
+    )
+    .ok();
 }
 
 fn internal(err: tauri::Error) -> AppError {
@@ -482,6 +502,8 @@ struct Meter {
 #[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export))]
 struct PlaybackState {
     playing: bool,
+    /// The track reached its end (not a pause or a device change).
+    ended: bool,
 }
 
 /// Why the output device changed (the UI's `AudioDeviceChanged.reason`).
@@ -617,7 +639,7 @@ fn send_playback_events<R: Runtime>(
         app.emit("meter", meter).ok();
     }
     if ended {
-        send_playing(app, false);
+        send_ended(app);
     }
 }
 
@@ -1263,8 +1285,12 @@ mod tests {
             serde_json::json!({ "peakDb": -3.0, "rmsDb": -9.0 })
         );
         assert_eq!(
-            serde_json::to_value(PlaybackState { playing: false }).unwrap(),
-            serde_json::json!({ "playing": false })
+            serde_json::to_value(PlaybackState {
+                playing: false,
+                ended: true
+            })
+            .unwrap(),
+            serde_json::json!({ "playing": false, "ended": true })
         );
     }
 }

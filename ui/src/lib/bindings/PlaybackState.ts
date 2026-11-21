@@ -3,4 +3,8 @@
 /**
  * `playback_state`: the UI's `PlaybackState`.
  */
-export type PlaybackState = { playing: boolean, };
+export type PlaybackState = { playing: boolean, 
+/**
+ * The track reached its end (not a pause or a device change).
+ */
+ended: boolean, };

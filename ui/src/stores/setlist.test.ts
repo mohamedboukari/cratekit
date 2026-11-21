@@ -1,8 +1,10 @@
-import { beforeEach, describe, expect, it } from "vitest";
+import { act } from "@testing-library/react";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { DEFAULT_SETTINGS } from "@/lib/defaults";
 import { setApiForTests, type CratekitApi } from "@/lib/ipc";
 import { createMockApi } from "@/mock/api";
+import { usePlayer } from "@/stores/player";
 import { useSetList } from "@/stores/setlist";
 import { useSettings } from "@/stores/settings";
 
@@ -76,5 +78,52 @@ describe("set list store", () => {
     await useSetList.getState().add([8]);
     expect(useSetList.getState().items).toEqual([]);
     expect(useSettings.getState().settings?.setList).toEqual([4, 6]);
+  });
+
+  it("knows the track after another, and nothing after the last", async () => {
+    await useSetList.getState().add([4, 2, 9]);
+    const { nextAfter } = useSetList.getState();
+    expect(nextAfter(4)).toBe(2);
+    expect(nextAfter(2)).toBe(9);
+    expect(nextAfter(9)).toBeNull();
+    expect(nextAfter(1)).toBeNull();
+  });
+});
+
+describe("playing through the set list", () => {
+  beforeEach(() => {
+    setApiForTests(createMockApi());
+    useSettings.setState({
+      settings: structuredClone(DEFAULT_SETTINGS),
+      status: "ready",
+    });
+    useSetList.setState({ items: [], transitions: [] });
+    usePlayer.setState({ detail: null, playing: false, mode: "original" });
+  });
+
+  it("loads and plays the next track when one ends, and stops after the last", async () => {
+    await useSetList.getState().add([3, 5]);
+    await usePlayer.getState().load(3);
+    act(() => usePlayer.getState().onPlaybackState({ playing: false, ended: true }));
+    await vi.waitFor(() => expect(usePlayer.getState().detail?.track.id).toBe(5));
+    await vi.waitFor(() => expect(usePlayer.getState().playing).toBe(true));
+
+    act(() => usePlayer.getState().onPlaybackState({ playing: false, ended: true }));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(usePlayer.getState().detail?.track.id).toBe(5);
+    expect(usePlayer.getState().playing).toBe(false);
+  });
+
+  it("does not move on after a device change, or for a track outside the list", async () => {
+    await useSetList.getState().add([3, 5]);
+    await usePlayer.getState().load(3);
+    act(() => usePlayer.getState().onPlaybackState({ playing: false, ended: false }));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(usePlayer.getState().detail?.track.id).toBe(3);
+
+    await usePlayer.getState().load(8);
+    act(() => usePlayer.getState().onPlaybackState({ playing: false, ended: true }));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(usePlayer.getState().detail?.track.id).toBe(8);
   });
 });

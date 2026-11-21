@@ -32,6 +32,8 @@ interface SetListState {
   clear: () => Promise<void>;
   /** Saves the list, in order, as a new crate. */
   saveAsCrate: (name: string) => Promise<boolean>;
+  /** The track after `id` in the list; null when `id` is last or not in it. */
+  nextAfter: (id: TrackId) => TrackId | null;
 }
 
 /**
@@ -154,6 +156,12 @@ export const useSetList = create<SetListState>()((set, get) => {
     clear: async () => {
       if (!(await ensureLoaded())) return;
       await commit([]);
+    },
+
+    nextAfter: (id) => {
+      const { items } = get();
+      const index = items.findIndex((track) => track.id === id);
+      return index >= 0 ? (items[index + 1]?.id ?? null) : null;
     },
 
     saveAsCrate: async (name) => {

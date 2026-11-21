@@ -170,6 +170,8 @@ export interface JobFailed {
 /** Sent when playback starts, pauses or reaches the end of the track. */
 export interface PlaybackState {
   playing: boolean;
+  /** The track reached its end (the set list then plays the next one); false for a device change. */
+  ended: boolean;
 }
 
 export type PlaybackMode = "original" | "mastered" | "stems";
