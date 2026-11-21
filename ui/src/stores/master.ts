@@ -11,6 +11,7 @@ import type {
   TrackId,
 } from "@/lib/types";
 import { usePlayer } from "@/stores/player";
+import { refreshAfterAnalysis } from "@/stores/refresh";
 import { useUi } from "@/stores/ui";
 
 /** Settings changes are sent to Rust for the B side after a short pause. */
@@ -137,6 +138,8 @@ export const useMaster = create<MasterState>()((set, get) => {
       try {
         const master = await api().masterExport(id, get().settings);
         set({ result: { trackId: id, master } });
+        // The track now shows as mastered in the browser and the set list.
+        refreshAfterAnalysis();
         return master;
       } catch (error) {
         notifyError(error, i18n.t("errors.master.export"));

@@ -62,6 +62,8 @@ export const tools: Translation["tools"] = {
     export: "Export",
     target: "Cible {{lufs}} LUFS, plafond {{ceiling}} dBTP",
     exportedLabel: "Exporté :",
+    targetMissed:
+      "Impossible d'atteindre {{lufs}} LUFS sur ce morceau sans dépasser le plafond : c'est le maximum.",
     bitDepth: "Résolution",
     bits24: "24 bits",
     bits24Title: "WAV 24 bits",

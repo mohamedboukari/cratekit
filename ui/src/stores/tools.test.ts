@@ -1,9 +1,10 @@
-import { beforeEach, describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { setApiForTests, type CratekitApi } from "@/lib/ipc";
 import type { StemName } from "@/lib/types";
 import { createMockApi } from "@/mock/api";
 import { useController } from "@/stores/controller";
+import { useLibrary } from "@/stores/library";
 import { useMaster } from "@/stores/master";
 import { useStems } from "@/stores/stems";
 
@@ -23,9 +24,20 @@ describe("master store", () => {
 
   it("remembers which track an export belongs to", async () => {
     const result = await useMaster.getState().exportMaster(3);
-    expect(result?.path).toMatch(/\.wav$/);
+    expect(result?.path).toMatch(/\/Masters\/.+ master\)\.wav$/);
+    expect(result?.targetReached).toBe(true);
     expect(useMaster.getState().result?.trackId).toBe(3);
     expect(useMaster.getState().exporting).toBe(false);
+  });
+
+  it("refreshes the browser after an export, so the track shows as mastered", async () => {
+    await useLibrary.getState().load();
+    const before = useLibrary.getState().rows.find((row) => row.id === 4);
+    expect(before?.mastered).toBe(false);
+    await useMaster.getState().exportMaster(4);
+    await vi.waitFor(() =>
+      expect(useLibrary.getState().rows.find((row) => row.id === 4)?.mastered).toBe(true),
+    );
   });
 });
 

@@ -261,6 +261,13 @@ export function MasterPanel(): JSX.Element {
             <span className="font-mono tabular-nums">
               {`${lastExport.lufs.toFixed(1)} LUFS, ${lastExport.truePeakDb.toFixed(1)} dBTP`}
             </span>
+            {!lastExport.targetReached && (
+              <span className="block text-[11px] text-ck-orange">
+                {t("tools.master.targetMissed", {
+                  lufs: lastExport.targetLufs.toFixed(1),
+                })}
+              </span>
+            )}
             <span
               className="block truncate text-[11px] text-muted-foreground"
               title={lastExport.path}

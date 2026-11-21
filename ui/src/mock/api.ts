@@ -498,12 +498,21 @@ export function createMockApi(): CratekitApi {
 
     masterPresets: () => resolve(structuredClone(MASTER_PRESETS)),
     masterPreview: () => resolve(undefined),
+    // Like Rust: <output folder or ~/Music/Cratekit>/Masters/<artist> - <title> (<Preset> master).wav,
+    // and the track shows as mastered.
     masterExport: (id, s) => {
-      const title = byId.get(id)?.track.title ?? `track-${id}`;
+      const t = byId.get(id);
+      const title = t?.track.title ?? `track-${id}`;
+      const name = t?.track.artist ? `${t.track.artist} - ${title}` : title;
+      const label = MASTER_PRESETS.find((p) => p.name === s.preset)?.label ?? s.preset;
+      if (t) t.track.mastered = true;
+      const folder = settings.outputFolder || "~/Music/Cratekit";
       return resolve({
-        path: `${settings.outputFolder}/${title} (master ${s.preset}).wav`,
+        path: `${folder}/Masters/${name} (${label} master).wav`,
         lufs: s.targetLufs + 0.2,
         truePeakDb: -1.1,
+        targetLufs: s.targetLufs,
+        targetReached: true,
       });
     },
 

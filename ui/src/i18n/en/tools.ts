@@ -60,6 +60,9 @@ export const tools = {
     export: "Export",
     target: "Target {{lufs}} LUFS, ceiling {{ceiling}} dBTP",
     exportedLabel: "Exported:",
+    /** Under the exported loudness when the limiter could not reach the target. */
+    targetMissed:
+      "Could not reach {{lufs}} LUFS on this track without going over the ceiling: this is as loud as it gets.",
     bitDepth: "Bit depth",
     bits24: "24-bit",
     bits24Title: "WAV 24-bit",
