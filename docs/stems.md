@@ -58,6 +58,10 @@ Intel's split export runs only the network; `stems::dsp` does the rest, as the r
 
 Checked against StemSplitio's export of the same weights (STFT inside its graph), run through the same chunking: every stem matches to −64 dB or better, so the processing here is the reference's. Speed on an M4 Pro, ONNX Runtime 1.23.2 on the CPU: a 201 s track in 29 s, a 142 s track in 21 s (1.32 is several times slower on the CPU here; see the Stems notes).
 
+## The stems cache (`stems::cache`)
+
+`split_to_folder(separator, input, dir, progress, cancel)` decodes a file, splits it with any `StemSeparator`, and writes `drums.wav`, `bass.wav`, `other.wav` and `vocals.wav` (`STEM_FILES`) as 16-bit WAV into `dir`, replacing what was there. The files go to `<dir>.part` first, which replaces `dir` only once all four are written, so a cancelled or failed split leaves the old folder untouched. Progress: decoding up to 10%, splitting up to 90%, writing the rest. It returns a `Split`: how long it took, and `StemWaveforms` (the four stems and the 2-stem instrumental), which the library stores as one blob (`to_bytes`, `from_bytes`). A 4-minute track takes about 170 MB of disk in the cache.
+
 ## Getting the library and bundling it
 
 `.github/scripts/fetch-onnxruntime.sh [--universal] [--vc-runtime] <dest dir>` downloads Microsoft's NuGet package for the machine's OS and CPU, checks it against a pinned SHA-256 and copies the library out: 1.23.2 on macOS, 1.32.0 on Windows and Linux. It prints the library's path.
@@ -71,6 +75,7 @@ The installers workflow stages the library in `src-tauri/onnxruntime/` (git-igno
 
 - Download tests against a small HTTP server inside the test (no internet): every file verified and progress moving forward to `Verify` 1.0; a wrong checksum deletes the file; a connection cut halfway keeps the partial file and the next call resumes it with a Range request; a server that ignores ranges, resumes at the wrong place or answers 416 starts over; a downloaded model makes no request; cancel before any request; an HTTP 404; delete. `the_real_model_downloads_and_verifies` (ignored, 171 MB) downloads the pinned model from Hugging Face: about 80 s, both checksums match.
 - `the_instrumental_is_everything_but_the_vocals`: the 2-stem instrumental is drums plus bass plus other, sample by sample.
+- Cache tests, with a stand-in separator (no model): the four files written and read back within 16-bit precision, progress moving forward to 1, a new split replacing the old folder, a cancelled split leaving nothing, the waveform blob read back (and refused when cut).
 - Signal processing tests (synthetic signals): the constants, reflection padding, the window, a tone in its bin at the normalized level, the STFT round trip (error under 1e-4 away from the dropped edge frames), segments covering a track and centring the last one, blending an identity model back to the track, the track normalization undone, the spectrogram channel layout, and both output branches back to audio.
 - `the_stems_sum_back_to_the_mix` (ignored; needs `CRATEKIT_ONNXRUNTIME` and `CRATEKIT_STEMS_MODEL`): splits a 12 s synthetic mix (kick, bass line, chord) with the real model; the stems sum back exactly and the bass line lands in the bass stem. About 3 s in release on Apple Silicon.
 - Unit tests: the CPU verdict for every AVX2 and FMA combination, the Visual C++ preload (none found, one that is not a library), a missing file, a relative path, a file that is not ONNX Runtime, reading a version string, the wording of the reasons.

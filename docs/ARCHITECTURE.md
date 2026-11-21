@@ -48,7 +48,7 @@ src/
   lib.rs
   error.rs             CoreError (thiserror)
   synth.rs             synthetic test audio (kick, chords, bass, sine, SPEC loop); tests or `test-helpers` feature only
-  audio/               AudioBuffer, decode_file (symphonia), resample (rubato), probe_file (tags and stream properties); write WAV (hound) later; see docs/audio.md
+  audio/               AudioBuffer, decode_file (symphonia), resample (rubato), probe_file (tags and stream properties), write_wav (our own: 16/24-bit dithered or 32-bit float); see docs/audio.md
   analysis/
     mod.rs             ANALYZER_VERSION
     track.rs           analyze_file() -> TrackAnalysis (progress, cancellation)
@@ -71,6 +71,7 @@ src/
     dsp.rs             STFT and inverse STFT, normalizations, segments and their blending, as the reference
     runtime.rs         load ONNX Runtime at run time; CPU check; why stems are unavailable (docs/stems.md)
     htdemucs.rs        HtDemucs: impl StemSeparator on `ort`; "other" is the mix minus the other three
+    cache.rs           split_to_folder: decode, split, write the four stems as 16-bit WAV (folder replaced only when complete); StemWaveforms
     models.rs          the pinned model; download (resume, SHA-256, rename when verified), status, delete; the only network call
   library/
     mod.rs             Library: open (WAL, foreign keys), add_paths, list, counts, track, remove_tracks; see docs/library.md
@@ -234,7 +235,9 @@ CREATE TABLE cues (
 );
 CREATE TABLE stems (
   track_id INTEGER PRIMARY KEY REFERENCES tracks(id) ON DELETE CASCADE,
-  model TEXT NOT NULL, dir TEXT NOT NULL, created_at TEXT NOT NULL
+  model TEXT NOT NULL, dir TEXT NOT NULL, created_at TEXT NOT NULL,
+  split_sec REAL,   -- migration 3: how long the split took
+  waveforms BLOB    -- migration 3: the four stems' and the instrumental's waveforms
 );
 CREATE TABLE masters (
   id INTEGER PRIMARY KEY, track_id INTEGER REFERENCES tracks(id) ON DELETE CASCADE,
