@@ -60,7 +60,7 @@ Laptop-first: designed for 1366x768, works down to the 1024x640 minimum window. 
 | --- | --- | --- |
 | Deck | Title, artist, BPM (with confidence), key, Camelot, energy, LUFS; canvas waveform (played/unplayed, phrase grid, overview strip, cue ticks); 8 hot cue flags; CUE, play, pads 1 to 4 / 5 to 8, time, "Hearing"; the bipolar filter knob (80 px, LP and HP ends, value always shown) in its own column beside the waveform, where v0.2's channel strip goes | no track loaded; not analyzed (no waveform) |
 | Track browser | Crate name, count and total time; search; chips "Matches 8A", "Near 124 BPM", "Has stems" (Rust filters); columns #, title, artist, BPM, key, energy, time, ready tags (energy and tags hide below 36rem) | empty library (drop zone, Add tracks, Add folder); no matches; a running job shows on its rows |
-| Set list | Running order with key-clash and BPM-jump warnings from Rust; save as crate; clear | empty (drop target) |
+| Set list | Running order with key-clash and BPM-jump warnings from Rust; the track on the deck highlighted (plays through to the next); save as crate; clear | empty (drop target) |
 | Analyze | Camelot and key, chroma bars (the key's notes from Rust), mixes-well-with chips that filter the browser, BPM, first downbeat, energy, drop and mix-out (click to seek), loudness, re-analyze | no track; not analyzed; analyzing (progress) |
 | Master | Presets (from Rust), intensity, loudness target, reference track, level-matched A/B, peak and RMS meters, export 24/16-bit | no track; presets loading or failed (Retry); rendering |
 | Stems | Split time and backend; 4 or 2 stems; per stem: colour, name, waveform, mute, solo, volume; export | no track; model missing (download dialog); not split; splitting (progress, cancel) |

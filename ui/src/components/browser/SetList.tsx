@@ -282,8 +282,10 @@ function SetListItem({
       )}
       <div
         className={cn(
-          "flex items-center rounded-md hover:bg-card",
-          loaded && "bg-primary/10 shadow-[inset_2px_0_0_var(--color-primary)]",
+          "flex items-center rounded-md",
+          loaded
+            ? "bg-primary/10 shadow-[inset_2px_0_0_var(--color-primary)]"
+            : "hover:bg-card",
         )}
       >
         <button

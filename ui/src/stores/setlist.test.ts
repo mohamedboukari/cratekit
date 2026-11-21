@@ -1,5 +1,4 @@
-import { act } from "@testing-library/react";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { DEFAULT_SETTINGS } from "@/lib/defaults";
 import { setApiForTests, type CratekitApi } from "@/lib/ipc";
@@ -91,8 +90,11 @@ describe("set list store", () => {
 });
 
 describe("playing through the set list", () => {
+  let mock: CratekitApi;
+
   beforeEach(() => {
-    setApiForTests(createMockApi());
+    mock = createMockApi();
+    setApiForTests(mock);
     useSettings.setState({
       settings: structuredClone(DEFAULT_SETTINGS),
       status: "ready",
@@ -101,29 +103,62 @@ describe("playing through the set list", () => {
     usePlayer.setState({ detail: null, playing: false, mode: "original" });
   });
 
+  afterEach(async () => {
+    // Stops the mock's playhead ticker.
+    await mock.playbackPause();
+  });
+
+  const ended = { playing: false, ended: true };
+
   it("loads and plays the next track when one ends, and stops after the last", async () => {
     await useSetList.getState().add([3, 5]);
     await usePlayer.getState().load(3);
-    act(() => usePlayer.getState().onPlaybackState({ playing: false, ended: true }));
+    usePlayer.getState().onPlaybackState(ended);
     await vi.waitFor(() => expect(usePlayer.getState().detail?.track.id).toBe(5));
     await vi.waitFor(() => expect(usePlayer.getState().playing).toBe(true));
 
-    act(() => usePlayer.getState().onPlaybackState({ playing: false, ended: true }));
-    await new Promise((resolve) => setTimeout(resolve, 0));
-    expect(usePlayer.getState().detail?.track.id).toBe(5);
-    expect(usePlayer.getState().playing).toBe(false);
+    const lookup = vi.spyOn(mock, "trackDetail");
+    usePlayer.getState().onPlaybackState(ended);
+    expect(lookup).not.toHaveBeenCalled();
   });
 
   it("does not move on after a device change, or for a track outside the list", async () => {
     await useSetList.getState().add([3, 5]);
     await usePlayer.getState().load(3);
-    act(() => usePlayer.getState().onPlaybackState({ playing: false, ended: false }));
-    await new Promise((resolve) => setTimeout(resolve, 0));
-    expect(usePlayer.getState().detail?.track.id).toBe(3);
+    const lookup = vi.spyOn(mock, "trackDetail");
+    usePlayer.getState().onPlaybackState({ playing: false, ended: false });
+    expect(lookup).not.toHaveBeenCalled();
 
     await usePlayer.getState().load(8);
-    act(() => usePlayer.getState().onPlaybackState({ playing: false, ended: true }));
-    await new Promise((resolve) => setTimeout(resolve, 0));
+    lookup.mockClear();
+    usePlayer.getState().onPlaybackState(ended);
+    expect(lookup).not.toHaveBeenCalled();
+  });
+
+  it("keeps a track picked just before the end", async () => {
+    await useSetList.getState().add([3, 5]);
+    await usePlayer.getState().load(3);
+    const picking = usePlayer.getState().load(8); // still loading when 3 ends
+    const lookup = vi.spyOn(mock, "trackDetail");
+    usePlayer.getState().onPlaybackState(ended);
+    expect(lookup).not.toHaveBeenCalledWith(5);
+    await picking;
     expect(usePlayer.getState().detail?.track.id).toBe(8);
+  });
+
+  it("does not start the next track when the user pressed something during its load", async () => {
+    await useSetList.getState().add([3, 5]);
+    await usePlayer.getState().load(3);
+    usePlayer.getState().onPlaybackState(ended);
+    void usePlayer.getState().seek(0); // a press while 5 loads
+    await vi.waitFor(() => expect(usePlayer.getState().detail?.track.id).toBe(5));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(usePlayer.getState().playing).toBe(false);
+  });
+
+  it("never holds a track twice, even from overlapping adds", async () => {
+    await useSetList.getState().add([4, 4]);
+    await Promise.all([useSetList.getState().add([6]), useSetList.getState().add([6])]);
+    expect(useSetList.getState().items.map((t) => t.id)).toEqual([4, 6]);
   });
 });

@@ -124,14 +124,19 @@ export const useSetList = create<SetListState>()((set, get) => {
       if (!(await ensureLoaded())) return;
       const current = get().items;
       const known = new Set(current.map((t) => t.id));
-      const fresh = ids.filter((id) => !known.has(id));
+      // Each track once, also when the same id comes twice in one call.
+      const fresh = [...new Set(ids)].filter((id) => !known.has(id));
       if (fresh.length === 0) return;
       try {
         const rows = await rowsFor(fresh);
         const items = [...get().items];
+        // Another add may have finished during the lookup: no duplicates.
+        const present = new Set(items.map((t) => t.id));
+        const added = rows.filter((row) => !present.has(row.id));
+        if (added.length === 0) return;
         const at =
           index === undefined ? items.length : Math.max(0, Math.min(items.length, index));
-        items.splice(at, 0, ...rows);
+        items.splice(at, 0, ...added);
         await commit(items);
       } catch (error) {
         notifyError(error, i18n.t("errors.setlist.add"));
