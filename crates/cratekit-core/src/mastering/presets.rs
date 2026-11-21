@@ -1,6 +1,9 @@
 //! The mastering presets (SPEC Module 3: Club, Hip-hop, Pop, Lo-fi, Chill)
 //! with the starting values of `docs/ARCHITECTURE.md`, Mastering chain, and
-//! the intensity control: 0 changes nothing, 1 is the full preset.
+//! the intensity control: how much the EQ and compressor colour the sound,
+//! from nothing (0) to the full preset (1). Intensity never changes the
+//! loudness: the master lands on the target chosen (decided 2026-11-21, as
+//! Ozone 12 and Logic's Mastering Assistant keep loudness separate).
 //!
 //! A [`PresetChain`] runs a preset's EQ and compressor on a signal: the part
 //! of the chain before loudness targeting and the limiter (#25).
@@ -12,9 +15,9 @@ use serde::{Deserialize, Serialize};
 use super::compressor::{Compressor, CompressorSettings};
 use super::eq::{Biquad, Coefficients};
 
-/// Where a low pass starts from at intensity 0: above hearing, so it does
-/// nothing yet.
-const OPEN_LOW_PASS_HZ: f64 = 20_000.0;
+/// Where a low pass starts at intensity 0, as a fraction of the sample rate:
+/// the top of the band, so at any rate it does nothing yet.
+const OPEN_LOW_PASS_FRACTION: f64 = 0.49;
 /// The soft knee every preset's compressor uses, in dB.
 const KNEE_DB: f32 = 6.0;
 
@@ -23,10 +26,15 @@ const KNEE_DB: f32 = 6.0;
 #[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export))]
 #[serde(rename_all = "kebab-case")]
 pub enum PresetName {
+    /// Punchy low end, bright top; -8 LUFS.
     Club,
+    /// Heavy sub, smooth mids; -9 LUFS.
     HipHop,
+    /// Present vocals, airy top; -9 LUFS.
     Pop,
+    /// Warm, soft top end (with a low pass); -12 LUFS.
     LoFi,
+    /// Gentle and open; -12 LUFS.
     Chill,
 }
 
@@ -34,7 +42,7 @@ impl PresetName {
     /// Every preset, in the order the Master tab lists them.
     pub const ALL: [Self; 5] = [Self::Club, Self::HipHop, Self::Pop, Self::LoFi, Self::Chill];
 
-    /// The preset's starting values.
+    /// The preset's starting values, at full intensity.
     #[must_use]
     pub fn preset(self) -> Preset {
         let compressor = |threshold_db, ratio, attack_ms, release_ms| CompressorSettings {
@@ -101,6 +109,7 @@ impl PresetName {
             low_pass_hz,
             compressor,
             target_lufs,
+            intensity: 1.0,
         }
     }
 
@@ -133,119 +142,151 @@ impl PresetName {
 /// A shelf band: `gain_db` below (low shelf) or above (high shelf) `freq_hz`.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Shelf {
+    /// The shelf's midpoint (half the gain there), in Hz.
     pub freq_hz: f64,
+    /// The gain on the shelf's side, in dB.
     pub gain_db: f64,
 }
 
 /// A peak band: `gain_db` around `freq_hz`, `q` wide.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Peak {
+    /// The centre, in Hz.
     pub freq_hz: f64,
+    /// The gain at the centre, in dB.
     pub gain_db: f64,
+    /// The width: 0.7 to 1 is broad and musical.
     pub q: f64,
 }
 
 /// A preset's settings: three EQ bands, an optional low pass, the glue
-/// compressor and the default loudness target.
+/// compressor, the default loudness target, and the intensity they are at.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Preset {
+    /// Which preset.
     pub name: PresetName,
+    /// The low shelf.
     pub low_shelf: Shelf,
+    /// The mid peak.
     pub mid: Peak,
+    /// The high shelf.
     pub high_shelf: Shelf,
-    /// A low pass on top of the EQ (Lo-fi's 5.5 kHz), in Hz.
+    /// A low pass on top of the EQ (Lo-fi's 5.5 kHz), its corner at full
+    /// intensity, in Hz.
     pub low_pass_hz: Option<f64>,
+    /// The glue compressor (soft knee, no makeup: loudness targeting sets
+    /// the level).
     pub compressor: CompressorSettings,
-    /// The loudness this preset aims at, in LUFS.
+    /// The loudness target the Master tab starts from, in LUFS.
     pub target_lufs: f32,
+    /// 0 (no colour) to 1 (the full preset); see [`Preset::at`].
+    pub intensity: f32,
 }
 
 /// An intensity brought into 0 to 1 (one that is not a number is the full
 /// preset).
 fn clamp_intensity(intensity: f32) -> f32 {
-    if intensity.is_finite() {
-        intensity.clamp(0.0, 1.0)
-    } else {
+    if intensity.is_nan() {
         1.0
+    } else {
+        intensity.clamp(0.0, 1.0)
     }
 }
 
 impl Preset {
-    /// The preset at `intensity` (0 to 1, the SPEC's 0 to 100 %): EQ gains
-    /// times the intensity, ratio `1 + (ratio - 1) * intensity`, and a low
-    /// pass that slides (on a log scale) from 20 kHz down to its corner. At 0
-    /// the chain changes nothing.
+    /// The preset at `intensity` (0 to 1, the SPEC's 0 to 100 %, clamped):
+    /// EQ gains times the intensity and ratio `1 + (ratio - 1) * intensity`;
+    /// the low pass slides from the top of the band to its corner (in
+    /// [`PresetChain`], which knows the sample rate). At 0 the EQ and
+    /// compressor change nothing. The loudness target stays the same.
     #[must_use]
     pub fn at(&self, intensity: f32) -> Self {
+        let full = self.name.preset();
         let k = clamp_intensity(intensity);
         let scale = f64::from(k);
-        let mut scaled = *self;
+        let mut scaled = full;
         scaled.low_shelf.gain_db *= scale;
         scaled.mid.gain_db *= scale;
         scaled.high_shelf.gain_db *= scale;
-        scaled.compressor.ratio = 1.0 + (self.compressor.ratio - 1.0) * k;
-        scaled.low_pass_hz = self
-            .low_pass_hz
-            .filter(|_| k > 0.0)
-            .map(|corner| OPEN_LOW_PASS_HZ.powf(1.0 - scale) * corner.powf(scale));
+        scaled.compressor.ratio = 1.0 + (full.compressor.ratio - 1.0) * k;
+        scaled.target_lufs = self.target_lufs;
+        scaled.intensity = k;
         scaled
     }
 
-    /// The loudness to aim at for a source measured at `source_lufs`: the
-    /// source's own at intensity 0, the preset's target at 1, in between
-    /// along the way (the SPEC's "makeup" part of intensity, for #25).
-    #[must_use]
-    pub fn target_at(&self, source_lufs: f32, intensity: f32) -> f32 {
-        let k = clamp_intensity(intensity);
-        source_lufs + (self.target_lufs - source_lufs) * k
+    /// The low pass's corner at `sample_rate`, or `None` when there is none
+    /// (or at intensity 0): from 0.49 of the rate at 0 to its own corner at
+    /// 1, on a log scale (a slide the ear hears as even).
+    fn low_pass_corner(&self, sample_rate: u32) -> Option<f64> {
+        let open = f64::from(sample_rate.max(1)) * OPEN_LOW_PASS_FRACTION;
+        let k = f64::from(self.intensity);
+        self.low_pass_hz
+            .filter(|_| k > 0.0)
+            .map(|corner| open.powf(1.0 - k) * corner.min(open).powf(k))
     }
 }
 
+/// The four filters of a preset at a sample rate: low shelf, mid peak, high
+/// shelf, low pass (or a filter that changes nothing).
+fn filter_coefficients(sample_rate: u32, preset: &Preset) -> [Coefficients; 4] {
+    let (low, mid, high) = (preset.low_shelf, preset.mid, preset.high_shelf);
+    [
+        Coefficients::low_shelf(sample_rate, low.freq_hz, low.gain_db, 1.0),
+        Coefficients::peaking(sample_rate, mid.freq_hz, mid.gain_db, mid.q),
+        Coefficients::high_shelf(sample_rate, high.freq_hz, high.gain_db, 1.0),
+        preset
+            .low_pass_corner(sample_rate)
+            .map_or_else(Coefficients::identity, |corner| {
+                Coefficients::low_pass(sample_rate, corner, FRAC_1_SQRT_2)
+            }),
+    ]
+}
+
 /// A preset's EQ and compressor running on a signal, in the chain's order
-/// (EQ, then compressor). Processing never allocates.
+/// (EQ, then compressor). Processing never allocates, and [`Self::set`]
+/// changes the preset or intensity without restarting the filters, so the
+/// live preview (#26) can turn the intensity while it plays.
 #[derive(Debug, Clone)]
 pub struct PresetChain {
-    filters: Vec<Biquad>,
+    sample_rate: u32,
+    filters: [Biquad; 4],
     compressor: Compressor,
 }
 
 impl PresetChain {
-    /// The chain for `preset` (already at its intensity, see [`Preset::at`]).
+    /// The chain for `preset` (at its intensity, see [`Preset::at`]) and
+    /// `channels` channels; a signal with more channels is not filtered on
+    /// the extra ones (they are still compressed, with the others).
     #[must_use]
     pub fn new(sample_rate: u32, channels: usize, preset: &Preset) -> Self {
-        let (low, mid, high) = (preset.low_shelf, preset.mid, preset.high_shelf);
-        let mut filters = vec![
-            Biquad::new(
-                Coefficients::low_shelf(sample_rate, low.freq_hz, low.gain_db, 1.0),
-                channels,
-            ),
-            Biquad::new(
-                Coefficients::peaking(sample_rate, mid.freq_hz, mid.gain_db, mid.q),
-                channels,
-            ),
-            Biquad::new(
-                Coefficients::high_shelf(sample_rate, high.freq_hz, high.gain_db, 1.0),
-                channels,
-            ),
-        ];
-        if let Some(corner) = preset.low_pass_hz {
-            filters.push(Biquad::new(
-                Coefficients::low_pass(sample_rate, corner, FRAC_1_SQRT_2),
-                channels,
-            ));
-        }
+        let filters = filter_coefficients(sample_rate, preset)
+            .map(|coefficients| Biquad::new(coefficients, channels));
         Self {
+            sample_rate,
             filters,
             compressor: Compressor::new(sample_rate, preset.compressor),
         }
     }
 
+    /// Switches to `preset` (another preset or intensity), keeping the
+    /// filter and compressor state.
+    pub fn set(&mut self, preset: &Preset) {
+        for (filter, coefficients) in self
+            .filters
+            .iter_mut()
+            .zip(filter_coefficients(self.sample_rate, preset))
+        {
+            filter.set(coefficients);
+        }
+        self.compressor.set(self.sample_rate, preset.compressor);
+    }
+
     /// The EQ's gain at `freq_hz` in dB (the curve the Master tab can draw).
     #[must_use]
-    pub fn eq_response_db(&self, sample_rate: u32, freq_hz: f64) -> f64 {
+    pub fn eq_response_db(&self, freq_hz: f64) -> f64 {
         self.filters
             .iter()
-            .map(|filter| filter.coefficients().response_db(sample_rate, freq_hz))
+            .map(|filter| filter.coefficients().response_db(self.sample_rate, freq_hz))
             .sum()
     }
 
@@ -272,8 +313,8 @@ mod tests {
 
     const RATE: u32 = 48_000;
 
-    /// The gain a full preset (at `intensity`) gives a quiet tone, in dB:
-    /// quiet enough that the compressor stays out of it.
+    /// The gain a preset at `intensity` gives a quiet tone, in dB: quiet
+    /// enough that the compressor stays out of it.
     fn tone_gain_db(name: PresetName, intensity: f32, freq_hz: f32) -> f32 {
         let input = synth::sine(freq_hz, -40.0, 2.0, RATE);
         let mut output = vec![input.clone()];
@@ -282,62 +323,131 @@ mod tests {
         synth::rms_db(&output[0][settled..]) - synth::rms_db(&input[settled..])
     }
 
+    /// One row of the table in docs/ARCHITECTURE.md: low shelf, mid peak
+    /// with Q, high shelf, low pass, threshold / ratio / attack / release,
+    /// target.
+    type Row = (
+        (f64, f64),
+        (f64, f64, f64),
+        (f64, f64),
+        Option<f64>,
+        (f32, f32, f32, f32),
+        f32,
+    );
+
     #[test]
-    fn the_presets_hold_the_architecture_table() {
-        let club = PresetName::Club.preset();
+    fn every_preset_holds_its_row_of_the_architecture_table() {
+        let table: [(PresetName, Row); 5] = [
+            (
+                PresetName::Club,
+                (
+                    (90.0, 3.0),
+                    (400.0, -2.0, 0.9),
+                    (9_000.0, 2.5),
+                    None,
+                    (-18.0, 3.0, 10.0, 200.0),
+                    -8.0,
+                ),
+            ),
+            (
+                PresetName::HipHop,
+                (
+                    (70.0, 4.0),
+                    (300.0, -1.5, 0.9),
+                    (10_000.0, 1.5),
+                    None,
+                    (-20.0, 3.5, 15.0, 250.0),
+                    -9.0,
+                ),
+            ),
+            (
+                PresetName::Pop,
+                (
+                    (100.0, 1.5),
+                    (2_500.0, 1.5, 0.8),
+                    (12_000.0, 3.0),
+                    None,
+                    (-16.0, 2.5, 10.0, 150.0),
+                    -9.0,
+                ),
+            ),
+            (
+                PresetName::LoFi,
+                (
+                    (120.0, 2.0),
+                    (1_000.0, -1.0, 0.7),
+                    (6_000.0, -6.0),
+                    Some(5_500.0),
+                    (-22.0, 4.0, 20.0, 300.0),
+                    -12.0,
+                ),
+            ),
+            (
+                PresetName::Chill,
+                (
+                    (80.0, 1.0),
+                    (3_000.0, -1.0, 0.8),
+                    (10_000.0, 1.0),
+                    None,
+                    (-14.0, 2.0, 20.0, 300.0),
+                    -12.0,
+                ),
+            ),
+        ];
         assert_eq!(
-            club.low_shelf,
-            Shelf {
-                freq_hz: 90.0,
-                gain_db: 3.0
-            }
+            table.map(|(name, _)| name),
+            PresetName::ALL,
+            "the Master tab's order"
         );
-        assert_eq!(
-            club.mid,
-            Peak {
-                freq_hz: 400.0,
-                gain_db: -2.0,
-                q: 0.9
-            }
-        );
-        assert_eq!(
-            club.high_shelf,
-            Shelf {
-                freq_hz: 9_000.0,
-                gain_db: 2.5
-            }
-        );
-        assert_eq!(club.low_pass_hz, None);
-        let c = club.compressor;
-        assert_eq!(
-            (c.threshold_db, c.ratio, c.attack_ms, c.release_ms),
-            (-18.0, 3.0, 10.0, 200.0)
-        );
-        assert_eq!(club.target_lufs, -8.0);
-
-        let lofi = PresetName::LoFi.preset();
-        assert_eq!(
-            lofi.high_shelf,
-            Shelf {
-                freq_hz: 6_000.0,
-                gain_db: -6.0
-            }
-        );
-        assert_eq!(lofi.low_pass_hz, Some(5_500.0));
-        assert_eq!(lofi.compressor.ratio, 4.0);
-
-        let targets: Vec<f32> = PresetName::ALL
-            .iter()
-            .map(|n| n.preset().target_lufs)
-            .collect();
-        assert_eq!(targets, [-8.0, -9.0, -9.0, -12.0, -12.0]);
-        let ratios: Vec<f32> = PresetName::ALL
-            .iter()
-            .map(|n| n.preset().compressor.ratio)
-            .collect();
-        assert_eq!(ratios, [3.0, 3.5, 2.5, 4.0, 2.0]);
-        for name in PresetName::ALL {
-            assert_eq!(name.preset().name, name);
+        for (
+            name,
+            (
+                (ls_f, ls_g),
+                (mid_f, mid_g, mid_q),
+                (hs_f, hs_g),
+                low_pass,
+                (threshold, ratio, attack, release),
+                target,
+            ),
+        ) in table
+        {
+            let p = name.preset();
+            assert_eq!(p.name, name);
+            assert_eq!(
+                p.low_shelf,
+                Shelf {
+                    freq_hz: ls_f,
+                    gain_db: ls_g
+                },
+                "{name:?}"
+            );
+            assert_eq!(
+                p.mid,
+                Peak {
+                    freq_hz: mid_f,
+                    gain_db: mid_g,
+                    q: mid_q
+                },
+                "{name:?}"
+            );
+            assert_eq!(
+                p.high_shelf,
+                Shelf {
+                    freq_hz: hs_f,
+                    gain_db: hs_g
+                },
+                "{name:?}"
+            );
+            assert_eq!(p.low_pass_hz, low_pass, "{name:?}");
+            let c = p.compressor;
+            assert_eq!(
+                (c.threshold_db, c.ratio, c.attack_ms, c.release_ms),
+                (threshold, ratio, attack, release),
+                "{name:?}"
+            );
+            assert_eq!((c.knee_db, c.makeup_db), (6.0, 0.0), "{name:?}");
+            assert_eq!(p.target_lufs, target, "{name:?}");
+            assert_eq!(p.intensity, 1.0);
         }
     }
 
@@ -353,39 +463,46 @@ mod tests {
     }
 
     #[test]
-    fn intensity_scales_the_eq_the_ratio_and_the_low_pass() {
+    fn intensity_scales_the_eq_and_the_ratio_but_never_the_target() {
         let club = PresetName::Club.preset();
         let half = club.at(0.5);
         assert_eq!(half.low_shelf.gain_db, 1.5);
         assert_eq!(half.mid.gain_db, -1.0);
         assert_eq!(half.compressor.ratio, 2.0, "1 + (3 - 1) / 2");
         assert_eq!(half.compressor.threshold_db, club.compressor.threshold_db);
+        assert_eq!(
+            half.target_lufs, club.target_lufs,
+            "the loudness stays the one chosen"
+        );
+        assert_eq!(half.intensity, 0.5);
+        // Scaling again starts from the full preset, not from the half one.
+        assert_eq!(half.at(1.0), club);
         let off = club.at(0.0);
         assert_eq!(off.high_shelf.gain_db, 0.0);
         assert_eq!(off.compressor.ratio, 1.0);
         assert_eq!(club.at(7.0), club, "clamped to 1");
+        assert_eq!(club.at(f32::NEG_INFINITY), club.at(0.0), "clamped to 0");
         assert_eq!(club.at(f32::NAN), club, "not a number: the full preset");
+    }
 
+    #[test]
+    fn the_low_pass_slides_from_the_top_of_the_band_at_any_rate() {
         let lofi = PresetName::LoFi.preset();
-        assert_eq!(lofi.at(0.0).low_pass_hz, None);
-        assert_eq!(lofi.at(1.0).low_pass_hz, Some(5_500.0));
-        let middle = lofi.at(0.5).low_pass_hz.unwrap_or(0.0);
-        assert!(
-            (middle - (20_000.0_f64 * 5_500.0).sqrt()).abs() < 1.0,
-            "{middle}"
-        );
+        assert_eq!(lofi.at(0.0).low_pass_corner(RATE), None);
+        assert_eq!(lofi.at(1.0).low_pass_corner(RATE), Some(5_500.0));
+        let middle = lofi.at(0.5).low_pass_corner(RATE).unwrap_or(0.0);
+        let expected = (0.49 * f64::from(RATE) * 5_500.0).sqrt();
+        assert!((middle - expected).abs() < 1.0, "{middle} vs {expected}");
+        // A touch of intensity barely touches the audible band, at 48 or 96 kHz.
+        for rate in [48_000, 96_000] {
+            let chain = PresetChain::new(rate, 1, &lofi.at(0.01));
+            let lp = chain.filters[3].coefficients();
+            assert!(lp.response_db(rate, 15_000.0) > -0.3, "{rate} Hz");
+        }
     }
 
     #[test]
-    fn the_loudness_target_moves_with_intensity() {
-        let club = PresetName::Club.preset();
-        assert_eq!(club.target_at(-14.0, 0.0), -14.0);
-        assert_eq!(club.target_at(-14.0, 1.0), -8.0);
-        assert_eq!(club.target_at(-14.0, 0.5), -11.0);
-    }
-
-    #[test]
-    fn intensity_zero_changes_nothing() {
+    fn intensity_zero_leaves_the_eq_and_compressor_out() {
         let a_minor = Key {
             tonic: PitchClass::A,
             mode: Mode::Minor,
@@ -394,23 +511,27 @@ mod tests {
         for name in PresetName::ALL {
             let mut stereo = vec![mix.clone(), mix.clone()];
             PresetChain::new(RATE, 2, &name.preset().at(0.0)).process(&mut stereo);
-            for (out, inp) in stereo[0].iter().zip(&mix) {
-                assert!((out - inp).abs() < 1e-5, "{name:?}: {out} vs {inp}");
+            for channel in &stereo {
+                for (out, inp) in channel.iter().zip(&mix) {
+                    assert!((out - inp).abs() < 1e-5, "{name:?}: {out} vs {inp}");
+                }
             }
         }
     }
 
     #[test]
-    fn club_lifts_the_lows_and_the_top_at_full_intensity() {
+    fn club_shapes_lows_mids_and_top_at_full_intensity() {
         let low = tone_gain_db(PresetName::Club, 1.0, 40.0);
-        let mid = tone_gain_db(PresetName::Club, 1.0, 1_500.0);
+        let mid = tone_gain_db(PresetName::Club, 1.0, 400.0);
         let top = tone_gain_db(PresetName::Club, 1.0, 16_000.0);
-        assert!((low - 3.0).abs() < 0.4, "40 Hz: {low}");
-        assert!(mid.abs() < 0.6, "1.5 kHz: {mid}");
-        assert!((top - 2.5).abs() < 0.4, "16 kHz: {top}");
-        // The chain's own curve says the same.
+        assert!((low - 3.0).abs() < 0.25, "40 Hz: {low}");
+        assert!((mid + 2.0).abs() < 0.35, "400 Hz: {mid}");
+        assert!((top - 2.5).abs() < 0.25, "16 kHz: {top}");
+        // The chain's own curve says the same, here and elsewhere.
         let chain = PresetChain::new(RATE, 1, &PresetName::Club.preset());
-        assert!((chain.eq_response_db(RATE, 40.0) as f32 - low).abs() < 0.1);
+        assert!((chain.eq_response_db(40.0) as f32 - low).abs() < 0.1);
+        assert!((chain.eq_response_db(400.0) as f32 - mid).abs() < 0.1);
+        assert!((chain.eq_response_db(16_000.0) as f32 - top).abs() < 0.1);
         // Half the intensity, about half the lift.
         let half = tone_gain_db(PresetName::Club, 0.5, 40.0);
         assert!((half - low / 2.0).abs() < 0.2, "{half} vs {low}");
@@ -419,7 +540,7 @@ mod tests {
     #[test]
     fn lofi_darkens_the_top() {
         let top = tone_gain_db(PresetName::LoFi, 1.0, 12_000.0);
-        assert!(top < -15.0, "12 kHz: {top}");
+        assert!(top < -20.0, "12 kHz: {top}");
         let body = tone_gain_db(PresetName::LoFi, 1.0, 500.0);
         assert!(body.abs() < 1.5, "500 Hz: {body}");
     }
@@ -436,5 +557,25 @@ mod tests {
             "{} vs {expected}",
             chain.reduction_db()
         );
+    }
+
+    #[test]
+    fn set_changes_the_sound_without_restarting_the_chain() {
+        // Half way: the filters hold state (at 0 they are exact pass-throughs).
+        let mut chain = PresetChain::new(RATE, 1, &PresetName::Club.preset().at(0.5));
+        let mut tone = vec![synth::sine(40.0, -6.0, 0.5, RATE)];
+        chain.process(&mut tone);
+        chain.set(&PresetName::Club.preset());
+        let fresh = PresetChain::new(RATE, 1, &PresetName::Club.preset());
+        for freq in [40.0, 400.0, 16_000.0] {
+            assert!(
+                (chain.eq_response_db(freq) - fresh.eq_response_db(freq)).abs() < 1e-9,
+                "the full preset now at {freq} Hz"
+            );
+        }
+        // The filters kept running: silence after the switch still rings out.
+        let mut silence = vec![vec![0.0_f32; 64]];
+        chain.process(&mut silence);
+        assert!(silence[0].iter().any(|s| *s != 0.0));
     }
 }

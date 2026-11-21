@@ -4,6 +4,8 @@
 use cratekit_core::mastering::presets::PresetName;
 use serde::Serialize;
 
+use crate::AppError;
+
 /// A preset as the Master tab lists it, the UI's `MasterPreset`.
 #[derive(Debug, Clone, PartialEq, Serialize)]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export))]
@@ -11,11 +13,11 @@ use serde::Serialize;
 pub(crate) struct MasterPresetDto {
     name: PresetName,
     /// English; the UI words known presets itself.
-    label: String,
+    label: &'static str,
     /// The default loudness target, in LUFS.
     target_lufs: f32,
     /// One English line on the sound.
-    description: String,
+    description: &'static str,
 }
 
 /// Every preset, with its default target (from `PresetName::preset`).
@@ -24,17 +26,17 @@ fn presets() -> Vec<MasterPresetDto> {
         .iter()
         .map(|&name| MasterPresetDto {
             name,
-            label: name.label().to_owned(),
+            label: name.label(),
             target_lufs: name.preset().target_lufs,
-            description: name.description().to_owned(),
+            description: name.description(),
         })
         .collect()
 }
 
 /// The presets for the Master tab.
 #[tauri::command]
-pub(crate) fn master_presets() -> Vec<MasterPresetDto> {
-    presets()
+pub(crate) fn master_presets() -> Result<Vec<MasterPresetDto>, AppError> {
+    Ok(presets())
 }
 
 #[cfg(test)]

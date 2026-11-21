@@ -90,7 +90,7 @@ The app keeps a local library of tracks the user adds. Original files are never 
 
 **Features**
 - Presets: **Club, Hip-hop, Pop, Lo-fi, Chill** (parameters in `ARCHITECTURE.md`).
-- Intensity slider 0 to 100 % (scales EQ gains, compression ratio and makeup).
+- Intensity slider 0 to 100 %: how much the EQ and compression colour the sound (scales EQ gains and compression ratio). It never changes the loudness: the master lands on the chosen target (decided 2026-11-21, as Ozone 12 and Logic's Mastering Assistant keep loudness separate from processing strength).
 - Loudness target in LUFS (default per preset, e.g. Club −8, Chill −12).
 - Optional reference track: match the long-term spectrum of a reference, within ±6 dB per band.
 - A/B compare while playing, **level-matched** by default (so "louder" does not fool the ear).

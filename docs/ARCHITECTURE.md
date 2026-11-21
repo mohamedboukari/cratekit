@@ -60,7 +60,7 @@ src/
     energy.rs          1 to 10 score (loudness, onset density, brightness)
     waveform.rs        min/max/RMS columns (20 per second, one byte each), stored with the analysis; a 1200-column overview for the deck
   mastering/
-    mod.rs             the blocks so far (#23); master() -> MasterResult (#25); docs/mastering.md
+    mod.rs             the blocks (#23) and presets (#24) so far; master() -> MasterResult (#25); docs/mastering.md
     presets.rs         Preset structs (see table below)
     eq.rs              biquad shelves, peaks and passes (RBJ cookbook), f64 state
     compressor.rs      RMS glue compressor, one gain for all channels, soft knee
@@ -112,6 +112,8 @@ src/
   playback.rs    PlayerState (engine started on first load, on the device and buffer from the settings), playback_load / play / pause / seek,
                  audio_list_devices / audio_set_device, engine restart that keeps the track, the 30 Hz poller (playback_position, meter,
                  playback_state at the end of a track) and the device watcher (unplug, default change). Done (#19, #20)
+  stems.rs       stems_split / stems_info / stems_export / stems_backend_status, the ONNX Runtime lookup (#33, #35, #32)
+  models.rs      models_status / models_download / models_delete (#30)
   mastering.rs   master_presets (the five presets with label, default target, description; #24); preview and export next
   commands/      midi.rs, export.rs (planned)
   midi/          device watch, MIDI learn, mapping store, LED feedback
@@ -289,7 +291,7 @@ Loudness targeting: render once, measure integrated LUFS, adjust makeup gain, re
 | Lo-fi | 120 Hz +2 dB | 1 kHz −1 dB, Q 0.7 | 6 kHz −6 dB (+ LP 5.5 kHz) | −22 dB / 4:1 / 20 ms / 300 ms | −12 LUFS |
 | Chill | 80 Hz +1 dB | 3 kHz −1 dB, Q 0.8 | 10 kHz +1 dB | −14 dB / 2:1 / 20 ms / 300 ms | −12 LUFS |
 
-Intensity `k` (0 to 1): EQ gain × k, ratio = 1 + (ratio − 1) × k, makeup interpolated.
+Intensity `k` (0 to 1): EQ gain × k, ratio = 1 + (ratio − 1) × k, Lo-fi's low pass slides on a log scale from 0.49 of the sample rate (k = 0) to 5.5 kHz (k = 1). The loudness target is always the one chosen: intensity is processing strength only (decided 2026-11-21).
 
 **Reference matching**: compute the long-term average spectrum (1/3-octave bands, 31 bands) of the track and of the reference; EQ curve = difference, smoothed across neighbours, clamped to ±6 dB, applied with a linear-phase FIR or a bank of peaking biquads.
 
