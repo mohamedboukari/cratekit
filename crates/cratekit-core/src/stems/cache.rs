@@ -3,7 +3,10 @@
 //! and the waveforms the Stems tab draws.
 //!
 //! The folder appears complete or not at all: the files are written to
-//! `<folder>.part`, which replaces the folder only when every file is in.
+//! `<folder>.part`; only when every file is in, the old folder is moved aside
+//! to `<folder>.old`, the new one takes its place, and the old one is deleted.
+//! If the new one cannot take its place, the old one is moved back, and a
+//! `.old` folder left by a crash is restored or removed on the next split.
 
 use std::fs;
 use std::path::Path;
@@ -12,7 +15,7 @@ use std::time::Instant;
 use super::{StemSeparator, Stems};
 use crate::CoreError;
 use crate::analysis::waveform::Waveform;
-use crate::audio::{WavFormat, decode_file_with, write_wav};
+use crate::audio::{WavFormat, decode_file_with, with_suffix, write_wav};
 use crate::progress::{CancellationToken, ProgressSink};
 
 /// The files in a track's stems folder, in the model's order.
@@ -111,8 +114,8 @@ pub struct Split {
 /// # Errors
 ///
 /// The decoder's errors, the separator's ([`CoreError::Stems`]),
-/// [`CoreError::Cancelled`], or [`CoreError::Io`]. On any error `dir` is left
-/// as it was.
+/// [`CoreError::Cancelled`], or [`CoreError::Io`]. On any error `dir` keeps
+/// the stems it had (moved back if they had been moved aside).
 pub fn split_to_folder(
     separator: &mut dyn StemSeparator,
     input: &Path,
@@ -124,26 +127,63 @@ pub fn split_to_folder(
     let audio = decode_file_with(input, &|f: f32| progress.progress(f * 0.1), cancel)?;
     let stems = separator.separate(audio, &|f: f32| progress.progress(0.1 + f * 0.8), cancel)?;
     cancel.check()?;
-    let part = dir.with_extension("part");
-    if part.exists() {
-        fs::remove_dir_all(&part)?;
-    }
+    // Everything that can fail without touching the disk comes first.
+    let waveforms = StemWaveforms::of(&stems)?;
+    let part = with_suffix(dir, ".part");
+    let old = with_suffix(dir, ".old");
+    recover(dir, &part, &old)?;
     fs::create_dir_all(&part)?;
-    let written = write_all(&part, &stems, progress, cancel);
-    if let Err(err) = written {
+    if let Err(err) = write_all(&part, &stems, progress, cancel) {
         fs::remove_dir_all(&part).ok();
         return Err(err);
     }
-    let waveforms = StemWaveforms::of(&stems)?;
-    if dir.exists() {
-        fs::remove_dir_all(dir)?;
+    if let Err(err) = replace(dir, &part, &old) {
+        fs::remove_dir_all(&part).ok();
+        return Err(err);
     }
-    fs::rename(&part, dir)?;
     progress.progress(1.0);
     Ok(Split {
         waveforms,
         split_sec: start.elapsed().as_secs_f64(),
     })
+}
+
+/// Cleans up after an earlier split that stopped halfway: a `.part` folder
+/// is removed, and a `.old` folder is moved back when `dir` is missing (the
+/// crash came between moving it aside and the new one taking its place), or
+/// removed otherwise.
+fn recover(dir: &Path, part: &Path, old: &Path) -> Result<(), CoreError> {
+    if part.exists() {
+        fs::remove_dir_all(part)?;
+    }
+    if old.exists() {
+        if dir.exists() {
+            fs::remove_dir_all(old)?;
+        } else {
+            fs::rename(old, dir)?;
+        }
+    }
+    Ok(())
+}
+
+/// Puts the complete `part` folder in place of `dir`: the old folder moves
+/// aside first, and moves back if the new one cannot take its place.
+fn replace(dir: &Path, part: &Path, old: &Path) -> Result<(), CoreError> {
+    let had_old = dir.exists();
+    if had_old {
+        fs::rename(dir, old)?;
+    }
+    if let Err(err) = fs::rename(part, dir) {
+        if had_old {
+            fs::rename(old, dir).ok();
+        }
+        return Err(err.into());
+    }
+    if had_old {
+        // The new stems are in place; a leftover here is removed next time.
+        fs::remove_dir_all(old).ok();
+    }
+    Ok(())
 }
 
 /// Writes the four stems into `part`.
@@ -243,7 +283,8 @@ mod tests {
         for file in STEM_FILES {
             assert!(dir.join(file).is_file(), "{file}");
         }
-        assert!(!dir.with_extension("part").exists());
+        assert!(!with_suffix(&dir, ".part").exists());
+        assert!(!with_suffix(&dir, ".old").exists());
         assert!(split.split_sec >= 0.0);
         let seen = seen.into_inner().expect("seen");
         assert!(
@@ -284,7 +325,62 @@ mod tests {
 
         assert!(matches!(result, Err(CoreError::Cancelled)), "{result:?}");
         assert!(!dir.exists());
-        assert!(!dir.with_extension("part").exists());
+        assert!(!with_suffix(&dir, ".part").exists());
+    }
+
+    #[test]
+    fn folders_with_dots_in_their_names_do_not_collide() {
+        let root = temp("dots");
+        let (whole, dotted) = (root.join("42"), root.join("42.1"));
+        split_to_folder(
+            &mut Halves,
+            &fixture(),
+            &whole,
+            &NoProgress,
+            &CancellationToken::new(),
+        )
+        .expect("42");
+        split_to_folder(
+            &mut Halves,
+            &fixture(),
+            &dotted,
+            &NoProgress,
+            &CancellationToken::new(),
+        )
+        .expect("42.1");
+        assert!(whole.join("drums.wav").is_file());
+        assert!(dotted.join("drums.wav").is_file());
+        fs::remove_dir_all(&root).ok();
+    }
+
+    #[test]
+    fn leftovers_of_a_crash_are_recovered() {
+        let root = temp("crash");
+        // A crash after the old folder moved aside: no folder, only `.old`.
+        let dir = root.join("5");
+        let old = with_suffix(&dir, ".old");
+        fs::create_dir_all(&old).expect("old");
+        fs::write(old.join("drums.wav"), b"old stems").expect("old file");
+        fs::create_dir_all(with_suffix(&dir, ".part")).expect("part");
+        recover(&dir, &with_suffix(&dir, ".part"), &old).expect("recover");
+        assert_eq!(
+            fs::read(dir.join("drums.wav")).expect("restored"),
+            b"old stems"
+        );
+        assert!(!old.exists() && !with_suffix(&dir, ".part").exists());
+
+        // The next split replaces the restored folder and leaves nothing else.
+        split_to_folder(
+            &mut Halves,
+            &fixture(),
+            &dir,
+            &NoProgress,
+            &CancellationToken::new(),
+        )
+        .expect("split");
+        assert_ne!(fs::read(dir.join("drums.wav")).expect("new"), b"old stems");
+        assert!(!old.exists());
+        fs::remove_dir_all(&root).ok();
     }
 
     #[test]

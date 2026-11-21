@@ -49,7 +49,7 @@ Reads a file's tags and headers without decoding the audio, for adding tracks to
 
 ## `write_wav(path, audio, format) -> Result<(), CoreError>`
 
-Writes a WAV file: `WavFormat::Pcm16` (the stems cache), `Pcm24`, or `Float32` (exactly as computed). PCM samples are scaled by 2^15 or 2^23 (the convention the decoder reads back), get TPDF dither (a triangular random value of up to one step, from a fixed seed so the same audio gives the same file), and are rounded and clamped. Float files carry the `fact` chunk. The file is written to `<name>.wav.part` and renamed once complete. `InvalidAudio` when the samples would pass the format's 4 GB limit.
+Writes a WAV file: `WavFormat::Pcm16` (the stems cache), `Pcm24`, or `Float32` (exactly as computed). PCM samples are scaled by 2^15 or 2^23 (the convention the decoder reads back), get TPDF dither (a triangular random value of up to one step, seeded from the file's name, so stems summed together get independent noise and the same audio under the same name gives the same file), and are rounded and clamped. Float files carry the `fact` chunk; an odd-sized data chunk gets its pad byte. The file is written to `<file name>.part` next to it and renamed once complete. `InvalidAudio` when the audio does not fit a WAV file (past the format's 4 GB limit, too many channels, or a sample rate too high for the header).
 
 ## Tests
 

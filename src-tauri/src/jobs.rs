@@ -529,26 +529,48 @@ impl Jobs {
             }
             let before = index * STEPS_PER_TRACK;
             let dir = stems_root.join(track_id.to_string());
-            let path = lock(library).track(track_id).map(|detail| detail.path);
-            let split = path.and_then(|path: PathBuf| {
-                let last = AtomicU64::new(u64::MAX);
-                let sink = |fraction: f32| {
-                    let step = (fraction.clamp(0.0, 1.0) * STEPS_PER_TRACK as f32) as u32;
-                    if last.swap(u64::from(step), Ordering::Relaxed) != u64::from(step) {
-                        report(before + step);
-                    }
-                };
-                // A panic in the decoder or the model fails this track only.
-                catch_unwind(AssertUnwindSafe(|| {
-                    split_to_folder(separator.as_mut(), &path, &dir, &sink, &job.cancel)
-                }))
-                .unwrap_or(Err(CoreError::Stems(
-                    "splitting this track panicked".to_owned(),
-                )))
+            let path = match lock(library).track(track_id) {
+                Ok(detail) => detail.path,
+                // Removed from the library while it waited: nothing to split.
+                Err(CoreError::NotFound { .. }) => continue,
+                Err(err) => {
+                    failures.push(err);
+                    continue;
+                }
+            };
+            let last = AtomicU64::new(u64::MAX);
+            let sink = |fraction: f32| {
+                let step = (fraction.clamp(0.0, 1.0) * STEPS_PER_TRACK as f32) as u32;
+                if last.swap(u64::from(step), Ordering::Relaxed) != u64::from(step) {
+                    report(before + step);
+                }
+            };
+            // A panic in the decoder or the model fails this track only.
+            let split = catch_unwind(AssertUnwindSafe(|| {
+                split_to_folder(separator.as_mut(), &path, &dir, &sink, &job.cancel)
+            }))
+            .unwrap_or(Err(CoreError::Stems(
+                "splitting this track panicked".to_owned(),
+            )));
+            let stored = split.and_then(|split| {
+                let mut library = lock(library);
+                // The track may have been removed while it was split, and its
+                // id given to a new track: then these stems are not its own.
+                if library
+                    .track(track_id)
+                    .is_ok_and(|detail| detail.path == path)
+                {
+                    library.store_stems(track_id, HTDEMUCS.name, &dir, &split)
+                } else {
+                    drop(library);
+                    std::fs::remove_dir_all(&dir).ok();
+                    Err(CoreError::NotFound {
+                        what: "track",
+                        id: track_id,
+                    })
+                }
             });
-            match split
-                .and_then(|split| lock(library).store_stems(track_id, HTDEMUCS.name, &dir, &split))
-            {
+            match stored {
                 Ok(()) => {}
                 Err(CoreError::Cancelled) => return,
                 Err(CoreError::NotFound { .. }) => {}
@@ -835,6 +857,47 @@ mod tests {
             assert!(stored.waveforms.is_some());
             assert!(lock(&library).track(id).unwrap().track.has_stems);
         }
+        std::fs::remove_dir_all(&root).ok();
+    }
+
+    /// Removes the track from the library while "splitting" it, as a user
+    /// could during a long split.
+    struct RemovesTrack(Arc<Mutex<Library>>, TrackId);
+
+    impl StemSeparator for RemovesTrack {
+        fn separate(
+            &mut self,
+            audio: cratekit_core::audio::AudioBuffer,
+            progress: &dyn ProgressSink,
+            cancel: &CancellationToken,
+        ) -> Result<cratekit_core::stems::Stems, CoreError> {
+            lock(&self.0).remove_tracks(&[self.1]).unwrap();
+            Halves.separate(audio, progress, cancel)
+        }
+    }
+
+    #[test]
+    fn a_track_removed_during_its_split_keeps_no_stems() {
+        let (library, ids) = library_with(&["tone.wav"]);
+        let library = Arc::new(library);
+        let root =
+            std::env::temp_dir().join(format!("cratekit-jobs-removed-{}", std::process::id()));
+        let (jobs, events) = (Jobs::default(), Recorder::default());
+        let job = stems_job(&jobs, ids.clone());
+        let id = ids[0];
+        let shared = Arc::clone(&library);
+        let make = move || -> Result<Box<dyn StemSeparator>, AppError> {
+            Ok(Box::new(RemovesTrack(Arc::clone(&shared), id)))
+        };
+
+        jobs.run_stems(&job, &library, &events, &root, &make);
+
+        assert_eq!(events.take().last().map(String::as_str), Some("done job-1"));
+        assert!(
+            !root.join(id.to_string()).exists(),
+            "the stems folder is removed"
+        );
+        assert!(lock(&library).stems(id).unwrap().is_none());
         std::fs::remove_dir_all(&root).ok();
     }
 
